@@ -27,6 +27,13 @@ api_router = APIRouter(prefix="/api")
 
 JWT_ALGORITHM = "HS256"
 
+def safe_object_id(id_str: str) -> ObjectId:
+    """Convert string to ObjectId, raise 404 if invalid."""
+    try:
+        return ObjectId(id_str)
+    except Exception:
+        raise HTTPException(status_code=404, detail="Not found")
+
 # Utility Functions
 def get_jwt_secret() -> str:
     return os.environ.get('JWT_SECRET', 'your-secret-key-change-in-production')
@@ -245,7 +252,7 @@ async def get_teams(current_user: dict = Depends(get_current_user)):
 
 @api_router.get("/teams/{team_id}", response_model=TeamResponse)
 async def get_team(team_id: str, current_user: dict = Depends(get_current_user)):
-    team = await db.teams.find_one({"_id": ObjectId(team_id), "user_id": current_user["_id"]})
+    team = await db.teams.find_one({"_id": safe_object_id(team_id), "user_id": current_user["_id"]})
     if not team:
         raise HTTPException(status_code=404, detail="Team not found")
     return TeamResponse(
@@ -258,12 +265,12 @@ async def get_team(team_id: str, current_user: dict = Depends(get_current_user))
 @api_router.put("/teams/{team_id}", response_model=TeamResponse)
 async def update_team(team_id: str, team_data: TeamCreate, current_user: dict = Depends(get_current_user)):
     result = await db.teams.update_one(
-        {"_id": ObjectId(team_id), "user_id": current_user["_id"]},
+        {"_id": safe_object_id(team_id), "user_id": current_user["_id"]},
         {"$set": {"name": team_data.name, "members": team_data.members}}
     )
     if result.matched_count == 0:
         raise HTTPException(status_code=404, detail="Team not found")
-    team = await db.teams.find_one({"_id": ObjectId(team_id)})
+    team = await db.teams.find_one({"_id": safe_object_id(team_id)})
     return TeamResponse(
         id=str(team["_id"]),
         name=team["name"],
@@ -273,7 +280,7 @@ async def update_team(team_id: str, team_data: TeamCreate, current_user: dict = 
 
 @api_router.delete("/teams/{team_id}")
 async def delete_team(team_id: str, current_user: dict = Depends(get_current_user)):
-    result = await db.teams.delete_one({"_id": ObjectId(team_id), "user_id": current_user["_id"]})
+    result = await db.teams.delete_one({"_id": safe_object_id(team_id), "user_id": current_user["_id"]})
     if result.deleted_count == 0:
         raise HTTPException(status_code=404, detail="Team not found")
     return {"message": "Team deleted successfully"}
@@ -331,7 +338,7 @@ async def get_projects(current_user: dict = Depends(get_current_user)):
 
 @api_router.get("/projects/{project_id}", response_model=ProjectResponse)
 async def get_project(project_id: str, current_user: dict = Depends(get_current_user)):
-    project = await db.projects.find_one({"_id": ObjectId(project_id), "user_id": current_user["_id"]})
+    project = await db.projects.find_one({"_id": safe_object_id(project_id), "user_id": current_user["_id"]})
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
     return ProjectResponse(
@@ -356,13 +363,13 @@ async def update_project(project_id: str, project_data: ProjectUpdate, current_u
         raise HTTPException(status_code=400, detail="No fields to update")
     
     result = await db.projects.update_one(
-        {"_id": ObjectId(project_id), "user_id": current_user["_id"]},
+        {"_id": safe_object_id(project_id), "user_id": current_user["_id"]},
         {"$set": update_data}
     )
     if result.matched_count == 0:
         raise HTTPException(status_code=404, detail="Project not found")
     
-    project = await db.projects.find_one({"_id": ObjectId(project_id)})
+    project = await db.projects.find_one({"_id": safe_object_id(project_id)})
     return ProjectResponse(
         id=str(project["_id"]),
         name=project["name"],
@@ -380,7 +387,7 @@ async def update_project(project_id: str, project_data: ProjectUpdate, current_u
 
 @api_router.delete("/projects/{project_id}")
 async def delete_project(project_id: str, current_user: dict = Depends(get_current_user)):
-    result = await db.projects.delete_one({"_id": ObjectId(project_id), "user_id": current_user["_id"]})
+    result = await db.projects.delete_one({"_id": safe_object_id(project_id), "user_id": current_user["_id"]})
     if result.deleted_count == 0:
         raise HTTPException(status_code=404, detail="Project not found")
     return {"message": "Project deleted successfully"}

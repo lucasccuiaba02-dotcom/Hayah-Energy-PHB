@@ -30,14 +30,17 @@ export const DashboardPage = () => {
 
   const fetchData = async () => {
     try {
-      const [projectsRes, teamsRes, statsRes] = await Promise.all([
+      const [projectsRes, teamsRes, statsRes] = await Promise.allSettled([
         axios.get(`${API}/projects`, { withCredentials: true }),
         axios.get(`${API}/teams`, { withCredentials: true }),
         axios.get(`${API}/dashboard/stats`, { withCredentials: true }),
       ]);
-      setProjects(projectsRes.data);
-      setTeams(teamsRes.data);
-      setStats(statsRes.data);
+      if (projectsRes.status === 'fulfilled') setProjects(projectsRes.value.data);
+      if (teamsRes.status === 'fulfilled') setTeams(teamsRes.value.data);
+      if (statsRes.status === 'fulfilled') setStats(statsRes.value.data);
+      if (projectsRes.status === 'rejected' || teamsRes.status === 'rejected' || statsRes.status === 'rejected') {
+        console.error('Some data failed to load');
+      }
     } catch (error) {
       console.error('Error fetching data:', error);
       toast.error('Erro ao carregar dados');
