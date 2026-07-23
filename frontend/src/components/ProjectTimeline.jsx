@@ -1,5 +1,6 @@
 import React from 'react';
 import { motion } from 'framer-motion';
+import { Zap } from 'lucide-react';
 import { format, parseISO, differenceInDays, min, max, eachDayOfInterval } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 
@@ -78,7 +79,21 @@ export const ProjectTimeline = ({ projects, onEdit }) => {
                 className="flex border-b border-white/5 hover:bg-white/[0.02] transition-colors"
               >
                 <div className="w-64 flex-shrink-0 px-6 py-4 border-r border-white/5">
-                  <p className="text-white font-medium text-sm truncate">{project.name}</p>
+                  <div className="flex items-center gap-2">
+                    <p className="text-white font-medium text-sm truncate flex-1">{project.name}</p>
+                    {project.requires_hot_line && (
+                      <div
+                        className="w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0"
+                        style={{
+                          backgroundColor: '#FF5E0020',
+                          border: '1px solid #FF5E00',
+                        }}
+                        title="Linha Viva"
+                      >
+                        <Zap className="w-3 h-3 text-[#FF5E00]" />
+                      </div>
+                    )}
+                  </div>
                   <p className="text-zinc-500 text-xs mt-1">{project.team_name || '-'}</p>
                   <p className="font-mono text-xs text-zinc-600 mt-1">
                     R$ {project.programmed_value.toLocaleString('pt-BR')}

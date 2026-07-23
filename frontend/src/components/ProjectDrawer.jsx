@@ -1,6 +1,16 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X } from 'lucide-react';
+import { X, Zap, AlertTriangle } from 'lucide-react';
+
+const PROJECT_TYPES = [
+  { value: 'manutencao_preventiva', label: 'Manutenção Preventiva' },
+  { value: 'manutencao_corretiva', label: 'Manutenção Corretiva' },
+  { value: 'obra_nova', label: 'Obra Nova' },
+  { value: 'ampliacao', label: 'Ampliação' },
+  { value: 'substituicao', label: 'Substituição de Equipamento' },
+  { value: 'poda', label: 'Poda de Vegetação' },
+  { value: 'outro', label: 'Outro' },
+];
 
 export const ProjectDrawer = ({ isOpen, onClose, onSave, project, teams }) => {
   const [formData, setFormData] = useState({
@@ -14,6 +24,10 @@ export const ProjectDrawer = ({ isOpen, onClose, onSave, project, teams }) => {
     status: 'active',
     priority: 'medium',
     actual_value: 0,
+    billing_value: 0,
+    project_type: 'manutencao_preventiva',
+    requires_hot_line: false,
+    shutdown_info: '',
   });
 
   useEffect(() => {
@@ -29,6 +43,10 @@ export const ProjectDrawer = ({ isOpen, onClose, onSave, project, teams }) => {
         status: project.status || 'active',
         priority: project.priority || 'medium',
         actual_value: project.actual_value || 0,
+        billing_value: project.billing_value || 0,
+        project_type: project.project_type || 'manutencao_preventiva',
+        requires_hot_line: project.requires_hot_line || false,
+        shutdown_info: project.shutdown_info || '',
       });
     } else {
       const today = new Date().toISOString().split('T')[0];
@@ -44,6 +62,10 @@ export const ProjectDrawer = ({ isOpen, onClose, onSave, project, teams }) => {
         status: 'active',
         priority: 'medium',
         actual_value: 0,
+        billing_value: 0,
+        project_type: 'manutencao_preventiva',
+        requires_hot_line: false,
+        shutdown_info: '',
       });
     }
   }, [project, isOpen]);
@@ -64,6 +86,7 @@ export const ProjectDrawer = ({ isOpen, onClose, onSave, project, teams }) => {
       programmed_value: parseFloat(formData.programmed_value) || 0,
       daily_goal: parseFloat(formData.daily_goal) || 0,
       actual_value: parseFloat(formData.actual_value) || 0,
+      billing_value: parseFloat(formData.billing_value) || 0,
     });
   };
 
@@ -112,8 +135,26 @@ export const ProjectDrawer = ({ isOpen, onClose, onSave, project, teams }) => {
                     onChange={(e) => setFormData({ ...formData, name: e.target.value })}
                     required
                     className="w-full bg-zinc-950/90 border border-white/10 rounded-lg px-4 py-3 text-white placeholder-zinc-600 focus:border-[#00F0FF] focus:outline-none transition-all"
-                    placeholder="Ex: Reforma Escritório"
+                    placeholder="Ex: Manutenção Linha 138kV"
                   />
+                </div>
+
+                <div>
+                  <label className="text-xs tracking-[0.2em] uppercase font-bold text-zinc-500 block mb-2">
+                    Tipo do Projeto
+                  </label>
+                  <select
+                    data-testid="project-type-select"
+                    value={formData.project_type}
+                    onChange={(e) => setFormData({ ...formData, project_type: e.target.value })}
+                    className="w-full bg-zinc-950/90 border border-white/10 rounded-lg px-4 py-3 text-white focus:border-[#00F0FF] focus:outline-none transition-all"
+                  >
+                    {PROJECT_TYPES.map((t) => (
+                      <option key={t.value} value={t.value}>
+                        {t.label}
+                      </option>
+                    ))}
+                  </select>
                 </div>
 
                 <div>
@@ -164,51 +205,119 @@ export const ProjectDrawer = ({ isOpen, onClose, onSave, project, teams }) => {
                   </div>
                 </div>
 
-                <div>
-                  <label className="text-xs tracking-[0.2em] uppercase font-bold text-zinc-500 block mb-2">
-                    Valor Programado (R$)
-                  </label>
-                  <input
-                    data-testid="project-programmed-input"
-                    type="number"
-                    step="0.01"
-                    value={formData.programmed_value}
-                    onChange={(e) => setFormData({ ...formData, programmed_value: e.target.value })}
-                    required
-                    className="w-full bg-zinc-950/90 border border-white/10 rounded-lg px-4 py-3 text-white focus:border-[#00F0FF] focus:outline-none transition-all font-mono"
-                    placeholder="0,00"
-                  />
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="text-xs tracking-[0.2em] uppercase font-bold text-zinc-500 block mb-2">
+                      Valor Programado (R$)
+                    </label>
+                    <input
+                      data-testid="project-programmed-input"
+                      type="number"
+                      step="0.01"
+                      value={formData.programmed_value}
+                      onChange={(e) => setFormData({ ...formData, programmed_value: e.target.value })}
+                      required
+                      className="w-full bg-zinc-950/90 border border-white/10 rounded-lg px-4 py-3 text-white focus:border-[#00F0FF] focus:outline-none transition-all font-mono"
+                      placeholder="0,00"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs tracking-[0.2em] uppercase font-bold text-zinc-500 block mb-2">
+                      Faturamento (R$)
+                    </label>
+                    <input
+                      data-testid="project-billing-input"
+                      type="number"
+                      step="0.01"
+                      value={formData.billing_value}
+                      onChange={(e) => setFormData({ ...formData, billing_value: e.target.value })}
+                      className="w-full bg-zinc-950/90 border border-white/10 rounded-lg px-4 py-3 text-white focus:border-[#00F0FF] focus:outline-none transition-all font-mono"
+                      placeholder="0,00"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="text-xs tracking-[0.2em] uppercase font-bold text-zinc-500 block mb-2">
+                      Meta Diária (R$)
+                    </label>
+                    <input
+                      data-testid="project-daily-goal-input"
+                      type="number"
+                      step="0.01"
+                      value={formData.daily_goal}
+                      onChange={(e) => setFormData({ ...formData, daily_goal: e.target.value })}
+                      required
+                      className="w-full bg-zinc-950/90 border border-white/10 rounded-lg px-4 py-3 text-white focus:border-[#00F0FF] focus:outline-none transition-all font-mono"
+                      placeholder="0,00"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs tracking-[0.2em] uppercase font-bold text-zinc-500 block mb-2">
+                      Produção (R$)
+                    </label>
+                    <input
+                      data-testid="project-actual-input"
+                      type="number"
+                      step="0.01"
+                      value={formData.actual_value}
+                      onChange={(e) => setFormData({ ...formData, actual_value: e.target.value })}
+                      className="w-full bg-zinc-950/90 border border-white/10 rounded-lg px-4 py-3 text-white focus:border-[#00F0FF] focus:outline-none transition-all font-mono"
+                      placeholder="0,00"
+                    />
+                  </div>
                 </div>
 
                 <div>
                   <label className="text-xs tracking-[0.2em] uppercase font-bold text-zinc-500 block mb-2">
-                    Meta Diária (R$)
+                    Desligamento
                   </label>
-                  <input
-                    data-testid="project-daily-goal-input"
-                    type="number"
-                    step="0.01"
-                    value={formData.daily_goal}
-                    onChange={(e) => setFormData({ ...formData, daily_goal: e.target.value })}
-                    required
-                    className="w-full bg-zinc-950/90 border border-white/10 rounded-lg px-4 py-3 text-white focus:border-[#00F0FF] focus:outline-none transition-all font-mono"
-                    placeholder="0,00"
+                  <textarea
+                    data-testid="project-shutdown-input"
+                    value={formData.shutdown_info}
+                    onChange={(e) => setFormData({ ...formData, shutdown_info: e.target.value })}
+                    rows={3}
+                    className="w-full bg-zinc-950/90 border border-white/10 rounded-lg px-4 py-3 text-white placeholder-zinc-600 focus:border-[#00F0FF] focus:outline-none transition-all"
+                    placeholder="Ex: Circuito Alimentador 05 - 08:00 às 17:00 - Sub. Central"
                   />
                 </div>
 
                 <div>
-                  <label className="text-xs tracking-[0.2em] uppercase font-bold text-zinc-500 block mb-2">
-                    Valor Realizado (R$)
+                  <label
+                    htmlFor="hotline-toggle"
+                    className="glass-panel rounded-lg p-4 flex items-center justify-between cursor-pointer hover:border-[#FF5E00]/40 transition-all border border-white/10"
+                    style={{
+                      borderColor: formData.requires_hot_line ? '#FF5E00' : undefined,
+                      boxShadow: formData.requires_hot_line ? '0 0 20px rgba(255, 94, 0, 0.15)' : undefined,
+                    }}
+                  >
+                    <div className="flex items-center gap-3">
+                      <div
+                        className="w-10 h-10 rounded-lg flex items-center justify-center"
+                        style={{
+                          backgroundColor: formData.requires_hot_line ? '#FF5E0020' : 'rgba(255,255,255,0.05)',
+                        }}
+                      >
+                        <Zap
+                          className="w-5 h-5"
+                          style={{ color: formData.requires_hot_line ? '#FF5E00' : '#71717a' }}
+                        />
+                      </div>
+                      <div>
+                        <p className="text-white font-bold text-sm">Linha Viva</p>
+                        <p className="text-xs text-zinc-500">Requer trabalho em linha energizada</p>
+                      </div>
+                    </div>
+                    <input
+                      id="hotline-toggle"
+                      data-testid="project-hotline-toggle"
+                      type="checkbox"
+                      checked={formData.requires_hot_line}
+                      onChange={(e) => setFormData({ ...formData, requires_hot_line: e.target.checked })}
+                      className="w-5 h-5 rounded accent-[#FF5E00]"
+                    />
                   </label>
-                  <input
-                    data-testid="project-actual-input"
-                    type="number"
-                    step="0.01"
-                    value={formData.actual_value}
-                    onChange={(e) => setFormData({ ...formData, actual_value: e.target.value })}
-                    className="w-full bg-zinc-950/90 border border-white/10 rounded-lg px-4 py-3 text-white focus:border-[#00F0FF] focus:outline-none transition-all font-mono"
-                    placeholder="0,00"
-                  />
                 </div>
 
                 <div className="grid grid-cols-2 gap-4">

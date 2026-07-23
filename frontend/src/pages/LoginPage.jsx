@@ -50,11 +50,13 @@ export const LoginPage = () => {
             transition={{ duration: 0.6 }}
             className="font-heading font-black text-6xl tracking-tighter leading-none mb-6"
           >
-            Matriz de
+            <span className="text-white">HAYAH</span>
             <br />
-            Programação
+            <span className="text-[#E0FF00]">ENERGY</span>
             <br />
-            <span className="text-[#00F0FF]">de Projetos</span>
+            <span className="text-white text-4xl">Programação</span>
+            <br />
+            <span className="text-[#00F0FF] text-4xl">de Projetos</span>
           </motion.h1>
           <motion.p
             initial={{ opacity: 0, y: 20 }}
@@ -62,7 +64,7 @@ export const LoginPage = () => {
             transition={{ duration: 0.6, delay: 0.2 }}
             className="text-xl text-zinc-300 leading-relaxed"
           >
-            Planejamento assertivo e visão estratégica no dia a dia.
+            Excelência operacional em gestão de projetos elétricos.
           </motion.p>
         </div>
       </div>

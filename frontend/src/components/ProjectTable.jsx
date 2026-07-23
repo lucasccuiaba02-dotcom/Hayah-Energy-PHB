@@ -1,8 +1,18 @@
 import React from 'react';
 import { motion } from 'framer-motion';
-import { Edit2, Trash2 } from 'lucide-react';
+import { Edit2, Trash2, Zap, AlertCircle } from 'lucide-react';
 import { format, differenceInDays, parseISO } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
+
+const PROJECT_TYPE_LABELS = {
+  manutencao_preventiva: 'Manut. Preventiva',
+  manutencao_corretiva: 'Manut. Corretiva',
+  obra_nova: 'Obra Nova',
+  ampliacao: 'Ampliação',
+  substituicao: 'Substituição',
+  poda: 'Poda',
+  outro: 'Outro',
+};
 
 export const ProjectTable = ({ projects, teams, onEdit, onDelete }) => {
   const getProgressColor = (project) => {
@@ -17,9 +27,7 @@ export const ProjectTable = ({ projects, teams, onEdit, onDelete }) => {
     return '#FF003C';
   };
 
-  const getStatusColor = (status) => {
-    return status === 'active' ? '#E0FF00' : '#94A3B8';
-  };
+  const getStatusColor = (status) => (status === 'active' ? '#E0FF00' : '#94A3B8');
 
   const getPriorityColor = (priority) => {
     if (priority === 'high') return '#FF003C';
@@ -33,14 +41,12 @@ export const ProjectTable = ({ projects, teams, onEdit, onDelete }) => {
     return 'Baixa';
   };
 
-  const getStatusLabel = (status) => {
-    return status === 'active' ? 'Ativo' : 'Pausado';
-  };
+  const getStatusLabel = (status) => (status === 'active' ? 'Ativo' : 'Pausado');
 
   if (projects.length === 0) {
     return (
       <div className="glass-panel rounded-2xl p-12 text-center">
-        <p className="text-zinc-400 text-lg">Nenhum projeto cadastrado ainda.</p>
+        <p className="text-zinc-400 text-lg">Nenhum projeto cadastrado.</p>
         <p className="text-zinc-600 text-sm mt-2">Clique em "Novo Projeto" para começar.</p>
       </div>
     );
@@ -58,34 +64,46 @@ export const ProjectTable = ({ projects, teams, onEdit, onDelete }) => {
         <table className="w-full border-collapse">
           <thead>
             <tr className="border-b border-white/5">
-              <th className="text-left px-6 py-4 text-xs tracking-[0.2em] uppercase font-bold text-zinc-500">
+              <th className="text-left px-4 py-3 text-xs tracking-[0.15em] uppercase font-bold text-zinc-500">
                 Projeto
               </th>
-              <th className="text-left px-6 py-4 text-xs tracking-[0.2em] uppercase font-bold text-zinc-500">
+              <th className="text-left px-4 py-3 text-xs tracking-[0.15em] uppercase font-bold text-zinc-500">
+                Tipo
+              </th>
+              <th className="text-left px-4 py-3 text-xs tracking-[0.15em] uppercase font-bold text-zinc-500">
                 Equipe
               </th>
-              <th className="text-left px-6 py-4 text-xs tracking-[0.2em] uppercase font-bold text-zinc-500">
-                Data
+              <th className="text-left px-4 py-3 text-xs tracking-[0.15em] uppercase font-bold text-zinc-500">
+                Período
               </th>
-              <th className="text-right px-6 py-4 text-xs tracking-[0.2em] uppercase font-bold text-zinc-500">
-                Valor Programado
+              <th className="text-right px-4 py-3 text-xs tracking-[0.15em] uppercase font-bold text-zinc-500">
+                Programado
               </th>
-              <th className="text-right px-6 py-4 text-xs tracking-[0.2em] uppercase font-bold text-zinc-500">
-                Meta Diária
+              <th className="text-right px-4 py-3 text-xs tracking-[0.15em] uppercase font-bold text-zinc-500">
+                Meta/dia
               </th>
-              <th className="text-right px-6 py-4 text-xs tracking-[0.2em] uppercase font-bold text-zinc-500">
-                Realizado
+              <th className="text-right px-4 py-3 text-xs tracking-[0.15em] uppercase font-bold text-zinc-500">
+                Produção
               </th>
-              <th className="text-center px-6 py-4 text-xs tracking-[0.2em] uppercase font-bold text-zinc-500">
+              <th className="text-right px-4 py-3 text-xs tracking-[0.15em] uppercase font-bold text-zinc-500">
+                Faturamento
+              </th>
+              <th className="text-left px-4 py-3 text-xs tracking-[0.15em] uppercase font-bold text-zinc-500">
+                Desligamento
+              </th>
+              <th className="text-center px-3 py-3 text-xs tracking-[0.15em] uppercase font-bold text-zinc-500">
+                LV
+              </th>
+              <th className="text-center px-3 py-3 text-xs tracking-[0.15em] uppercase font-bold text-zinc-500">
                 Status
               </th>
-              <th className="text-center px-6 py-4 text-xs tracking-[0.2em] uppercase font-bold text-zinc-500">
-                Prioridade
+              <th className="text-center px-3 py-3 text-xs tracking-[0.15em] uppercase font-bold text-zinc-500">
+                Prior.
               </th>
-              <th className="text-center px-6 py-4 text-xs tracking-[0.2em] uppercase font-bold text-zinc-500">
-                Progresso
+              <th className="text-center px-3 py-3 text-xs tracking-[0.15em] uppercase font-bold text-zinc-500">
+                Meta
               </th>
-              <th className="text-right px-6 py-4 text-xs tracking-[0.2em] uppercase font-bold text-zinc-500">
+              <th className="text-right px-4 py-3 text-xs tracking-[0.15em] uppercase font-bold text-zinc-500">
                 Ações
               </th>
             </tr>
@@ -102,41 +120,83 @@ export const ProjectTable = ({ projects, teams, onEdit, onDelete }) => {
                   data-testid={`project-row-${index}`}
                   initial={{ opacity: 0 }}
                   animate={{ opacity: 1 }}
-                  transition={{ delay: index * 0.05 }}
+                  transition={{ delay: index * 0.03 }}
                   className="border-b border-white/5 hover:bg-white/[0.02] transition-colors"
                 >
-                  <td className="px-6 py-4">
-                    <p className="text-white font-medium">{project.name}</p>
+                  <td className="px-4 py-3">
+                    <p className="text-white font-medium text-sm">{project.name}</p>
                   </td>
-                  <td className="px-6 py-4">
+                  <td className="px-4 py-3">
+                    <span className="text-xs text-zinc-400">
+                      {PROJECT_TYPE_LABELS[project.project_type] || project.project_type}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3">
                     <p className="text-zinc-400 text-sm">{project.team_name || '-'}</p>
                   </td>
-                  <td className="px-6 py-4">
-                    <p className="font-mono text-sm text-zinc-300">
+                  <td className="px-4 py-3">
+                    <p className="font-mono text-xs text-zinc-300 whitespace-nowrap">
                       {format(parseISO(project.start_date), 'dd/MM/yy', { locale: ptBR })}
                       {' → '}
                       {format(parseISO(project.end_date), 'dd/MM/yy', { locale: ptBR })}
                     </p>
                   </td>
-                  <td className="px-6 py-4 text-right">
-                    <p className="font-mono text-white font-medium">
+                  <td className="px-4 py-3 text-right">
+                    <p className="font-mono text-sm text-white font-medium">
                       R$ {project.programmed_value.toLocaleString('pt-BR')}
                     </p>
                   </td>
-                  <td className="px-6 py-4 text-right">
-                    <p className="font-mono text-zinc-300">
+                  <td className="px-4 py-3 text-right">
+                    <p className="font-mono text-sm text-zinc-300">
                       R$ {project.daily_goal.toLocaleString('pt-BR')}
                     </p>
                   </td>
-                  <td className="px-6 py-4 text-right">
-                    <p className="font-mono text-white font-medium">
+                  <td className="px-4 py-3 text-right">
+                    <p className="font-mono text-sm text-white font-medium">
                       R$ {(project.actual_value || 0).toLocaleString('pt-BR')}
                     </p>
                   </td>
-                  <td className="px-6 py-4">
+                  <td className="px-4 py-3 text-right">
+                    <p className="font-mono text-sm text-[#FF5E00] font-medium">
+                      R$ {(project.billing_value || 0).toLocaleString('pt-BR')}
+                    </p>
+                  </td>
+                  <td className="px-4 py-3">
+                    {project.shutdown_info ? (
+                      <div
+                        className="text-xs text-zinc-300 max-w-[200px] truncate flex items-center gap-1"
+                        title={project.shutdown_info}
+                      >
+                        <AlertCircle className="w-3 h-3 text-[#E0FF00] flex-shrink-0" />
+                        {project.shutdown_info}
+                      </div>
+                    ) : (
+                      <span className="text-xs text-zinc-700">-</span>
+                    )}
+                  </td>
+                  <td className="px-3 py-3">
+                    <div className="flex justify-center">
+                      {project.requires_hot_line ? (
+                        <div
+                          className="w-8 h-8 rounded-full flex items-center justify-center"
+                          style={{
+                            backgroundColor: '#FF5E0020',
+                            border: '1px solid #FF5E00',
+                            boxShadow: '0 0 10px #FF5E0040',
+                          }}
+                          title="Linha Viva"
+                        >
+                          <Zap className="w-4 h-4 text-[#FF5E00]" />
+                        </div>
+                      ) : (
+                        <span className="text-xs text-zinc-700">-</span>
+                      )}
+                    </div>
+                  </td>
+                  <td className="px-3 py-3">
                     <div className="flex justify-center">
                       <span
-                        className="px-3 py-1 rounded-full text-xs font-bold border"
+                        className="px-2 py-1 rounded-full text-[10px] font-bold border"
                         style={{
                           backgroundColor: `${statusColor}15`,
                           borderColor: `${statusColor}40`,
@@ -147,10 +207,10 @@ export const ProjectTable = ({ projects, teams, onEdit, onDelete }) => {
                       </span>
                     </div>
                   </td>
-                  <td className="px-6 py-4">
+                  <td className="px-3 py-3">
                     <div className="flex justify-center">
                       <span
-                        className="px-3 py-1 rounded-full text-xs font-bold border"
+                        className="px-2 py-1 rounded-full text-[10px] font-bold border"
                         style={{
                           backgroundColor: `${priorityColor}15`,
                           borderColor: `${priorityColor}40`,
@@ -161,7 +221,7 @@ export const ProjectTable = ({ projects, teams, onEdit, onDelete }) => {
                       </span>
                     </div>
                   </td>
-                  <td className="px-6 py-4">
+                  <td className="px-3 py-3">
                     <div className="flex justify-center">
                       <div
                         className="w-3 h-3 rounded-full animate-glow-pulse"
@@ -169,11 +229,11 @@ export const ProjectTable = ({ projects, teams, onEdit, onDelete }) => {
                           backgroundColor: progressColor,
                           boxShadow: `0 0 12px ${progressColor}60`,
                         }}
-                        title="Indicador de progresso da meta diária"
+                        title="Progresso da meta diária"
                       ></div>
                     </div>
                   </td>
-                  <td className="px-6 py-4">
+                  <td className="px-4 py-3">
                     <div className="flex items-center justify-end gap-2">
                       <button
                         data-testid={`edit-project-${index}`}
@@ -185,7 +245,7 @@ export const ProjectTable = ({ projects, teams, onEdit, onDelete }) => {
                       <button
                         data-testid={`delete-project-${index}`}
                         onClick={() => {
-                          if (window.confirm('Tem certeza que deseja excluir este projeto?')) {
+                          if (window.confirm('Excluir este projeto?')) {
                             onDelete(project.id);
                           }
                         }}

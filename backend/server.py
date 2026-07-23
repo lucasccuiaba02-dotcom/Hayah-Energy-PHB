@@ -116,6 +116,10 @@ class ProjectCreate(BaseModel):
     status: str = "active"
     priority: str = "medium"
     actual_value: float = 0.0
+    billing_value: float = 0.0
+    project_type: str = "manutencao_preventiva"
+    requires_hot_line: bool = False
+    shutdown_info: str = ""
 
 class ProjectUpdate(BaseModel):
     name: Optional[str] = None
@@ -128,6 +132,10 @@ class ProjectUpdate(BaseModel):
     status: Optional[str] = None
     priority: Optional[str] = None
     actual_value: Optional[float] = None
+    billing_value: Optional[float] = None
+    project_type: Optional[str] = None
+    requires_hot_line: Optional[bool] = None
+    shutdown_info: Optional[str] = None
 
 class ProjectResponse(BaseModel):
     id: str
@@ -141,6 +149,10 @@ class ProjectResponse(BaseModel):
     status: str
     priority: str
     actual_value: float
+    billing_value: float = 0.0
+    project_type: str = "manutencao_preventiva"
+    requires_hot_line: bool = False
+    shutdown_info: str = ""
     created_at: str
 
 class DashboardStats(BaseModel):
@@ -148,6 +160,7 @@ class DashboardStats(BaseModel):
     active_projects: int
     total_programmed: float
     total_actual: float
+    total_billing: float
     total_teams: int
     projects_on_track: int
     projects_lagging: int
@@ -288,43 +301,9 @@ async def delete_team(team_id: str, current_user: dict = Depends(get_current_use
         raise HTTPException(status_code=404, detail="Team not found")
     return {"message": "Team deleted successfully"}
 
-# Project Routes
-@api_router.post("/projects", response_model=ProjectResponse)
-async def create_project(project_data: ProjectCreate, current_user: dict = Depends(get_current_user)):
-    project_doc = {
-        "name": project_data.name,
-        "team_id": project_data.team_id,
-        "team_name": project_data.team_name,
-        "start_date": project_data.start_date,
-        "end_date": project_data.end_date,
-        "programmed_value": project_data.programmed_value,
-        "daily_goal": project_data.daily_goal,
-        "status": project_data.status,
-        "priority": project_data.priority,
-        "actual_value": project_data.actual_value,
-        "created_at": datetime.now(timezone.utc),
-        "user_id": current_user["_id"]
-    }
-    result = await db.projects.insert_one(project_doc)
+# Helper for project response building
+def build_project_response(project: dict) -> ProjectResponse:
     return ProjectResponse(
-        id=str(result.inserted_id),
-        name=project_data.name,
-        team_id=project_data.team_id,
-        team_name=project_data.team_name,
-        start_date=project_data.start_date,
-        end_date=project_data.end_date,
-        programmed_value=project_data.programmed_value,
-        daily_goal=project_data.daily_goal,
-        status=project_data.status,
-        priority=project_data.priority,
-        actual_value=project_data.actual_value,
-        created_at=project_doc["created_at"].isoformat()
-    )
-
-@api_router.get("/projects", response_model=List[ProjectResponse])
-async def get_projects(current_user: dict = Depends(get_current_user)):
-    projects = await db.projects.find({"user_id": current_user["_id"]}).to_list(1000)
-    return [ProjectResponse(
         id=str(project["_id"]),
         name=project["name"],
         team_id=project.get("team_id"),
@@ -336,28 +315,58 @@ async def get_projects(current_user: dict = Depends(get_current_user)):
         status=project["status"],
         priority=project["priority"],
         actual_value=project.get("actual_value", 0.0),
-        created_at=project["created_at"].isoformat()
-    ) for project in projects]
+        billing_value=project.get("billing_value", 0.0),
+        project_type=project.get("project_type", "manutencao_preventiva"),
+        requires_hot_line=project.get("requires_hot_line", False),
+        shutdown_info=project.get("shutdown_info", ""),
+        created_at=project["created_at"].isoformat() if hasattr(project["created_at"], 'isoformat') else project["created_at"],
+    )
+
+# Project Routes
+@api_router.post("/projects", response_model=ProjectResponse)
+async def create_project(project_data: ProjectCreate, current_user: dict = Depends(get_current_user)):
+    project_doc = {
+        **project_data.model_dump(),
+        "created_at": datetime.now(timezone.utc),
+        "user_id": current_user["_id"]
+    }
+    result = await db.projects.insert_one(project_doc)
+    project_doc["_id"] = result.inserted_id
+    return build_project_response(project_doc)
+
+@api_router.get("/projects", response_model=List[ProjectResponse])
+async def get_projects(
+    current_user: dict = Depends(get_current_user),
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    team_id: Optional[str] = None,
+):
+    query = {"user_id": current_user["_id"]}
+    if team_id:
+        query["team_id"] = team_id
+    projects = await db.projects.find(query).to_list(1000)
+    
+    # Filter by date range in Python (since dates are stored as strings)
+    if start_date or end_date:
+        filtered = []
+        for p in projects:
+            p_start = p["start_date"][:10]
+            p_end = p["end_date"][:10]
+            if start_date and p_end < start_date:
+                continue
+            if end_date and p_start > end_date:
+                continue
+            filtered.append(p)
+        projects = filtered
+    
+    return [build_project_response(p) for p in projects]
 
 @api_router.get("/projects/{project_id}", response_model=ProjectResponse)
 async def get_project(project_id: str, current_user: dict = Depends(get_current_user)):
     project = await db.projects.find_one({"_id": safe_object_id(project_id), "user_id": current_user["_id"]})
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
-    return ProjectResponse(
-        id=str(project["_id"]),
-        name=project["name"],
-        team_id=project.get("team_id"),
-        team_name=project.get("team_name"),
-        start_date=project["start_date"],
-        end_date=project["end_date"],
-        programmed_value=project["programmed_value"],
-        daily_goal=project["daily_goal"],
-        status=project["status"],
-        priority=project["priority"],
-        actual_value=project.get("actual_value", 0.0),
-        created_at=project["created_at"].isoformat()
-    )
+    return build_project_response(project)
 
 @api_router.put("/projects/{project_id}", response_model=ProjectResponse)
 async def update_project(project_id: str, project_data: ProjectUpdate, current_user: dict = Depends(get_current_user)):
@@ -373,20 +382,7 @@ async def update_project(project_id: str, project_data: ProjectUpdate, current_u
         raise HTTPException(status_code=404, detail="Project not found")
     
     project = await db.projects.find_one({"_id": safe_object_id(project_id)})
-    return ProjectResponse(
-        id=str(project["_id"]),
-        name=project["name"],
-        team_id=project.get("team_id"),
-        team_name=project.get("team_name"),
-        start_date=project["start_date"],
-        end_date=project["end_date"],
-        programmed_value=project["programmed_value"],
-        daily_goal=project["daily_goal"],
-        status=project["status"],
-        priority=project["priority"],
-        actual_value=project.get("actual_value", 0.0),
-        created_at=project["created_at"].isoformat()
-    )
+    return build_project_response(project)
 
 @api_router.delete("/projects/{project_id}")
 async def delete_project(project_id: str, current_user: dict = Depends(get_current_user)):
@@ -405,6 +401,7 @@ async def get_dashboard_stats(current_user: dict = Depends(get_current_user)):
     active_projects = len([p for p in projects if p["status"] == "active"])
     total_programmed = sum(p["programmed_value"] for p in projects)
     total_actual = sum(p.get("actual_value", 0.0) for p in projects)
+    total_billing = sum(p.get("billing_value", 0.0) for p in projects)
     total_teams = len(teams)
     
     projects_on_track = 0
@@ -439,10 +436,87 @@ async def get_dashboard_stats(current_user: dict = Depends(get_current_user)):
         active_projects=active_projects,
         total_programmed=total_programmed,
         total_actual=total_actual,
+        total_billing=total_billing,
         total_teams=total_teams,
         projects_on_track=projects_on_track,
         projects_lagging=projects_lagging
     )
+
+# Analytics Routes
+@api_router.get("/analytics/production")
+async def get_production_analytics(
+    current_user: dict = Depends(get_current_user),
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    team_id: Optional[str] = None,
+):
+    """Returns production data grouped by team and by project type"""
+    query = {"user_id": current_user["_id"]}
+    if team_id:
+        query["team_id"] = team_id
+    projects = await db.projects.find(query).to_list(1000)
+    
+    # Filter by date range
+    if start_date or end_date:
+        filtered = []
+        for p in projects:
+            p_start = p["start_date"][:10]
+            p_end = p["end_date"][:10]
+            if start_date and p_end < start_date:
+                continue
+            if end_date and p_start > end_date:
+                continue
+            filtered.append(p)
+        projects = filtered
+    
+    # Group by team
+    by_team = {}
+    for p in projects:
+        team_name = p.get("team_name") or "Sem equipe"
+        if team_name not in by_team:
+            by_team[team_name] = {"team": team_name, "programmed": 0, "actual": 0, "billing": 0, "count": 0}
+        by_team[team_name]["programmed"] += p.get("programmed_value", 0)
+        by_team[team_name]["actual"] += p.get("actual_value", 0)
+        by_team[team_name]["billing"] += p.get("billing_value", 0)
+        by_team[team_name]["count"] += 1
+    
+    # Group by project type
+    type_labels = {
+        "manutencao_preventiva": "Manutenção Preventiva",
+        "manutencao_corretiva": "Manutenção Corretiva",
+        "obra_nova": "Obra Nova",
+        "ampliacao": "Ampliação",
+        "substituicao": "Substituição",
+        "poda": "Poda de Vegetação",
+        "outro": "Outro",
+    }
+    by_type = {}
+    for p in projects:
+        pt = p.get("project_type", "manutencao_preventiva")
+        label = type_labels.get(pt, pt)
+        if label not in by_type:
+            by_type[label] = {"type": label, "programmed": 0, "actual": 0, "billing": 0, "count": 0}
+        by_type[label]["programmed"] += p.get("programmed_value", 0)
+        by_type[label]["actual"] += p.get("actual_value", 0)
+        by_type[label]["billing"] += p.get("billing_value", 0)
+        by_type[label]["count"] += 1
+    
+    # Status breakdown
+    by_status = {
+        "active": len([p for p in projects if p.get("status") == "active"]),
+        "paused": len([p for p in projects if p.get("status") == "paused"]),
+    }
+    
+    # Hot line breakdown
+    hot_line_count = len([p for p in projects if p.get("requires_hot_line")])
+    
+    return {
+        "by_team": list(by_team.values()),
+        "by_type": list(by_type.values()),
+        "by_status": by_status,
+        "hot_line_count": hot_line_count,
+        "total_projects": len(projects),
+    }
 
 app.include_router(api_router)
 
