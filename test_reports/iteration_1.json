@@ -1,0 +1,90 @@
+{
+  "summary": "Backend + frontend tested for Project Matrix app. 15/16 pytest cases pass. Critical bug found: /api/dashboard/stats returns 500 whenever any project exists with a YYYY-MM-DD start_date (which is exactly what the frontend HTML <input type=\"date\"> submits). Because DashboardPage.fetchData uses Promise.all, the failing stats call rejects the whole batch, so newly-created projects/teams also don't render and a 'Erro ao carregar dados' toast is shown. Effectively the dashboard becomes unusable the moment the first project is created.",
+  "backend_issues": {
+    "critical": [
+      {
+        "endpoint": "GET /api/dashboard/stats",
+        "issue": "500 Internal Server Error when any project has a YYYY-MM-DD start_date. Root cause in server.py get_dashboard_stats(): `start_date = dt.fromisoformat(project['start_date'].replace('Z', '+00:00'))` produces a NAIVE datetime for date-only strings, while `now = datetime.now(timezone.utc)` is tz-aware — subtraction raises TypeError (can't subtract offset-naive and offset-aware datetimes). Fix: normalize start_date to tz-aware (e.g., `if start_date.tzinfo is None: start_date = start_date.replace(tzinfo=timezone.utc)`), or parse only the date portion and use `date.today()`.",
+        "priority": "CRITICAL"
+      }
+    ],
+    "minor": [
+      {
+        "endpoint": "POST /api/auth/register",
+        "issue": "No password strength/length validation (accepts anything, e.g. empty allowed by pydantic since it's `str`)."
+      },
+      {
+        "endpoint": "GET/PUT/DELETE /api/teams/{team_id} and /projects/{project_id}",
+        "issue": "ObjectId(team_id) / ObjectId(project_id) is called on user input without validation. Invalid ids raise bson.errors.InvalidId => 500 instead of 400/404. Wrap in try/except and return 404."
+      },
+      {
+        "endpoint": "POST /api/auth/login",
+        "issue": "No brute-force lockout / rate limiting on login (playbook typically requires 5-attempt lockout)."
+      },
+      {
+        "endpoint": "GET /api/teams",
+        "issue": "Uses `find({...}, {\"_id\":1,\"name\":1,\"members\":1,\"created_at\":1})` — works, but note `_id` projection is inconsistent with other endpoints and could break if fields change."
+      }
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {
+        "component": "DashboardPage.fetchData",
+        "issue": "Uses Promise.all for [projects, teams, stats]. When /dashboard/stats returns 500, the whole promise rejects and projects+teams state is NOT updated. Result: after creating a project the UI still shows 'Nenhum projeto cadastrado ainda.' and a 'Erro ao carregar dados' toast. Suggested fix: use Promise.allSettled OR (after backend fix) this becomes moot. But defensive handling is recommended.",
+        "selector": "n/a",
+        "priority": "HIGH"
+      }
+    ],
+    "integration_issues": [
+      {
+        "flow": "Create project -> refresh dashboard",
+        "issue": "After successful POST /api/projects, fetchData reloads and fails because stats endpoint 500s (see backend critical). UI shows failure toast; new project/team never renders.",
+        "affected_selectors": ["[data-testid=\"project-table-view\"]", "[data-testid=\"stat-card-projects\"]"]
+      }
+    ],
+    "design_issues": [
+      {
+        "screen": "LoginPage/DashboardPage",
+        "issues": [
+          "Login split-screen with cyber image renders correctly; contrast OK.",
+          "Dashboard: stat cards, sidebar and table/timeline toggle render correctly.",
+          "Uses native <input type='date'> — matches spec but note it's browser default (not a shadcn calendar). This is what causes the YYYY-MM-DD payload."
+        ]
+      }
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/backend_test.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "CRITICAL: Fix /api/dashboard/stats naive-vs-aware datetime subtraction. Suggested patch in server.py get_dashboard_stats loop:\n    start_date = dt.fromisoformat(project['start_date'].replace('Z', '+00:00'))\n    if start_date.tzinfo is None:\n        start_date = start_date.replace(tzinfo=timezone.utc)",
+    "MEDIUM: In DashboardPage.fetchData use Promise.allSettled so a single failing endpoint doesn't wipe out projects/teams state.",
+    "MEDIUM: Wrap ObjectId(...) calls in teams/projects id lookups with try/except -> return 404 for invalid ids.",
+    "LOW: Add basic password validation (min length) on /api/auth/register.",
+    "LOW: Consider rate-limit / lockout on /api/auth/login."
+  ],
+  "critical_code_review_comments": [
+    "server.py get_dashboard_stats: mixing naive/aware datetimes — the exact defect above.",
+    "server.py: ObjectId(team_id)/ObjectId(project_id) without validation → 500s on malformed ids.",
+    "DashboardPage.jsx: Promise.all instead of Promise.allSettled makes a single 5xx crash the whole dashboard state (masks other successful data).",
+    "server.py: CORSMiddleware is added AFTER include_router — Starlette still applies it globally so this works, but the more common pattern is to add middleware before route inclusion for clarity.",
+    "server.py: Response.set_cookie uses samesite='none' + secure=True (correct for cross-origin cookies over HTTPS in this preview env). Good.",
+    "server.py register endpoint accepts any password including empty string — add min length.",
+    "server.py: logout endpoint doesn't require auth — fine, but could be tightened."
+  ],
+  "updated_files": [
+    "/app/backend/tests/backend_test.py (new)"
+  ],
+  "success_rate": {
+    "backend": "94% (15/16 pytest, critical /dashboard/stats bug)",
+    "frontend": "~70% (login/nav/toggles/drawers OK; end-to-end project creation broken by backend 500)"
+  },
+  "test_credentials": "Admin: admin@projectmatrix.com / Admin@123 (verified from /app/memory/test_credentials.md, auto-seeded on startup, login works).",
+  "seed_data_creation": "None persisted. Created + cleaned up TEST_/UITEST_ projects and teams during testing. One pre-existing team 'Equipe A' (not created by tests) remains in DB.",
+  "retest_needed": true,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Backend tests live at /app/backend/tests/backend_test.py (16 cases, pytest with parallel via pytest-xdist). Run: `pytest /app/backend/tests/backend_test.py -v --junitxml=/app/test_reports/pytest/pytest_results.xml`. TestDashboardStats creates two projects (on-track + lagging) using today's date to verify stats delta; it will fail with a JSONDecodeError on stats call until the naive/aware datetime bug in get_dashboard_stats is fixed. Frontend uses httpOnly cookies with samesite=none+secure — axios must use withCredentials: true (already done). After the fix, re-run pytest and then re-test full UI flow (create project -> table shows -> toggle timeline -> stats update).",
+  "rca of the issue": "Reproduction: 1) Login as admin. 2) POST /api/projects with start_date='YYYY-MM-DD'. 3) GET /api/dashboard/stats -> 500. RCA: In backend/server.py:407-410 inside get_dashboard_stats, `dt.fromisoformat(project['start_date'].replace('Z','+00:00'))` returns a naive datetime for pure-date strings ('2026-07-23'). Subtracting from tz-aware `datetime.now(timezone.utc)` raises TypeError('can't subtract offset-naive and offset-aware datetimes'). Because the frontend HTML <input type='date'> submits YYYY-MM-DD (no timezone), the dashboard breaks after the very first project is created. Mitigation: coerce parsed datetime to UTC if naive, e.g. `if start_date.tzinfo is None: start_date = start_date.replace(tzinfo=timezone.utc)`. Additionally, harden DashboardPage.fetchData with Promise.allSettled so a single failure doesn't wipe other data."
+}

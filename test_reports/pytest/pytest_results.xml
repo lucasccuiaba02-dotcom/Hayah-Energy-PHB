@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="1" skipped="0" tests="16" time="4.218" timestamp="2026-07-23T18:13:38.190659+00:00" hostname="agent-env-33f84867-d5bf-42ec-93ef-3d91731e6b97"><testcase classname="tests.backend_test.TestAuth" name="test_login_admin_success_sets_cookies" time="0.434" /><testcase classname="tests.backend_test.TestProtectedRoutes" name="test_unauthenticated_401[/teams]" time="0.439" /><testcase classname="tests.backend_test.TestAuth" name="test_login_wrong_password_401" time="0.394" /><testcase classname="tests.backend_test.TestProtectedRoutes" name="test_unauthenticated_401[/projects]" time="0.410" /><testcase classname="tests.backend_test.TestAuth" name="test_login_unknown_email_401" time="0.123" /><testcase classname="tests.backend_test.TestProtectedRoutes" name="test_unauthenticated_401[/dashboard/stats]" time="0.152" /><testcase classname="tests.backend_test.TestAuth" name="test_me_returns_user" time="0.565" /><testcase classname="tests.backend_test.TestAuth" name="test_me_without_cookie_401" time="0.132" /><testcase classname="tests.backend_test.TestProjectsCRUD" name="test_create_list_update_delete" time="1.062" /><testcase classname="tests.backend_test.TestAuth" name="test_register_new_user_creates_and_sets_cookies" time="0.457" /><testcase classname="tests.backend_test.TestProjectsCRUD" name="test_update_empty_400" time="0.390" /><testcase classname="tests.backend_test.TestAuth" name="test_register_duplicate_email_400" time="0.497" /><testcase classname="tests.backend_test.TestTeamsCRUD" name="test_full_team_lifecycle" time="0.363" /><testcase classname="tests.backend_test.TestAuth" name="test_logout_clears_cookies" time="0.636" /><testcase classname="tests.backend_test.TestDashboardStats" name="test_stats_calculation_on_track_vs_lagging" time="0.767"><failure message="requests.exceptions.JSONDecodeError: Expecting value: line 1 column 1 (char 0)">/root/.venv/lib/python3.11/site-packages/requests/models.py:1116: in json
+    return complexjson.loads(self.text, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.11/json/__init__.py:346: in loads
+    return _default_decoder.decode(s)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.11/json/decoder.py:337: in decode
+    obj, end = self.raw_decode(s, idx=_w(s, 0).end())
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.11/json/decoder.py:355: in raw_decode
+    raise JSONDecodeError("Expecting value", s, err.value) from None
+E   json.decoder.JSONDecodeError: Expecting value: line 1 column 1 (char 0)
+
+During handling of the above exception, another exception occurred:
+backend/tests/backend_test.py:251: in test_stats_calculation_on_track_vs_lagging
+    post = admin_session.get(f"{API}/dashboard/stats", timeout=30).json()
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/requests/models.py:1120: in json
+    raise RequestsJSONDecodeError(e.msg, e.doc, e.pos)
+E   requests.exceptions.JSONDecodeError: Expecting value: line 1 column 1 (char 0)</failure></testcase><testcase classname="tests.backend_test.TestBearerAuth" name="test_bearer_header_works" time="0.503" /></testsuite></testsuites>
