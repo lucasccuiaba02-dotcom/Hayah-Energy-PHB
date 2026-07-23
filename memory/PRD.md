@@ -1,60 +1,41 @@
-# Matriz de Programação de Projetos - PRD
+# PRD - Matriz de Programação de Projetos
 
-## Original Problem Statement
+## Problema Original
 "Quero construir uma matriz de programação de projetos com nome de equipes, data, valor programado, meta diária e cores com significados para planejamento assertivo e visão estratégica no dia a dia"
 
 ## User Choices
-- **Visualização**: Ambas (Tabela + Timeline com toggle)
-- **Sistema de cores**: Combina progresso da meta + status + prioridade
-- **Meta diária**: Usuário define valor esperado por dia, sistema compara com realizado
-- **Design**: Moderno/Criativo (tema cyber neon "Electric & Neon")
-- **Autenticação**: Login simples email/senha
+- Visualização: Ambas (Tabela + Timeline/Calendário)
+- Cores: Progresso da meta + Status + Prioridade (combinados)
+- Meta diária: Valor esperado definido pelo usuário
+- Design: Moderno/Criativo (Cyber-Dashboard neon)
+- Auth: Login simples (JWT httpOnly cookies)
 
-## Architecture
+## Implementado (Iteração 1 - Jul 2026)
+- Auth JWT completo (register/login/logout/me)
+- Backend CRUD (Teams, Projects, Dashboard stats)
+- LoginPage cyberpunk split screen
+- Dashboard com sidebar + cards de métricas + toggle Table/Timeline
+- ProjectTable com indicadores neon (progresso/status/prioridade)
+- ProjectTimeline Gantt-style com barras coloridas
+- Drawers para CRUD de Projetos e Equipes
+- Sistema de cores: goal_exceeded #00F0FF, goal_met #39FF14, goal_lagging #FF003C
+- Testado: 16/16 backend + fluxo frontend completo
 
-### Backend (FastAPI + MongoDB)
-- **Auth**: JWT via httpOnly cookies (bcrypt password hashing)
-- **Collections**: users, teams, projects
-- **Endpoints**: `/api/auth/*`, `/api/teams/*`, `/api/projects/*`, `/api/dashboard/stats`
-- **User isolation**: teams/projects filtered by user_id
+## Bug Fixes
+- Dashboard stats 500 (timezone naive vs aware) - FIXED
+- POST /api/teams 401 após 15min (token expirando) - FIXED (7 dias)
 
-### Frontend (React 19 + Tailwind + framer-motion)
-- **Design system**: Cyber neon, glassmorphism, fonts Cabinet Grotesk / Manrope / JetBrains Mono
-- **Pages**: LoginPage (split-screen), DashboardPage
-- **Components**: ProjectTable, ProjectTimeline (Gantt-style), ProjectDrawer, TeamDrawer
+## Backlog
+### P1
+- Filtros/busca no dashboard
+- Exportação de relatórios (PDF/Excel)
+- Gráficos burn-down (recharts)
 
-## Core Features (Implemented)
-- [x] Autenticação JWT (login, registro, logout, me)
-- [x] CRUD Projetos (nome, equipe, datas, valor programado, meta diária, realizado, status, prioridade)
-- [x] CRUD Equipes (nome, membros)
-- [x] Dashboard com 4 stat cards (total, programado, realizado, performance)
-- [x] Visualização Tabela com indicadores de cor
-- [x] Visualização Timeline (Gantt) com pill/bars neon
-- [x] Toggle animado entre visualizações
-- [x] Sistema de cores 3-dimensional:
-  - **Progresso**: goal_exceeded (#00F0FF), goal_met (#39FF14), goal_lagging (#FF003C)
-  - **Status**: active (#E0FF00 neon), paused (#94A3B8)
-  - **Prioridade**: high (#FF003C), medium (#FF5E00), low (#6366F1)
-- [x] Cálculo automático de meta diária: `daily_goal * days_elapsed vs actual_value`
-- [x] Alertas via toast (sonner)
+### P2
+- Notificações email (Resend) para projetos atrasados
+- Múltiplos usuários com permissões
+- Anexos em projetos
+- Hardening: brute force lockout, password validation
 
-## What's Been Implemented (2026-02-23)
-- Backend completo com autenticação, CRUD e dashboard stats
-- Frontend com login/dashboard, ambas visualizações, drawers laterais
-- Admin auto-seed no startup (admin@projectmatrix.com / Admin@123)
-- Fix: datetime naive/aware para /api/dashboard/stats
-- Fix: safe_object_id para retornar 404 em IDs inválidos
-- Fix: Promise.allSettled no fetchData
-
-## Backlog / Next Tasks
-- **P1**: Notificações e alertas em tempo real quando meta está lagging
-- **P1**: Gráfico de progresso histórico (recharts) por projeto
-- **P2**: Filtros na tabela (por equipe, status, prioridade)
-- **P2**: Exportação de relatórios (PDF/Excel)
-- **P2**: Rate limiting / brute-force lockout no login
-- **P2**: Validação mínima de senha no registro
-- **P3**: Roles/permissões (admin vs user)
-- **P3**: Comentários/histórico nos projetos
-
-## Test Credentials
-- Admin: `admin@projectmatrix.com` / `Admin@123`
+## Credenciais Admin
+- Email: admin@projectmatrix.com / Senha: Admin@123
