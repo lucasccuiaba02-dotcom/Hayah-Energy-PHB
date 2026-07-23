@@ -6,6 +6,18 @@ const AuthContext = createContext();
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
 
+// Configure axios to send credentials (cookies) and Authorization header
+axios.defaults.withCredentials = true;
+
+// Axios interceptor: add Authorization header from localStorage as fallback for cookie-blocked contexts (Safari iframe, etc)
+axios.interceptors.request.use((config) => {
+  const token = localStorage.getItem('access_token');
+  if (token && !config.headers.Authorization) {
+    config.headers.Authorization = `Bearer ${token}`;
+  }
+  return config;
+});
+
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -33,6 +45,8 @@ export const AuthProvider = ({ children }) => {
       });
       setUser(data);
     } catch (error) {
+      // Clear invalid token
+      localStorage.removeItem('access_token');
       setUser(false);
     } finally {
       setLoading(false);
@@ -46,6 +60,10 @@ export const AuthProvider = ({ children }) => {
         { email, password },
         { withCredentials: true }
       );
+      // Store token as fallback for cookie-blocked contexts
+      if (data.access_token) {
+        localStorage.setItem('access_token', data.access_token);
+      }
       setUser(data);
       return { success: true };
     } catch (error) {
@@ -62,6 +80,9 @@ export const AuthProvider = ({ children }) => {
         { name, email, password },
         { withCredentials: true }
       );
+      if (data.access_token) {
+        localStorage.setItem('access_token', data.access_token);
+      }
       setUser(data);
       return { success: true };
     } catch (error) {
@@ -74,9 +95,11 @@ export const AuthProvider = ({ children }) => {
   const logout = async () => {
     try {
       await axios.post(`${API}/auth/logout`, {}, { withCredentials: true });
-      setUser(false);
     } catch (error) {
       console.error('Logout error:', error);
+    } finally {
+      localStorage.removeItem('access_token');
+      setUser(false);
     }
   };
 

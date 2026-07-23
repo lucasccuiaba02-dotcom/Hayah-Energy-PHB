@@ -93,6 +93,7 @@ class UserResponse(BaseModel):
     name: str
     role: str
     created_at: str
+    access_token: Optional[str] = None
 
 class TeamCreate(BaseModel):
     name: str
@@ -181,7 +182,8 @@ async def register(user_data: UserRegister, response: Response):
         email=email,
         name=user_data.name,
         role="user",
-        created_at=user_doc["created_at"].isoformat()
+        created_at=user_doc["created_at"].isoformat(),
+        access_token=access_token,
     )
 
 @api_router.post("/auth/login", response_model=UserResponse)
@@ -204,7 +206,8 @@ async def login(credentials: UserLogin, response: Response, request: Request):
         email=user["email"],
         name=user["name"],
         role=user["role"],
-        created_at=user["created_at"].isoformat()
+        created_at=user["created_at"].isoformat(),
+        access_token=access_token,
     )
 
 @api_router.post("/auth/logout")

@@ -270,3 +270,81 @@ class TestBearerAuth:
         r = requests.get(f"{API}/auth/me", headers={"Authorization": f"Bearer {admin_bearer_token}"}, timeout=30)
         assert r.status_code == 200
         assert r.json()["email"] == ADMIN_EMAIL
+
+
+# --------- Safari-mobile fix: access_token in body + Bearer-only flow ---------
+class TestAccessTokenInBody:
+    """Verifies fix for Safari mobile / iframe cookie-block issue.
+    login/register MUST return access_token in JSON body so frontend can
+    persist it in localStorage and use Authorization: Bearer for all
+    subsequent requests when cookies are blocked."""
+
+    def test_login_returns_access_token_in_body(self):
+        r = requests.post(f"{API}/auth/login",
+                          json={"email": ADMIN_EMAIL, "password": ADMIN_PASSWORD},
+                          timeout=30)
+        assert r.status_code == 200
+        data = r.json()
+        assert "access_token" in data, f"access_token missing from login body: {data}"
+        assert isinstance(data["access_token"], str) and len(data["access_token"]) > 20
+
+    def test_register_returns_access_token_in_body(self):
+        email = f"bearer_{uuid.uuid4().hex[:8]}@example.com"
+        r = requests.post(f"{API}/auth/register",
+                          json={"email": email, "password": "Passw0rd!", "name": "TEST_Bearer"},
+                          timeout=30)
+        assert r.status_code == 200, r.text
+        data = r.json()
+        assert "access_token" in data
+        assert isinstance(data["access_token"], str) and len(data["access_token"]) > 20
+
+    def test_full_team_crud_via_bearer_only_no_cookies(self):
+        """Simulate Safari mobile: login, take token from BODY, discard cookies,
+        do full team CRUD with Authorization: Bearer only."""
+        # 1) login and grab token from BODY (not cookies)
+        r = requests.post(f"{API}/auth/login",
+                          json={"email": ADMIN_EMAIL, "password": ADMIN_PASSWORD},
+                          timeout=30)
+        assert r.status_code == 200
+        token = r.json().get("access_token")
+        assert token, "no access_token in body"
+
+        # 2) fresh requests WITHOUT the cookie jar; only Bearer header
+        headers = {"Authorization": f"Bearer {token}"}
+
+        # /auth/me via bearer
+        me = requests.get(f"{API}/auth/me", headers=headers, timeout=30)
+        assert me.status_code == 200
+        assert me.json()["email"] == ADMIN_EMAIL
+
+        # CREATE team via bearer
+        name = f"TEST_BearerTeam_{uuid.uuid4().hex[:6]}"
+        rc = requests.post(f"{API}/teams", json={"name": name, "members": ["X"]}, headers=headers, timeout=30)
+        assert rc.status_code == 200, f"team create via bearer failed: {rc.status_code} {rc.text}"
+        team_id = rc.json()["id"]
+
+        try:
+            # LIST via bearer
+            rl = requests.get(f"{API}/teams", headers=headers, timeout=30)
+            assert rl.status_code == 200
+            assert any(t["id"] == team_id for t in rl.json())
+
+            # UPDATE via bearer
+            ru = requests.put(f"{API}/teams/{team_id}",
+                              json={"name": name + "_upd", "members": ["Y"]},
+                              headers=headers, timeout=30)
+            assert ru.status_code == 200
+            assert ru.json()["name"] == name + "_upd"
+
+            # Dashboard stats via bearer
+            rs = requests.get(f"{API}/dashboard/stats", headers=headers, timeout=30)
+            assert rs.status_code == 200
+        finally:
+            # DELETE via bearer
+            rd = requests.delete(f"{API}/teams/{team_id}", headers=headers, timeout=30)
+            assert rd.status_code == 200
+
+    def test_bearer_invalid_token_401(self):
+        r = requests.get(f"{API}/auth/me",
+                         headers={"Authorization": "Bearer not.a.jwt"}, timeout=30)
+        assert r.status_code == 401

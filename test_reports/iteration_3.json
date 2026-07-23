@@ -1,0 +1,42 @@
+{
+  "summary": "Validated Safari-mobile 'Erro ao salvar equipe' fix end-to-end. Backend: 20/20 pytest cases PASS sequentially (added 4 new tests: access_token in login body, access_token in register body, full team CRUD via Authorization Bearer only with cookies cleared, and 401 on invalid bearer). Frontend Playwright: login persists access_token to localStorage; team creation succeeds both WITH cookies AND after ALL cookies are cleared (simulating Safari iframe cookie block) — Bearer interceptor kicks in and every /api/* call now succeeds; logout clears localStorage. Bug is FIXED.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "N/A - pytest-xdist parallel (2 workers)", "issue": "TestDashboardStats delta assertion is flaky under parallel workers because TestProjectsCRUD creates/deletes projects concurrently. Passes 100% sequentially. Consider marking dashboard test with @pytest.mark.serial or scoping by user_id snapshot instead of raw deltas."},
+      {"endpoint": "GET/PUT/DELETE /api/teams/{team_id} & /api/projects/{project_id}", "issue": "safe_object_id already wraps invalid ObjectId -> 404. Confirmed."},
+      {"endpoint": "POST /api/auth/login", "issue": "Still no brute-force lockout / rate limiting (playbook recommends 5-fail lockout). Pre-existing minor."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "ProjectDrawer", "issues": ["Still uses native <input type='date'> instead of shadcn calendar — cosmetic only, pre-existing."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/backend_test.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "None blocking. Main agent may optionally: (1) add rate-limit/lockout on /auth/login, (2) refactor TestDashboardStats to be xdist-safe, (3) migrate ProjectDrawer date fields to shadcn Calendar."
+  ],
+  "critical_code_review_comments": [
+    "server.py get_current_user now correctly falls back to Authorization Bearer when cookie is absent (lines 57-64). Verified via new pytest test_full_team_crud_via_bearer_only_no_cookies.",
+    "server.py login/register include access_token in UserResponse body (lines 180-187, 204-211). This is the essential piece so Safari-iframe clients can persist the token in localStorage.",
+    "AuthContext.jsx axios.interceptors.request injects Bearer from localStorage on every request unless Authorization is already set (lines 13-19). Interceptor is defined at module scope so it applies globally to all axios usage.",
+    "AuthContext.jsx logout() properly removes localStorage.access_token in the finally block (line 101) so token is cleared even if the /auth/logout call fails.",
+    "checkAuth() clears the stale token on 401 (line 49). Good defensive behavior."
+  ],
+  "updated_files": [
+    "/app/backend/tests/backend_test.py (added TestAccessTokenInBody class with 4 new cases)"
+  ],
+  "success_rate": {"backend": "100% (20/20 pytest sequential; 19/20 under xdist due to unrelated race in TestDashboardStats)", "frontend": "100% (7/7 flags: localStorage_has_token, team_create_with_cookies, cookies_cleared, token_survives, dashboard_bearer_only, team_create_bearer_only, logout_clears_localStorage)"},
+  "test_credentials": "admin@projectmatrix.com / Admin@123 (from /app/memory/test_credentials.md, seeded on startup).",
+  "seed_data_creation": "Created and cleaned up UITEST_* teams and TEST_* projects/teams during the run (deleted at end).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Bug 'Erro ao salvar equipe' on Safari mobile is FIXED. Backend now returns access_token in login/register JSON body; frontend axios interceptor sends it as Authorization: Bearer for every request, working even when cookies are blocked. Regression suite at /app/backend/tests/backend_test.py has TestAccessTokenInBody covering the fix. If retesting on a real iOS Safari, ensure ITP/3rd-party cookie block is active and confirm no 401 loop on /api/auth/me after login.",
+  "rca of the issue": "Root cause: Safari mobile inside app.emergent.sh iframe blocks cross-site cookies (even with SameSite=none; Secure), so the httpOnly access_token cookie set by /auth/login was never sent back on subsequent XHR calls, causing every /api/teams, /api/projects and /api/dashboard/stats to return 401 and the frontend to surface 'Erro ao salvar equipe'. Mitigation implemented and verified: (a) backend UserResponse now includes access_token, and login/register return it in JSON body; (b) frontend saves it to localStorage and an axios request interceptor injects Authorization: Bearer <token> on every request as fallback when cookies are blocked; (c) backend get_current_user already accepts either cookie or Authorization Bearer header. Verified end-to-end via Playwright by clearing all browser cookies and confirming team creation still succeeds via Bearer only."
+}
