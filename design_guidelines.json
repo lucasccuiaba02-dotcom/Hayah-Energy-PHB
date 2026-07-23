@@ -1,0 +1,132 @@
+{
+  "theme": "dark",
+  "archetype": "Electric & Neon (Cyber-Dashboard Hybrid)",
+  "emotional_tone": "Authoritative, Elite, Focused, Visionary",
+  "typography": {
+    "rules": "Radical contrast. Never use Inter for headings. Use fluid scales. Do NOT center align by default.",
+    "headings": {
+      "font": "Cabinet Grotesk, sans-serif",
+      "style": "font-black, tracking-tighter, leading-none"
+    },
+    "body": {
+      "font": "Manrope, sans-serif",
+      "style": "leading-relaxed, tracking-normal"
+    },
+    "data_and_numbers": {
+      "font": "JetBrains Mono, monospace",
+      "style": "Used for all dates, currency, progress percentages, and tabular numeric data to ensure tabular lining and a technical feel."
+    },
+    "labels": {
+      "style": "text-xs, tracking-[0.2em], uppercase, font-bold, text-zinc-500"
+    }
+  },
+  "colors": {
+    "background": {
+      "base": "#050505",
+      "surface": "#09090b",
+      "panel": "rgba(255, 255, 255, 0.02)"
+    },
+    "text": {
+      "primary": "#ffffff",
+      "secondary": "#a1a1aa",
+      "muted": "#52525b"
+    },
+    "borders": {
+      "default": "rgba(255, 255, 255, 0.08)",
+      "focus": "rgba(255, 255, 255, 0.2)"
+    },
+    "indicators": {
+      "goal_exceeded": "#00F0FF",
+      "goal_met": "#39FF14",
+      "goal_lagging": "#FF003C",
+      "status_active": "#E0FF00",
+      "status_paused": "#94A3B8",
+      "priority_high": "#FF003C",
+      "priority_med": "#FF5E00",
+      "priority_low": "#6366F1"
+    }
+  },
+  "visual_enhancers": {
+    "surfaces": "Use Neo-Glassmorphism. Floating panels must have backdrop-blur-2xl and a 1px solid inner border (rgba(255,255,255,0.1)). NO muddy gray transparency.",
+    "gradients": "Avoid full screen gradients. Use targeted 'glows' (radial gradients) behind key data points (e.g., a subtle 20% opacity green glow behind completed project stats).",
+    "textures": "Overlay a subtle fixed noise/grain image on the root background to remove digital flatness."
+  },
+  "layouts": {
+    "general": "Sidebar navigation (left, slim) + Top utility bar (search, profile, view toggle) + Main Content Area. Dense, compact padding for dashboard components (p-4 to p-6).",
+    "login_screen": "Split screen layout. Left side: Abstract Cyberpunk image with a dark gradient overlay. Right side: Centered, minimal glassmorphic login form.",
+    "dashboard_home": "High-density Bento Grid (Mode B). Top row: Summary widgets (Total Programmed, Meta vs Actual). Middle: Toggleable Project Matrix.",
+    "matrix_table_view": "Dense border-collapse style. Headers are uppercase mono. Cells have subtle right/bottom borders (border-white/5). Rows hover with slightly lighter background.",
+    "matrix_timeline_view": "Horizontal Gantt style. Projects represent glowing rounded-full or pill-shaped bars. Use framer-motion for drag/scroll if applicable.",
+    "spacing_scale": "Use Tailwind p-4, p-6, p-8. Ensure internal padding prevents text from touching borders."
+  },
+  "components_instructions": {
+    "buttons": "Pill-shaped (rounded-full) or sharp edges with 1px border. On hover, apply a subtle inner glow or background color shift. Avoid generic blue buttons.",
+    "view_toggle": "A segmented control (pill shaped) using framer-motion layoutId for the active background indicator.",
+    "progress_bars": "Do not use standard flat progress bars. Use glowing segmented bars or a neon gradient fill that changes color based on the actual vs meta ratio.",
+    "tags_badges": "Used for Teams, Status, Priority. Style: bg-zinc-900 with 1px solid border matching the indicator color, and text in the same indicator color.",
+    "modals_drawers": "Use for CRUD operations (Adding Projects/Teams). Must use intense backdrop-blur. Slide in from the right (Drawer) instead of a centered modal for a more 'pro-tool' feel."
+  },
+  "motion_and_interaction": {
+    "page_transitions": "Framer Motion: fade and slide up slightly (y: 10 -> 0, opacity: 0 -> 1).",
+    "hover_states": "All interactive elements must shift visually. Scale up slightly (scale: 1.02) or increase border opacity.",
+    "data_updates": "When values change (Meta Diária), animate the number counter (use framer-motion or a custom hook)."
+  },
+  "image_urls": [
+    {
+      "category": "login_background",
+      "url": "https://images.unsplash.com/photo-1672872476232-da16b45c9001?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NDk1ODB8MHwxfHNlYXJjaHwzfHxjeWJlcnB1bmslMjBhYnN0cmFjdCUyMGJhY2tncm91bmR8ZW58MHx8fHwxNzg0ODI5NjU3fDA&ixlib=rb-4.1.0&q=85",
+      "description": "Futuristic neon city, perfect for the dark/tech login screen background."
+    },
+    {
+      "category": "login_background_alt",
+      "url": "https://images.pexels.com/photos/12187128/pexels-photo-12187128.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+      "description": "Vibrant geometric neon design, alternative for authentication screen."
+    },
+    {
+      "category": "user_avatar_1",
+      "url": "https://images.unsplash.com/photo-1500648767791-00dcc994a43e?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA1OTV8MHwxfHNlYXJjaHwxfHxwcm9mZXNzaW9uYWwlMjBoZWFkc2hvdCUyMHBvcnRyYWl0fGVufDB8fHx8MTc4NDgyOTY2M3ww&ixlib=rb-4.1.0&q=85",
+      "description": "Professional headshot for team member or logged-in user profile."
+    },
+    {
+      "category": "user_avatar_2",
+      "url": "https://images.unsplash.com/photo-1494790108377-be9c29b29330?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA1OTV8MHwxfHNlYXJjaHwzfHxwcm9mZXNzaW9uYWwlMjBoZWFkc2hvdCUyMHBvcnRyYWl0fGVufDB8fHx8MTc4NDgyOTY2M3ww&ixlib=rb-4.1.0&q=85",
+      "description": "Professional headshot for female team member."
+    }
+  ],
+  "required_dependencies": [
+    "framer-motion",
+    "lucide-react",
+    "recharts",
+    "clsx",
+    "tailwind-merge",
+    "date-fns",
+    "sonner"
+  ],
+  "accessibility": {
+    "contrast": "Ensure neon text against #050505 meets 4.5:1 ratio. If using bright neon as background (like a pill), text MUST be #000000.",
+    "focus": "Use focus:ring-2 focus:ring-white focus:outline-none for keyboard navigation.",
+    "motion": "Respect prefers-reduced-motion in all framer-motion configurations."
+  },
+  "UNIVERSAL GUIDELINES FOR MAIN AGENT": [
+    "You tend to converge toward generic, 'on distribution' outputs. Avoid 'AI slop'. Create a highly distinctive, technical, and creative frontend.",
+    "Write .js and .jsx files. DO NOT USE .tsx.",
+    "DO NOT center align the app container (.App { text-align: center; } is forbidden).",
+    "Never use purely transparent backgrounds for headers, overlays, or dropdowns. ALWAYS use a dark color (e.g., bg-zinc-950/90) with backdrop-blur.",
+    "Use JetBrains Mono (or another monospace) for all numerical data (money, meta, percentages) in the matrix.",
+    "Build a robust toggle between 'Table/Grid View' and 'Timeline/Calendar View' for the projects matrix.",
+    "Implement the daily goal (Meta diária) calculation: Visual indicator showing if the actual progress aligns with the expected daily progress.",
+    "Color System for Projects: Visually merge Status (Active/Paused), Progress (On Track, Lagging), and Priority (High, Low) using the Neon indicator colors provided.",
+    "Every interaction needs micro-animations (hover states, focus states).",
+    "All interactive and key informational elements MUST include a `data-testid` attribute (kebab-case, role-based).",
+    "Use 'sonner' for toast notifications (alerts and notifications for CRUD).",
+    "NEVER use placeholder image URLs (via.placeholder.com). Use the provided image_urls."
+  ],
+  "instructions_to_main_agent": [
+    "Install the required dependencies: framer-motion, lucide-react, recharts, sonner, date-fns.",
+    "Create the specific views: Login, Dashboard (Summary), Project Matrix (Timeline & Table modes).",
+    "Implement basic CRUD state for Projects (Name, Team, Date, Programmed Value, Daily Goal, Status, Priority).",
+    "Implement basic CRUD state for Teams (Name, Members).",
+    "Use standard Tailwind grid and flexbox for layout, avoiding Shadcn component rigidness where a custom bento grid looks better.",
+    "Ensure the UI uses the dark theme colors specified. No light theme required as this is an elite 'Cyber-Dashboard'."
+  ]
+}
