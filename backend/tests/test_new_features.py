@@ -104,7 +104,8 @@ class TestProjectNewFields:
         p = r.json()
         try:
             assert p["billing_value"] == 0.0
-            assert p["project_type"] == "manutencao_preventiva"
+            # Iteration 5 changed default project_type to anexo_iv
+            assert p["project_type"] == "anexo_iv"
             assert p["requires_hot_line"] is False
             assert p["shutdown_info"] == ""
         finally:
@@ -214,8 +215,9 @@ class TestAnalyticsProduction:
         assert isinstance(data["by_team"], list)
         assert isinstance(data["by_type"], list)
         assert isinstance(data["by_status"], dict)
-        assert "active" in data["by_status"]
-        assert "paused" in data["by_status"]
+        # Iteration 5 uses execution_status labels (pt-BR) instead of legacy active/paused
+        assert "Aguardando Início" in data["by_status"]
+        assert "Programado" in data["by_status"]
         assert isinstance(data["hot_line_count"], int)
         assert isinstance(data["total_projects"], int)
 
@@ -223,12 +225,12 @@ class TestAnalyticsProduction:
         # Create 2 projects on the team with different types + one hot line
         p1 = admin_session.post(f"{API}/projects", json=_project_payload(
             team_id=team_id, team_name="TEST_HayahTeam",
-            project_type="obra_nova", requires_hot_line=True,
+            project_type="anexo_iv", requires_hot_line=True,
             programmed_value=2000, actual_value=1000, billing_value=1500,
         ), timeout=30).json()
         p2 = admin_session.post(f"{API}/projects", json=_project_payload(
             team_id=team_id, team_name="TEST_HayahTeam",
-            project_type="poda", requires_hot_line=False,
+            project_type="regulador", requires_hot_line=False,
             programmed_value=3000, actual_value=1500, billing_value=2500,
         ), timeout=30).json()
         try:
@@ -249,10 +251,10 @@ class TestAnalyticsProduction:
             assert row["actual"] == 2500
             assert row["billing"] == 4000
 
-            # by_type should have 2 labels: Obra Nova + Poda de Vegetação
+            # by_type should have 2 labels: ANEXO IV + Regulador (iteration 5 labels)
             labels = {t["type"] for t in data["by_type"]}
-            assert "Obra Nova" in labels
-            assert "Poda de Vegetação" in labels
+            assert "ANEXO IV" in labels
+            assert "Regulador" in labels
         finally:
             admin_session.delete(f"{API}/projects/{p1['id']}", timeout=30)
             admin_session.delete(f"{API}/projects/{p2['id']}", timeout=30)

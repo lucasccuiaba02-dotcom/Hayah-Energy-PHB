@@ -5,44 +5,54 @@ import { X, Plus, Trash2, Edit2 } from 'lucide-react';
 export const TeamDrawer = ({ isOpen, onClose, onSave, team, teams, onDelete }) => {
   const [showForm, setShowForm] = useState(false);
   const [editingTeam, setEditingTeam] = useState(null);
-  const [formData, setFormData] = useState({ name: '', members: [] });
+  const [formData, setFormData] = useState({ name: '', members: [], supervisor: '', member_count: 0 });
   const [memberInput, setMemberInput] = useState('');
 
   useEffect(() => {
     if (!isOpen) {
       setShowForm(false);
       setEditingTeam(null);
-      setFormData({ name: '', members: [] });
+      setFormData({ name: '', members: [], supervisor: '', member_count: 0 });
       setMemberInput('');
     }
   }, [isOpen]);
 
   const startEdit = (t) => {
     setEditingTeam(t);
-    setFormData({ name: t.name, members: t.members || [] });
+    setFormData({
+      name: t.name,
+      members: t.members || [],
+      supervisor: t.supervisor || '',
+      member_count: t.member_count || (t.members || []).length,
+    });
     setShowForm(true);
   };
 
   const startCreate = () => {
     setEditingTeam(null);
-    setFormData({ name: '', members: [] });
+    setFormData({ name: '', members: [], supervisor: '', member_count: 0 });
     setShowForm(true);
   };
 
   const addMember = () => {
     if (memberInput.trim()) {
-      setFormData({ ...formData, members: [...formData.members, memberInput.trim()] });
+      const newMembers = [...formData.members, memberInput.trim()];
+      setFormData({ ...formData, members: newMembers, member_count: newMembers.length });
       setMemberInput('');
     }
   };
 
   const removeMember = (index) => {
-    setFormData({ ...formData, members: formData.members.filter((_, i) => i !== index) });
+    const newMembers = formData.members.filter((_, i) => i !== index);
+    setFormData({ ...formData, members: newMembers, member_count: newMembers.length });
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    await onSave(formData, editingTeam);
+    await onSave({
+      ...formData,
+      member_count: parseInt(formData.member_count) || formData.members.length,
+    }, editingTeam);
     setShowForm(false);
     setEditingTeam(null);
   };
@@ -102,8 +112,13 @@ export const TeamDrawer = ({ isOpen, onClose, onSave, team, teams, onDelete }) =
                           <div className="flex items-start justify-between">
                             <div>
                               <h3 className="text-white font-bold">{t.name}</h3>
+                              {t.supervisor && (
+                                <p className="text-xs text-[#E0FF00] mt-1">
+                                  <span className="text-zinc-500">Encarregado: </span>{t.supervisor}
+                                </p>
+                              )}
                               <p className="text-xs text-zinc-500 mt-1">
-                                {t.members.length} {t.members.length === 1 ? 'membro' : 'membros'}
+                                {t.member_count || (t.members || []).length} {(t.member_count || (t.members || []).length) === 1 ? 'membro' : 'membros'}
                               </p>
                               {t.members.length > 0 && (
                                 <div className="mt-3 flex flex-wrap gap-2">
@@ -156,8 +171,36 @@ export const TeamDrawer = ({ isOpen, onClose, onSave, team, teams, onDelete }) =
                       value={formData.name}
                       onChange={(e) => setFormData({ ...formData, name: e.target.value })}
                       required
-                      className="w-full bg-zinc-950/90 border border-white/10 rounded-lg px-4 py-3 text-white placeholder-zinc-600 focus:border-[#00F0FF] focus:outline-none transition-all"
+                      className="w-full bg-zinc-950/90 border border-white/10 rounded-lg px-4 py-3 text-white placeholder-zinc-600 focus:border-[#E0FF00] focus:outline-none transition-all"
                       placeholder="Ex: Equipe A"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="text-xs tracking-[0.2em] uppercase font-bold text-zinc-500 block mb-2">
+                      Encarregado
+                    </label>
+                    <input
+                      data-testid="team-supervisor-input"
+                      type="text"
+                      value={formData.supervisor}
+                      onChange={(e) => setFormData({ ...formData, supervisor: e.target.value })}
+                      className="w-full bg-zinc-950/90 border border-white/10 rounded-lg px-4 py-3 text-white placeholder-zinc-600 focus:border-[#E0FF00] focus:outline-none transition-all"
+                      placeholder="Nome do encarregado"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="text-xs tracking-[0.2em] uppercase font-bold text-zinc-500 block mb-2">
+                      Quantidade de Membros
+                    </label>
+                    <input
+                      data-testid="team-member-count-input"
+                      type="number"
+                      min="0"
+                      value={formData.member_count}
+                      onChange={(e) => setFormData({ ...formData, member_count: e.target.value })}
+                      className="w-full bg-zinc-950/90 border border-white/10 rounded-lg px-4 py-3 text-white focus:border-[#E0FF00] focus:outline-none transition-all font-mono"
                     />
                   </div>
 

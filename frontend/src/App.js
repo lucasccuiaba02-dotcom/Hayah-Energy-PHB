@@ -4,6 +4,11 @@ import { Toaster } from 'sonner';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { LoginPage } from './pages/LoginPage';
 import { DashboardPage } from './pages/DashboardPage';
+import { CarteiraPage } from './pages/CarteiraPage';
+import { ProgramacaoPage } from './pages/ProgramacaoPage';
+import { AnalisePage } from './pages/AnalisePage';
+import { RelatoriosPage } from './pages/RelatoriosPage';
+import { EquipesPage } from './pages/EquipesPage';
 import { ProtectedRoute } from './components/ProtectedRoute';
 import '@/App.css';
 
@@ -18,22 +23,13 @@ function AppRoutes() {
   return (
     <Routes>
       <Route path="/" element={<Navigate to="/dashboard" replace />} />
-      <Route
-        path="/login"
-        element={
-          <PublicRoute>
-            <LoginPage />
-          </PublicRoute>
-        }
-      />
-      <Route
-        path="/dashboard"
-        element={
-          <ProtectedRoute>
-            <DashboardPage />
-          </ProtectedRoute>
-        }
-      />
+      <Route path="/login" element={<PublicRoute><LoginPage /></PublicRoute>} />
+      <Route path="/dashboard" element={<ProtectedRoute><DashboardPage /></ProtectedRoute>} />
+      <Route path="/carteira" element={<ProtectedRoute><CarteiraPage /></ProtectedRoute>} />
+      <Route path="/programacao" element={<ProtectedRoute><ProgramacaoPage /></ProtectedRoute>} />
+      <Route path="/analise" element={<ProtectedRoute><AnalisePage /></ProtectedRoute>} />
+      <Route path="/relatorios" element={<ProtectedRoute><RelatoriosPage /></ProtectedRoute>} />
+      <Route path="/equipes" element={<ProtectedRoute><EquipesPage /></ProtectedRoute>} />
     </Routes>
   );
 }

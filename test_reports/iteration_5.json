@@ -1,0 +1,50 @@
+{
+  "summary": "Iteration 5 Hayah Energy (Carteira/Programação/Análise/Relatórios/Equipes + supervisor/member_count + labor/material/location/execution_status/is_scheduled + Excel export + Resend email skip-when-no-key). Backend: 50/50 pytest PASS = 20 regression (backend_test.py) + 10 iteration-4 (test_new_features.py, updated 3 stale assertions to match iteration-5 defaults) + 20 NEW iteration-5 (test_iteration5.py) covering Team supervisor/member_count, Project it5 fields, is_scheduled filter, /schedule/stats, /analytics/advanced, /reports/excel (all 4 report_types return xlsx with attachment header + PK magic bytes), /schedule/notify-tomorrow (returns 200 even without RESEND_API_KEY), auto-set execution_status=programado when is_scheduled=true. Frontend Playwright: 25/25 PASS — 6 sidebar nav items (nav-dashboard/carteira/programacao/analise/relatorios/equipes), ProjectDrawer has all 11 required fields with 12 project-type options, is_scheduled toggle reveals team-select+start-date+exec-status-select, TeamDrawer (after 'Nova Equipe' button) shows team-supervisor-input+team-member-count-input, team card renders supervisor+member_count, /programacao 6 stat cards, /analise 6 charts, /relatorios 4 download buttons + trigger-tomorrow-email (200 response, xlsx returned with correct Content-Type+Content-Disposition).",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "GET /api/schedule/stats & /api/analytics/advanced", "issue": "Both use in-python filtering (start_date string slicing [:10]) — fragile if date format ever changes. Works today because frontend always sends YYYY-MM-DD."},
+      {"endpoint": "POST /api/schedule/notify-tomorrow", "issue": "Returns HTTP 200 with body {status:'triggered'} regardless of Resend result. Consider surfacing send_email_via_resend outcome ('sent'/'skipped'/'error') so UI can distinguish real vs. skipped."},
+      {"endpoint": "GET /api/reports/excel", "issue": "No validation of report_type — arbitrary values silently produce a generic export sheet titled after the raw string. Consider Literal['programacao','carteira','producao','faturamento'] Pydantic validator returning 422 on invalid input."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Filters (Relatorios/Programacao)", "issues": ["Uses browser-native <input type='date'> (mm/dd/yyyy placeholder). Pre-existing cosmetic — shadcn Calendar w/ pt-BR locale would be more consistent."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration5.py",
+    "/app/backend/tests/test_new_features.py",
+    "/app/backend/tests/backend_test.py",
+    "/app/test_reports/pytest/pytest_iteration5.xml",
+    "/app/test_reports/pytest/pytest_all.xml"
+  ],
+  "action_items": [
+    "Optional: validate report_type param with Pydantic Literal to return 422 for unknown types (currently produces a nameless xlsx).",
+    "Optional: propagate send_email_via_resend result ({status:'skipped'|'sent'|'error'}) up through /api/schedule/notify-tomorrow so UI can show accurate feedback.",
+    "Optional: replace native date inputs with shadcn Calendar for pt-BR consistency."
+  ],
+  "critical_code_review_comments": [
+    "server.py (972 lines) has crossed the 700-line threshold — recommend splitting into routers: auth.py, teams.py, projects.py, analytics.py, reports.py, email.py.",
+    "server.py fire-and-forget asyncio.create_task(send_email_via_resend(...)) inside POST /projects when is_scheduled=True correctly does NOT block the response. If RESEND_API_KEY is empty the helper returns {status:'skipped'} — verified in test.",
+    "Duplicate EXECUTION_STATUS_LABELS definitions: one at module top (lines 47-53) and another inline inside get_production_analytics (lines 572-578). Refactor to use the module constant.",
+    "PROJECT_TYPE_LABELS at module top is well-structured and shared by /analytics/production, /reports/excel and _build_project_email_html — good DRY pattern.",
+    "APScheduler is started inside FastAPI @on_event('startup'). Modern FastAPI recommends the lifespan context manager (on_event is deprecated). Not blocking but should migrate.",
+    "get_projects date filter uses p['start_date'][:10] without .get() — will raise KeyError for legacy documents missing start_date. Use .get('start_date','') for safety.",
+    "TeamDrawer.jsx renders LIST by default and requires clicking 'add-team-button' to reveal supervisor + member_count inputs — this is intentional UX but not obvious. Confirmed working."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iteration5.py (NEW, 20 tests, all PASS)",
+    "/app/backend/tests/test_new_features.py (updated 3 stale iteration-4 assertions: default project_type anexo_iv, by_status pt-BR labels, by_type labels 'ANEXO IV'/'Regulador')"
+  ],
+  "success_rate": {"backend": "100% (50/50 pytest: 20 regression + 10 iter4 + 20 iter5)", "frontend": "100% (25/25 UI checks)"},
+  "test_credentials": "admin@projectmatrix.com / Admin@123 (from /app/memory/test_credentials.md).",
+  "seed_data_creation": "Created & cleaned up TEST_It5_*, TEST_It5Team_*, TEST_It5AdvTeam_*, UITEST_It5Team* records during the run — all deleted before finishing.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Iteration 5 backend: 50 pytest total (backend_test.py=20, test_new_features.py=10, test_iteration5.py=20). Run with `REACT_APP_BACKEND_URL=<url> pytest backend/tests/ -n 0`. pytest.ini forces -n 2 --dist loadscope which drops env vars in xdist workers — pass -n 0 to run serial when debugging. All new iteration-5 endpoints verified: /api/schedule/stats, /api/analytics/advanced, /api/reports/excel?report_type=programacao|carteira|producao|faturamento, /api/schedule/notify-tomorrow. RESEND_API_KEY empty => send_email_via_resend returns {status:'skipped'} with no crash. Auto-setting execution_status='programado' when is_scheduled=True at creation verified. TeamDrawer requires clicking 'add-team-button' (not just 'open-teams-drawer') to reveal team-supervisor-input & team-member-count-input.",
+  "rca of the issue": "No bugs found in iteration 5 implementation. Only stale iteration-4 test assertions (3 in test_new_features.py) needed updating to match new defaults: project_type default flipped from manutencao_preventiva -> anexo_iv, analytics /production by_status shifted from legacy {active, paused} to pt-BR execution_status labels {Aguardando Início, Programado, Em Execução, Concluído, Cancelado}, and PROJECT_TYPE_LABELS replaced old set (obra_nova/poda...) with new 12 Hayah types (anexo_iv/po/nivel_tensao/seguranca/particular/extensao_rede_bt/mt/monofasica_rural/regulador/religador/troca_trafo_mono/tri). Assertions updated in-place; all 50 tests now green."
+}
