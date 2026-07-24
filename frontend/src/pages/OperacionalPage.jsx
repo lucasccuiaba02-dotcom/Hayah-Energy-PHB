@@ -1,9 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import axios from 'axios';
+import { toast } from 'sonner';
+import { QRCodeSVG } from 'qrcode.react';
+import { useNavigate } from 'react-router-dom';
 import { AppLayout } from '../components/AppLayout';
 import { formatCurrency, PROJECT_TYPE_LABEL, EXECUTION_STATUS_LABEL, MATERIAL_STATUS_LABEL } from '../lib/constants';
-import { MapPin, Zap, AlertTriangle, CheckCircle2, Clock, Package, Users } from 'lucide-react';
+import { MapPin, Zap, AlertTriangle, CheckCircle2, Clock, Package, Users, QrCode, ExternalLink } from 'lucide-react';
+import { syncQueue } from '../lib/offline';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -11,15 +15,21 @@ const API = `${BACKEND_URL}/api`;
 export const OperacionalPage = () => {
   const [data, setData] = useState(null);
   const [checklists, setChecklists] = useState({});
+  const [qrProject, setQrProject] = useState(null);
+  const navigate = useNavigate();
 
   useEffect(() => {
     axios.get(`${API}/operacional/today`).then(({ data }) => setData(data));
-    // Load persisted checklists from localStorage (namespaced per user via localStorage key)
     try {
-      const key = 'operacional_checklists';
-      const saved = JSON.parse(localStorage.getItem(key) || '{}');
+      const saved = JSON.parse(localStorage.getItem('operacional_checklists') || '{}');
       setChecklists(saved);
     } catch { /* noop */ }
+    // Sync offline queue on mount
+    if (navigator.onLine) {
+      syncQueue(axios, API).then((r) => {
+        if (r.synced > 0) toast.success(`${r.synced} atualização(ões) offline sincronizada(s)`);
+      });
+    }
   }, []);
 
   const toggleCheck = (projectId, key) => {
@@ -105,16 +115,36 @@ export const OperacionalPage = () => {
                                 </p>
                               )}
                             </div>
-                            <span
-                              className="px-2 py-1 rounded-full text-[10px] font-bold border flex-shrink-0"
-                              style={{
-                                backgroundColor: `${execStatus?.color}15`,
-                                borderColor: `${execStatus?.color}40`,
-                                color: execStatus?.color,
-                              }}
-                            >
-                              {execStatus?.label}
-                            </span>
+                            <div className="flex flex-col items-end gap-2 flex-shrink-0">
+                              <span
+                                className="px-2 py-1 rounded-full text-[10px] font-bold border"
+                                style={{
+                                  backgroundColor: `${execStatus?.color}15`,
+                                  borderColor: `${execStatus?.color}40`,
+                                  color: execStatus?.color,
+                                }}
+                              >
+                                {execStatus?.label}
+                              </span>
+                              <div className="flex gap-1">
+                                <button
+                                  data-testid={`op-qr-${p.id}`}
+                                  onClick={() => setQrProject(p)}
+                                  className="w-8 h-8 rounded-lg bg-[#E0FF00]/10 border border-[#E0FF00]/40 flex items-center justify-center text-[#E0FF00]"
+                                  title="QR Code"
+                                >
+                                  <QrCode className="w-4 h-4" />
+                                </button>
+                                <button
+                                  data-testid={`op-open-${p.id}`}
+                                  onClick={() => navigate(`/projeto/${p.id}`)}
+                                  className="w-8 h-8 rounded-lg bg-white/5 border border-white/10 flex items-center justify-center text-zinc-400 hover:text-white"
+                                  title="Abrir"
+                                >
+                                  <ExternalLink className="w-4 h-4" />
+                                </button>
+                              </div>
+                            </div>
                           </div>
 
                           {/* Checklist */}
@@ -195,6 +225,44 @@ export const OperacionalPage = () => {
             </div>
           )}
         </>
+      )}
+
+      {qrProject && (
+        <div
+          onClick={() => setQrProject(null)}
+          data-testid="qr-modal"
+          className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="bg-white rounded-2xl p-6 max-w-sm w-full text-center"
+          >
+            <p className="font-mono text-xs text-zinc-500 mb-1">{qrProject.project_code}</p>
+            <h3 className="font-heading font-black text-lg text-black tracking-tighter mb-4">{qrProject.name}</h3>
+            <div className="flex justify-center mb-4">
+              <QRCodeSVG
+                value={`${window.location.origin}/projeto/${qrProject.id}`}
+                size={220}
+                level="H"
+                includeMargin
+                imageSettings={{
+                  src: '/favicon.ico',
+                  height: 30,
+                  width: 30,
+                  excavate: true,
+                }}
+              />
+            </div>
+            <p className="text-xs text-zinc-500 mb-4">Escaneie no celular para abrir o checklist da obra</p>
+            <button
+              data-testid="qr-close"
+              onClick={() => setQrProject(null)}
+              className="w-full bg-black text-white font-bold py-3 rounded-full"
+            >
+              Fechar
+            </button>
+          </div>
+        </div>
       )}
     </AppLayout>
   );

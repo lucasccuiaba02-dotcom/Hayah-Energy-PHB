@@ -4,7 +4,7 @@ from pathlib import Path
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
 
-from fastapi import FastAPI, APIRouter, HTTPException, Request, Response, Depends
+from fastapi import FastAPI, APIRouter, HTTPException, Request, Response, Depends, UploadFile, File, Form
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
 from pydantic import BaseModel, Field, ConfigDict, EmailStr
@@ -17,6 +17,7 @@ import bcrypt
 import jwt
 import secrets
 import asyncio
+import base64
 
 # MongoDB connection
 mongo_url = os.environ['MONGO_URL']
@@ -912,6 +913,122 @@ async def trigger_tomorrow_email(current_user: dict = Depends(get_current_user))
     await daily_scheduled_email_job()
     return {"status": "triggered"}
 
+# --- Checklist Operacional endpoints (Iteração 7) ---
+class ChecklistUpdate(BaseModel):
+    hotline_confirmed: Optional[bool] = None
+    shutdown_confirmed: Optional[bool] = None
+    material_confirmed: Optional[bool] = None
+    team_confirmed: Optional[bool] = None
+    notes: Optional[str] = None
+
+@api_router.get("/operacional/checklist/{project_id}")
+async def get_checklist(project_id: str, current_user: dict = Depends(get_current_user)):
+    project = await db.projects.find_one({"_id": safe_object_id(project_id), "user_id": current_user["_id"]})
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    checklist = project.get("checklist", {})
+    photos = project.get("photos", [])
+    return {"project_id": project_id, "checklist": checklist, "photos": photos}
+
+@api_router.put("/operacional/checklist/{project_id}")
+async def update_checklist(project_id: str, data: ChecklistUpdate, current_user: dict = Depends(get_current_user)):
+    project = await db.projects.find_one({"_id": safe_object_id(project_id), "user_id": current_user["_id"]})
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    checklist = project.get("checklist", {})
+    for k, v in data.model_dump(exclude_none=True).items():
+        checklist[k] = v
+    checklist["updated_at"] = datetime.now(timezone.utc).isoformat()
+    checklist["updated_by"] = current_user.get("name", "")
+    await db.projects.update_one({"_id": safe_object_id(project_id)}, {"$set": {"checklist": checklist}})
+    return {"project_id": project_id, "checklist": checklist}
+
+# Photo upload for operational checklist
+@api_router.post("/operacional/photos/{project_id}")
+async def upload_photo(
+    project_id: str,
+    label: str = Form("foto"),
+    file: UploadFile = File(...),
+    current_user: dict = Depends(get_current_user),
+):
+    project = await db.projects.find_one({"_id": safe_object_id(project_id), "user_id": current_user["_id"]})
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    content = await file.read()
+    if len(content) > 10 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="Arquivo maior que 10MB")
+    b64 = base64.b64encode(content).decode("ascii")
+    data_url = f"data:{file.content_type or 'image/jpeg'};base64,{b64}"
+    photo = {
+        "id": secrets.token_urlsafe(8),
+        "label": label,
+        "data_url": data_url,
+        "uploaded_at": datetime.now(timezone.utc).isoformat(),
+    }
+    await db.projects.update_one({"_id": safe_object_id(project_id)}, {"$push": {"photos": photo}})
+    return photo
+
+@api_router.delete("/operacional/photos/{project_id}/{photo_id}")
+async def delete_photo(project_id: str, photo_id: str, current_user: dict = Depends(get_current_user)):
+    result = await db.projects.update_one(
+        {"_id": safe_object_id(project_id), "user_id": current_user["_id"]},
+        {"$pull": {"photos": {"id": photo_id}}}
+    )
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Project not found")
+    return {"status": "deleted"}
+
+# Morning alert (08:30) for unconfirmed shutdowns
+async def morning_shutdown_check_job():
+    """Runs daily at 08:30 America/Cuiaba - alerts if projects with hot line or shutdown have unconfirmed checklists"""
+    from datetime import datetime as dt
+    try:
+        from zoneinfo import ZoneInfo
+        today = dt.now(ZoneInfo("America/Cuiaba")).strftime("%Y-%m-%d")
+    except Exception:
+        today = dt.now(timezone.utc).strftime("%Y-%m-%d")
+    
+    recipients_str = os.environ.get("NOTIFICATION_EMAILS", "")
+    recipients = [e.strip() for e in recipients_str.split(",") if e.strip()]
+    if not recipients:
+        return
+    
+    projects = await db.projects.find({"is_scheduled": True}).to_list(2000)
+    pending = []
+    for p in projects:
+        ps = (p.get("start_date") or "")[:10]
+        pe = (p.get("end_date") or "")[:10]
+        if not ps or not (ps <= today <= (pe or ps)):
+            continue
+        if not (p.get("requires_hot_line") or p.get("shutdown_info")):
+            continue
+        cl = p.get("checklist", {})
+        if p.get("requires_hot_line") and not cl.get("hotline_confirmed"):
+            pending.append((p, "Linha Viva não confirmada"))
+        elif p.get("shutdown_info") and not cl.get("shutdown_confirmed"):
+            pending.append((p, "Desligamento não confirmado"))
+    
+    if not pending:
+        return
+    
+    rows = "".join([
+        f"""<tr>
+          <td style="padding:10px;border-bottom:1px solid #333;color:#fff;">{p.get('name','')}</td>
+          <td style="padding:10px;border-bottom:1px solid #333;color:#a1a1aa;">{p.get('team_name','') or '-'}</td>
+          <td style="padding:10px;border-bottom:1px solid #333;color:#FF003C;">{reason}</td>
+        </tr>""" for p, reason in pending
+    ])
+    html = f"""<div style="font-family:Arial;background:#050505;color:#fff;padding:24px;">
+      <h1 style="color:#FF003C;">⚠️ ATENÇÃO — Segurança da Obra</h1>
+      <p>Os seguintes projetos programados para hoje ({today}) têm checklists de segurança <b>não confirmados</b>:</p>
+      <table width="100%" style="border-collapse:collapse;margin-top:12px;">
+        <thead><tr style="background:#111;"><th style="padding:10px;color:#E0FF00;text-align:left;">Projeto</th><th style="padding:10px;color:#E0FF00;text-align:left;">Equipe</th><th style="padding:10px;color:#E0FF00;text-align:left;">Pendência</th></tr></thead>
+        <tbody>{rows}</tbody>
+      </table>
+      <p style="color:#71717a;font-size:11px;margin-top:24px;">HAYAH ENERGY — Sistema de Segurança Operacional</p>
+    </div>"""
+    await send_email_via_resend(recipients, f"[HAYAH] ⚠️ {len(pending)} checklist(s) de segurança pendente(s)", html)
+
 # Calendar view (matriz por equipe x data)
 @api_router.get("/schedule/calendar")
 async def get_calendar_view(
@@ -1038,8 +1155,6 @@ async def get_today_operations(current_user: dict = Depends(get_current_user)):
     }
 
 # Material request with PDF attachments
-from fastapi import UploadFile, File, Form
-import base64
 
 @api_router.post("/materials/request")
 async def request_materials(
@@ -1165,8 +1280,9 @@ async def startup_db():
         from apscheduler.triggers.cron import CronTrigger
         scheduler = AsyncIOScheduler(timezone="America/Cuiaba")
         scheduler.add_job(daily_scheduled_email_job, CronTrigger(hour=18, minute=0), id="daily_18h_email", replace_existing=True)
+        scheduler.add_job(morning_shutdown_check_job, CronTrigger(hour=8, minute=30), id="morning_shutdown_check", replace_existing=True)
         scheduler.start()
-        logger.info("Scheduler started: daily email at 18:00 (America/Cuiaba)")
+        logger.info("Scheduler started: 08:30 shutdown check + 18:00 tomorrow email (America/Cuiaba)")
     except Exception as e:
         logger.warning(f"Failed to start scheduler: {e}")
     

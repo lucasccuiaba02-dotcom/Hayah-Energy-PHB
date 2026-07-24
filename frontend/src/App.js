@@ -12,6 +12,7 @@ import { EquipesPage } from './pages/EquipesPage';
 import { OperacionalPage } from './pages/OperacionalPage';
 import { SolicitacaoMaterialPage } from './pages/SolicitacaoMaterialPage';
 import { CalendarioPage } from './pages/CalendarioPage';
+import { ProjectDetailPage } from './pages/ProjectDetailPage';
 import { ProtectedRoute } from './components/ProtectedRoute';
 import '@/App.css';
 
@@ -36,6 +37,7 @@ function AppRoutes() {
       <Route path="/analise" element={<ProtectedRoute><AnalisePage /></ProtectedRoute>} />
       <Route path="/relatorios" element={<ProtectedRoute><RelatoriosPage /></ProtectedRoute>} />
       <Route path="/equipes" element={<ProtectedRoute><EquipesPage /></ProtectedRoute>} />
+      <Route path="/projeto/:id" element={<ProtectedRoute><ProjectDetailPage /></ProtectedRoute>} />
     </Routes>
   );
 }
