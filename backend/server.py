@@ -136,6 +136,7 @@ class TeamResponse(BaseModel):
 
 class ProjectCreate(BaseModel):
     name: str
+    project_code: str = ""
     team_id: Optional[str] = None
     team_name: Optional[str] = None
     start_date: Optional[str] = ""
@@ -158,6 +159,7 @@ class ProjectCreate(BaseModel):
 
 class ProjectUpdate(BaseModel):
     name: Optional[str] = None
+    project_code: Optional[str] = None
     team_id: Optional[str] = None
     team_name: Optional[str] = None
     start_date: Optional[str] = None
@@ -181,6 +183,7 @@ class ProjectUpdate(BaseModel):
 class ProjectResponse(BaseModel):
     id: str
     name: str
+    project_code: str = ""
     team_id: Optional[str] = None
     team_name: Optional[str] = None
     start_date: str
@@ -353,6 +356,7 @@ def build_project_response(project: dict) -> ProjectResponse:
     return ProjectResponse(
         id=str(project["_id"]),
         name=project["name"],
+        project_code=project.get("project_code", ""),
         team_id=project.get("team_id"),
         team_name=project.get("team_name"),
         start_date=project.get("start_date", ""),
@@ -907,6 +911,215 @@ async def daily_scheduled_email_job():
 async def trigger_tomorrow_email(current_user: dict = Depends(get_current_user)):
     await daily_scheduled_email_job()
     return {"status": "triggered"}
+
+# Calendar view (matriz por equipe x data)
+@api_router.get("/schedule/calendar")
+async def get_calendar_view(
+    current_user: dict = Depends(get_current_user),
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+):
+    """Returns calendar grid: rows = teams, columns = dates, cells = list of projects"""
+    from datetime import datetime as dt, timedelta as td
+    
+    # Default: current week (Mon-Sun)
+    if not start_date:
+        today = dt.now(timezone.utc).date()
+        start = today - td(days=today.weekday())
+        start_date = start.isoformat()
+    if not end_date:
+        end = dt.fromisoformat(start_date).date() + td(days=13)
+        end_date = end.isoformat()
+    
+    # Fetch all scheduled projects overlapping with the range
+    projects = await db.projects.find({
+        "user_id": current_user["_id"],
+        "is_scheduled": True,
+    }).to_list(1000)
+    
+    teams = await db.teams.find({"user_id": current_user["_id"]}).to_list(1000)
+    
+    # Generate list of dates
+    start_dt = dt.fromisoformat(start_date).date()
+    end_dt = dt.fromisoformat(end_date).date()
+    dates = []
+    d = start_dt
+    while d <= end_dt:
+        dates.append(d.isoformat())
+        d += td(days=1)
+    
+    # Build grid: {team_id: {date: [projects]}}
+    grid = {}
+    # Include unassigned team bucket
+    team_meta = [{"id": None, "name": "Sem equipe", "supervisor": ""}] + [
+        {"id": str(t["_id"]), "name": t["name"], "supervisor": t.get("supervisor", "")}
+        for t in teams
+    ]
+    
+    for tm in team_meta:
+        grid[tm["id"] or "unassigned"] = {d: [] for d in dates}
+    
+    for p in projects:
+        ps = (p.get("start_date") or "")[:10]
+        pe = (p.get("end_date") or "")[:10]
+        if not ps:
+            continue
+        tid = p.get("team_id") or "unassigned"
+        # For each date in project span that falls within range
+        try:
+            p_start = dt.fromisoformat(ps).date()
+            p_end = dt.fromisoformat(pe).date() if pe else p_start
+        except Exception:
+            continue
+        cursor = max(p_start, start_dt)
+        finish = min(p_end, end_dt)
+        while cursor <= finish:
+            date_iso = cursor.isoformat()
+            if tid in grid and date_iso in grid[tid]:
+                grid[tid][date_iso].append({
+                    "id": str(p["_id"]),
+                    "code": p.get("project_code") or p.get("name", ""),
+                    "name": p.get("name", ""),
+                    "execution_status": p.get("execution_status", "aguardando_inicio"),
+                    "requires_hot_line": p.get("requires_hot_line", False),
+                    "shutdown_info": p.get("shutdown_info", ""),
+                    "location": p.get("location", ""),
+                })
+            cursor += td(days=1)
+    
+    return {
+        "dates": dates,
+        "teams": team_meta,
+        "grid": grid,
+    }
+
+# Operacional do dia (dashboard mobile-friendly)
+@api_router.get("/operacional/today")
+async def get_today_operations(current_user: dict = Depends(get_current_user)):
+    """Projects scheduled for today - grouped by team for the encarregado"""
+    from datetime import datetime as dt
+    today = dt.now(timezone.utc).strftime("%Y-%m-%d")
+    projects = await db.projects.find({
+        "user_id": current_user["_id"],
+        "is_scheduled": True,
+    }).to_list(1000)
+    
+    # Filter to today's projects (in date range)
+    today_projects = []
+    for p in projects:
+        ps = (p.get("start_date") or "")[:10]
+        pe = (p.get("end_date") or "")[:10]
+        if not ps:
+            continue
+        if ps <= today <= (pe or ps):
+            today_projects.append(p)
+    
+    # Group by team
+    grouped = {}
+    for p in today_projects:
+        team_name = p.get("team_name") or "Sem equipe"
+        if team_name not in grouped:
+            grouped[team_name] = []
+        grouped[team_name].append(build_project_response(p).model_dump())
+    
+    total_value = sum(p.get("programmed_value", 0) for p in today_projects)
+    hot_line_count = sum(1 for p in today_projects if p.get("requires_hot_line"))
+    
+    return {
+        "date": today,
+        "total_projects": len(today_projects),
+        "total_value": total_value,
+        "hot_line_count": hot_line_count,
+        "by_team": grouped,
+    }
+
+# Material request with PDF attachments
+from fastapi import UploadFile, File, Form
+import base64
+
+@api_router.post("/materials/request")
+async def request_materials(
+    current_user: dict = Depends(get_current_user),
+    project_id: str = Form(...),
+    notes: str = Form(""),
+    material_pdf: Optional[UploadFile] = File(None),
+    project_pdf: Optional[UploadFile] = File(None),
+):
+    """Send material request email to warehouse with PDF attachments"""
+    project = await db.projects.find_one({"_id": safe_object_id(project_id), "user_id": current_user["_id"]})
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    
+    warehouse_email = os.environ.get("WAREHOUSE_EMAIL", "").strip()
+    fallback_emails = os.environ.get("NOTIFICATION_EMAILS", "")
+    if warehouse_email:
+        recipients = [warehouse_email]
+    else:
+        recipients = [e.strip() for e in fallback_emails.split(",") if e.strip()]
+    
+    if not recipients:
+        raise HTTPException(status_code=400, detail="Nenhum destinatário configurado")
+    
+    # Read attachments
+    attachments = []
+    if material_pdf:
+        content = await material_pdf.read()
+        attachments.append({
+            "filename": material_pdf.filename or "lista_materiais.pdf",
+            "content": list(content),
+        })
+    if project_pdf:
+        content = await project_pdf.read()
+        attachments.append({
+            "filename": project_pdf.filename or "projeto.pdf",
+            "content": list(content),
+        })
+    
+    html = f"""
+    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 24px;">
+      <h1 style="color: #E0FF00; background: #050505; padding: 16px; margin: 0;">HAYAH ENERGY</h1>
+      <div style="background: #050505; color: #fff; padding: 24px;">
+        <h2 style="color: #00F0FF; margin-top: 0;">Solicitação de Material</h2>
+        <table width="100%" style="border-collapse: collapse;">
+          <tr><td style="padding: 6px 0; color: #a1a1aa; width: 40%;">Projeto:</td><td style="color: #fff; font-weight: bold;">{project.get('name','')}</td></tr>
+          <tr><td style="padding: 6px 0; color: #a1a1aa;">Código:</td><td style="color: #fff;">{project.get('project_code','') or '-'}</td></tr>
+          <tr><td style="padding: 6px 0; color: #a1a1aa;">Tipo:</td><td style="color: #fff;">{PROJECT_TYPE_LABELS.get(project.get('project_type'), '')}</td></tr>
+          <tr><td style="padding: 6px 0; color: #a1a1aa;">Localidade:</td><td style="color: #fff;">{project.get('location','') or '-'}</td></tr>
+          <tr><td style="padding: 6px 0; color: #a1a1aa;">Equipe:</td><td style="color: #fff;">{project.get('team_name','') or '-'}</td></tr>
+          <tr><td style="padding: 6px 0; color: #a1a1aa;">Período:</td><td style="color: #fff;">{(project.get('start_date') or '')[:10]} → {(project.get('end_date') or '')[:10]}</td></tr>
+          <tr><td style="padding: 6px 0; color: #a1a1aa;">Solicitado por:</td><td style="color: #fff;">{current_user.get('name','')}</td></tr>
+        </table>
+        {'<div style="margin-top: 20px; padding: 12px; background: rgba(255,255,255,0.05); border-left: 3px solid #E0FF00;"><p style="margin: 0; color: #fff;">' + notes + '</p></div>' if notes else ''}
+        <p style="color: #71717a; font-size: 11px; margin-top: 24px;">Anexos: {len(attachments)} arquivo(s)</p>
+      </div>
+    </div>
+    """
+    subject = f"[HAYAH] Solicitação de Material: {project.get('name','')}"
+    
+    # Send via Resend with attachments
+    api_key = os.environ.get("RESEND_API_KEY", "").strip()
+    if not api_key:
+        logger.warning(f"[MATERIAL EMAIL SKIPPED - No RESEND_API_KEY] To={recipients}")
+        return {"status": "skipped", "reason": "no_api_key", "attachments_count": len(attachments)}
+    
+    try:
+        import resend
+        resend.api_key = api_key
+        sender = os.environ.get("SENDER_EMAIL", "Hayah Energy <onboarding@resend.dev>")
+        params = {
+            "from": sender,
+            "to": recipients,
+            "subject": subject,
+            "html": html,
+        }
+        if attachments:
+            params["attachments"] = attachments
+        result = await asyncio.to_thread(resend.Emails.send, params)
+        logger.info(f"Material request email sent to {recipients}: id={result.get('id')}")
+        return {"status": "sent", "id": result.get("id"), "attachments_count": len(attachments)}
+    except Exception as e:
+        logger.error(f"Failed to send material request: {e}")
+        return {"status": "error", "error": str(e)}
 
 app.include_router(api_router)
 

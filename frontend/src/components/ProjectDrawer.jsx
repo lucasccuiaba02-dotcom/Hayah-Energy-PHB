@@ -6,6 +6,7 @@ import { PROJECT_TYPES, EXECUTION_STATUS, MATERIAL_STATUS } from '../lib/constan
 export const ProjectDrawer = ({ isOpen, onClose, onSave, project, teams, defaultScheduled = false }) => {
   const initialState = {
     name: '',
+    project_code: '',
     project_type: 'anexo_iv',
     location: '',
     labor_cost: 0,
@@ -131,6 +132,20 @@ export const ProjectDrawer = ({ isOpen, onClose, onSave, project, teams, default
               </div>
 
               <form onSubmit={handleSubmit} className="space-y-5">
+                <div>
+                  <label className="text-xs tracking-[0.2em] uppercase font-bold text-zinc-500 block mb-2">
+                    Código do Projeto
+                  </label>
+                  <input
+                    data-testid="project-code-input"
+                    type="text"
+                    value={formData.project_code || ''}
+                    onChange={(e) => setFormData({ ...formData, project_code: e.target.value })}
+                    className="w-full bg-zinc-950/90 border border-white/10 rounded-lg px-4 py-3 text-white placeholder-zinc-600 focus:border-[#E0FF00] focus:outline-none transition-all font-mono"
+                    placeholder="Ex: 0122405016"
+                  />
+                </div>
+
                 <div>
                   <label className="text-xs tracking-[0.2em] uppercase font-bold text-zinc-500 block mb-2">
                     Nome do Projeto

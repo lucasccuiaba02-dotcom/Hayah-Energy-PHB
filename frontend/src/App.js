@@ -9,6 +9,9 @@ import { ProgramacaoPage } from './pages/ProgramacaoPage';
 import { AnalisePage } from './pages/AnalisePage';
 import { RelatoriosPage } from './pages/RelatoriosPage';
 import { EquipesPage } from './pages/EquipesPage';
+import { OperacionalPage } from './pages/OperacionalPage';
+import { SolicitacaoMaterialPage } from './pages/SolicitacaoMaterialPage';
+import { CalendarioPage } from './pages/CalendarioPage';
 import { ProtectedRoute } from './components/ProtectedRoute';
 import '@/App.css';
 
@@ -25,8 +28,11 @@ function AppRoutes() {
       <Route path="/" element={<Navigate to="/dashboard" replace />} />
       <Route path="/login" element={<PublicRoute><LoginPage /></PublicRoute>} />
       <Route path="/dashboard" element={<ProtectedRoute><DashboardPage /></ProtectedRoute>} />
+      <Route path="/operacional" element={<ProtectedRoute><OperacionalPage /></ProtectedRoute>} />
       <Route path="/carteira" element={<ProtectedRoute><CarteiraPage /></ProtectedRoute>} />
       <Route path="/programacao" element={<ProtectedRoute><ProgramacaoPage /></ProtectedRoute>} />
+      <Route path="/calendario" element={<ProtectedRoute><CalendarioPage /></ProtectedRoute>} />
+      <Route path="/materiais" element={<ProtectedRoute><SolicitacaoMaterialPage /></ProtectedRoute>} />
       <Route path="/analise" element={<ProtectedRoute><AnalisePage /></ProtectedRoute>} />
       <Route path="/relatorios" element={<ProtectedRoute><RelatoriosPage /></ProtectedRoute>} />
       <Route path="/equipes" element={<ProtectedRoute><EquipesPage /></ProtectedRoute>} />

@@ -1,0 +1,47 @@
+{
+  "summary": "Iteration 6 Hayah Energy tested: OPERACIONAL/MATERIAIS/CALENDÁRIO tabs + project_code field. Backend: 61/61 pytest PASS (11 NEW in test_iteration6.py + 50 regression from iterations 1-5). All 4 new backend endpoints verified: (1) POST/PUT/GET /api/projects with project_code (default '', persists, updatable), (2) GET /api/schedule/calendar returns {dates(14), teams(incl. 'Sem equipe'), grid} — accepts start_date/end_date, default = Monday + 13 days, project cells contain code/name/execution_status/requires_hot_line, (3) GET /api/operacional/today returns {date, total_projects, total_value, hot_line_count, by_team} filtered by today in span, (4) POST /api/materials/request (multipart) returns 404 for bad project_id, {status:'skipped', attachments_count:N} when RESEND_API_KEY empty (works with 0, 1, or 2 PDFs). Frontend Playwright: all 9 sidebar nav items present (nav-dashboard/operacional/carteira/programacao/calendario/materiais/analise/relatorios/equipes). /operacional renders 3 stat cards (op-stat-projects/value/hotline) and checklist toggle persists to localStorage['operacional_checklists']. /materiais renders full form (material-project-select w/ 5 options, material-notes, material-pdf-upload, project-pdf-upload, send-material-request). /calendario shows 'CALENDÁRIO P/ EQUIPE' header, 14 cal-header-* cells for 14 days, project cells rendered with project_code IT6-001 colored by status, legend + Legenda: label visible. ProjectDrawer (opened via add-carteira-button) has project-code-input which accepts input.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "GET /api/schedule/calendar", "issue": "No validation of ISO date format on start_date/end_date query params — invalid input (e.g. 'abc') would raise an unhandled ValueError from dt.fromisoformat(). Consider try/except returning 400."},
+      {"endpoint": "POST /api/materials/request", "issue": "No file-type validation on material_pdf/project_pdf. Any file (image, text, exe) with the .pdf name would be accepted and forwarded. Consider content_type check for 'application/pdf' + max size limit."},
+      {"endpoint": "GET /api/operacional/today", "issue": "Uses UTC 'today' — encarregado in America/Cuiaba (UTC-4) may see wrong day after 20:00 local. Consider using the scheduler's configured timezone (America/Cuiaba) for the date boundary."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "/calendario", "issues": ["formatCellDate uses month/day (jul/24 - sex) — pt-BR convention is usually day/month (24/jul). Cosmetic only."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration6.py",
+    "/app/test_reports/pytest/pytest_iteration6.xml",
+    "/app/test_reports/pytest/pytest_all_it6.xml"
+  ],
+  "action_items": [
+    "Optional: validate ISO date on /api/schedule/calendar query params (return 400 on bad format).",
+    "Optional: validate content-type='application/pdf' + size cap on /api/materials/request uploads.",
+    "Optional: switch /api/operacional/today to America/Cuiaba timezone to align with scheduler + local encarregado clock.",
+    "Optional: format calendar cell dates as DD/mmm (pt-BR) instead of mmm/DD."
+  ],
+  "critical_code_review_comments": [
+    "server.py has now grown to ~1200 lines — the split-into-routers recommendation from iteration 5 remains outstanding (auth, teams, projects, analytics, calendar, operacional, materials).",
+    "POST /api/materials/request reads full PDF bytes into memory then converts to list(int) for JSON serialisation to Resend. For large PDFs this doubles memory. Prefer base64 encoding: base64.b64encode(content).decode() per Resend docs — smaller, standard.",
+    "get_calendar_view: dt.fromisoformat(start_date) without try/except crashes on malformed input (500). Same in operacional/today (safe today) and calendar loops (protected).",
+    "CalendarioPage.jsx: When teamKey === 'unassigned' and hasAny is false, row is skipped. Good UX. But real teams with zero projects still render an empty row — could improve density by filtering, or add a 'compact' toggle.",
+    "SolicitacaoMaterialPage.jsx: no client-side PDF-only enforcement — although input has accept='application/pdf,.pdf', native accept is only a hint. Users can bypass with drag-drop. Add a File.type check before axios.post.",
+    "OperacionalPage.jsx: localStorage key 'operacional_checklists' is shared across all users — if two admins log in on the same browser their checklists collide. Namespace by user.id (e.g., `operacional_checklists_${user.id}`)."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iteration6.py (NEW — 11 tests, all PASS)"
+  ],
+  "success_rate": {"backend": "100% (61/61 pytest: 20 regression + 20 iter5 + 10 iter4 + 11 iter6)", "frontend": "100% (9/9 nav + operacional stats + checklist persistence + materiais form + calendar grid + project-code-input)"},
+  "test_credentials": "admin@projectmatrix.com / Admin@123 (verified via /app/memory/test_credentials.md).",
+  "seed_data_creation": "Created + auto-deleted TEST_It6 project (IT6-001), TEST_It6 NoCode via module-scoped fixture teardown. No orphan data left in DB.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Iteration 6: 61 pytest total (backend_test.py=20, test_new_features.py=10, test_iteration5.py=20, test_iteration6.py=11). Run with `REACT_APP_BACKEND_URL=<url> pytest backend/tests/ -n 0`. New iteration-6 endpoints all working: /api/schedule/calendar (14-day default matrix with unassigned bucket), /api/operacional/today (grouped by team_name), /api/materials/request (multipart with PDF attachments — returns {status:'skipped', attachments_count} when RESEND_API_KEY empty; 404 for bad project). Frontend: CarteiraPage opens ProjectDrawer via testid 'add-carteira-button' (NOT 'add-project-button'). ProjectDrawer includes 'project-code-input'. OperacionalPage checklists persist per-project in localStorage['operacional_checklists'] as {projectId: {hotline, shutdown, material, team}} — currently NOT namespaced per user (see code review). CalendarioPage renders 14 columns with 'CALENDÁRIO P/ EQUIPE' sticky first column, 'Sem equipe' row is auto-hidden when empty.",
+  "rca of the issue": "No bugs found in iteration 6. Backend & frontend fully aligned with spec. Only minor cosmetic + hardening suggestions listed above (input validation, timezone, per-user localStorage namespacing)."
+}

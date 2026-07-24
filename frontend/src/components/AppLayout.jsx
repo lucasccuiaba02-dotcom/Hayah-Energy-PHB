@@ -10,12 +10,18 @@ import {
   FileSpreadsheet,
   Users,
   LogOut,
+  Truck,
+  Package,
+  HardHat,
 } from 'lucide-react';
 
 const navItems = [
   { to: '/dashboard', icon: LayoutGrid, label: 'Dashboard', testid: 'nav-dashboard' },
+  { to: '/operacional', icon: HardHat, label: 'Operacional', testid: 'nav-operacional' },
   { to: '/carteira', icon: Briefcase, label: 'Carteira', testid: 'nav-carteira' },
   { to: '/programacao', icon: Calendar, label: 'Programação', testid: 'nav-programacao' },
+  { to: '/calendario', icon: Truck, label: 'Calendário', testid: 'nav-calendario' },
+  { to: '/materiais', icon: Package, label: 'Materiais', testid: 'nav-materiais' },
   { to: '/analise', icon: BarChart3, label: 'Análise', testid: 'nav-analise' },
   { to: '/relatorios', icon: FileSpreadsheet, label: 'Relatórios', testid: 'nav-relatorios' },
   { to: '/equipes', icon: Users, label: 'Equipes', testid: 'nav-equipes' },
