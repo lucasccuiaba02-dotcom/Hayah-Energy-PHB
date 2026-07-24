@@ -1,3 +1,4 @@
+/* global self, clients, caches */
 // Service Worker - Hayah Energy PWA
 const CACHE_NAME = 'hayah-v1';
 const OFFLINE_QUEUE_KEY = 'hayah_offline_queue';
