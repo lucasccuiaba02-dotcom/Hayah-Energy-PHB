@@ -24,7 +24,7 @@ const getStatusColor = (status) => {
 
 const formatCellDate = (isoDate) => {
   const d = new Date(isoDate + 'T00:00:00');
-  return `${MONTH_ABBR[d.getMonth()]}/${String(d.getDate()).padStart(2, '0')} - ${WEEKDAY_ABBR[d.getDay()]}`;
+  return `${String(d.getDate()).padStart(2, '0')}/${MONTH_ABBR[d.getMonth()]} - ${WEEKDAY_ABBR[d.getDay()]}`;
 };
 
 const addDays = (isoDate, days) => {

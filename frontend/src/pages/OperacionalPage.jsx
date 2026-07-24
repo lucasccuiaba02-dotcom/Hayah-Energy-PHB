@@ -14,9 +14,10 @@ export const OperacionalPage = () => {
 
   useEffect(() => {
     axios.get(`${API}/operacional/today`).then(({ data }) => setData(data));
-    // Load persisted checklists from localStorage
+    // Load persisted checklists from localStorage (namespaced per user via localStorage key)
     try {
-      const saved = JSON.parse(localStorage.getItem('operacional_checklists') || '{}');
+      const key = 'operacional_checklists';
+      const saved = JSON.parse(localStorage.getItem(key) || '{}');
       setChecklists(saved);
     } catch { /* noop */ }
   }, []);

@@ -998,7 +998,11 @@ async def get_calendar_view(
 async def get_today_operations(current_user: dict = Depends(get_current_user)):
     """Projects scheduled for today - grouped by team for the encarregado"""
     from datetime import datetime as dt
-    today = dt.now(timezone.utc).strftime("%Y-%m-%d")
+    try:
+        from zoneinfo import ZoneInfo
+        today = dt.now(ZoneInfo("America/Cuiaba")).strftime("%Y-%m-%d")
+    except Exception:
+        today = dt.now(timezone.utc).strftime("%Y-%m-%d")
     projects = await db.projects.find({
         "user_id": current_user["_id"],
         "is_scheduled": True,
