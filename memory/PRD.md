@@ -4,61 +4,61 @@
 Matriz de programação de projetos com equipes, datas, valores programados, meta diária e cores por status, para planejamento assertivo e visão estratégica no dia a dia.
 
 ## Stack
-- Frontend: React 18 + Tailwind + Shadcn + Framer Motion + Leaflet/react-leaflet + proj4 (PWA)
-- Backend: FastAPI + Motor (MongoDB) + APScheduler + pywebpush + ReportLab
-- Integrações: Resend (emails), Web Push VAPID, OSRM público (rota real)
-- Mapa: OpenStreetMap (grátis)
+- Frontend: React 18 + Tailwind + Shadcn + Framer Motion + Leaflet/react-leaflet + react-leaflet-cluster + proj4 (PWA)
+- Backend: FastAPI + Motor (MongoDB) + APScheduler + pywebpush + ReportLab + httpx
+- Integrações: Resend (email), Web Push VAPID, OSRM público (rota real), Nominatim OSM (geocoding via proxy backend)
+- Mapa: OpenStreetMap
 - CRS: SIRGAS 2000 / UTM Zone 21 South (Cuiabá/MT, EPSG:31981)
 
 ## Módulos entregues
-- Autenticação JWT + cookie fallback localStorage
+- Autenticação JWT + fallback localStorage
 - Carteira (CRUD + filtros + scroll horizontal com setinhas L/R)
-- Programação (matriz por data + filtros + histórico de remanejamento com motivo)
-- Análise (Recharts + filtros data+produção + Top 10 obras caras filtrado)
+- Programação (matriz + filtros + histórico de remanejamento com motivo)
+- Análise (Recharts + filtros data+produção + Top 10 obras caras filtrado por 4 status ativos)
 - Relatórios Excel
 - Operacional (checklist + fotos com marca d'água + QR + Diário de Obra PDF)
 - Solicitação de Material (upload PDF base64 + email)
-- Calendário (grid semanal 14 dias, cores por status, scroll horizontal com setinhas L/R)
-- **Geolocalização** (mapa Leaflet+OSM, pins por status, rota otimizada Nearest-Neighbor + rota real via OSRM)
+- Calendário (grid semanal 14 dias, cores por status, scroll horizontal com setinhas)
+- Geolocalização (mapa Leaflet+OSM, **cluster de obras**, **roteirização por equipe** com cores distintas, **export PDF** + **share WhatsApp**, rota real via OSRM)
 - Dashboard (métricas + filtros data+produção + banner Anexo IV D-2 + push toggle)
-- PWA offline (Service Worker + manifest + push handlers)
-- Cron jobs: 08:30 shutdown, 09:00 Anexo IV D-2 (email + push), 18:00 aviso do dia seguinte
+- PWA offline (SW + manifest + push handlers)
+- Cron jobs: 08:30 shutdown, 09:00 Anexo IV D-2, 18:00 aviso do dia seguinte
 
 ## Regras chave
-- `project_code` único por usuário (409 em duplicidade)
-- Reschedule: `old_start`, `new_start`, `reason` (frota/segurança/temporal/chuva/acesso), `changed_at`, `changed_by` — nunca sobrescrito
-- Fotos: marca d'água canvas (Código, Ponto, Data, UTM x/y ou Local)
-- Anexo IV: alerta D-2 diário via email Resend + Web Push + banner Dashboard
-- Diário de Obra: PDF ReportLab com checklist + fotos + observações
-- Top 10 obras mais caras: apenas status aguardando_programacao, aguardando_inicio, programado, em_execucao
+- `project_code` único por usuário (409)
+- Reschedule: gravado com motivo (frota/segurança/temporal/chuva/acesso) e nunca sobrescrito
+- Fotos com marca d'água canvas (Código, Ponto, Data, UTM/Local)
+- Top 10 mais caras: apenas aguardando_programacao, aguardando_inicio, programado, em_execucao
+- **Endereço → UTM**: busca via /api/geo/geocode (proxy Nominatim), converte lat/lng → UTM 21S automaticamente
+- **Cluster no mapa**: MarkerClusterGroup agrupa obras próximas
+- **Roteiro por equipe**: cada equipe recebe uma cor no mapa e um card com stops + botões PDF/WhatsApp
 
 ## Endpoints principais
 - POST/PUT/GET/DELETE /api/projects
-- GET /api/analytics/top-expensive (filtrado por 4 status ativos)
-- GET /api/geo/projects (com utm_x/utm_y)
-- GET /api/alerts/anexo-iv
-- POST /api/schedule/notify-tomorrow | /api/schedule/anexo-iv-reminder
+- GET /api/analytics/top-expensive (4 status ativos)
+- GET /api/geo/projects | GET /api/geo/geocode | POST /api/geo/route-pdf
+- GET /api/alerts/anexo-iv | POST /api/schedule/{notify-tomorrow,anexo-iv-reminder}
 - POST /api/operacional/photos/{project_id}
 - GET /api/operacional/daily-log/{project_id}?notes=... (PDF)
 - GET /api/push/vapid-key | POST /api/push/{subscribe,unsubscribe,test}
 
 ## Feito nesta iteração (Fev/2026)
-- HScroller: setinhas L/R + scroll horizontal customizado usado em Carteira e Calendário
-- Filtros de data + produção (min/max) no Dashboard aplicados aos stats
-- Filtros de data + produção (min/max) na Análise aplicados ao Top 10
-- Top 10 backend filtra por status aguardando_programacao/aguardando_inicio/programado/em_execucao
-- Endpoint /api/geo/projects retornando projetos com UTM
-- Página Geolocalização: mapa Leaflet+OSM, pins coloridos por status, rota Nearest-Neighbor local + rota real via OSRM público, botão "usar minha localização", origem default Cuiabá, links Google Maps por parada, distância/tempo estimados
-- Conversão UTM Zone 21 Sul → WGS84 via proj4 no frontend
-- Nav item "Geolocalização" na sidebar
+- **AddressSearchInput** (Nominatim via backend proxy) integrado no ProjectDrawer — auto-preenche UTM ao selecionar endereço
+- Backend proxy /api/geo/geocode com User-Agent (respeita política do Nominatim)
+- Roteirização **por equipe** com cor distinta por rota, cards de itinerário
+- Export **PDF do roteiro** (`/api/geo/route-pdf` + ReportLab) — botão por equipe
+- **Compartilhamento WhatsApp** via wa.me com lista de paradas + links Google Maps
+- **Cluster de obras** no mapa via react-leaflet-cluster (MarkerClusterGroup) com estilo Hayah
+- Testing agent iter11: **100% backend, 100% frontend após proxy Nominatim**
 
 ## Backlog (P1/P2)
-- Split completo de server.py em routers separados
+- Split completo de server.py em routers
 - Fotos em GridFS
-- Otimização TSP melhorada (2-opt sobre Nearest-Neighbor)
-- Cache de rotas OSRM
+- Otimização TSP 2-opt sobre Nearest-Neighbor
+- Cache de rotas OSRM no backend
 - Índice em `start_date` no Mongo
-- send_push só remove em 404/410
+- Rate-limit de /api/geo/geocode (1 req/s por usuário)
+- Envio WhatsApp via API oficial (WhatsApp Business API) em vez de wa.me link
 
 ## Credenciais
 Ver `/app/memory/test_credentials.md`.

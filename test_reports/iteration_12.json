@@ -1,0 +1,33 @@
+{
+  "summary": "Iter12 retest do proxy /api/geo/geocode (Photon primário + Nominatim fallback, filtro BR, sem lang=pt). Backend 10/10 pytest passando: geocode Cuiaba/Cuiaba MT/Varzea Grande MT/Rondonopolis MT/Praca Republica Cuiaba retornam >=1 result cada com display/lat/lng preenchidos; latitude para 'Cuiaba MT' bem dentro de MT (-15.598, -56.099); q<3 chars retorna [] rápido; endpoint exige auth (401 sem token); regressão /api/geo/projects e POST /api/geo/route-pdf 200 OK (application/pdf, %PDF magic). Frontend ProjectDrawer end-to-end validado: digitar 'Cuiaba MT' em project-address-search-input popula project-address-search-results com 5 itens; clicar no primeiro (Cuiabá, MT) preenche project-utm-x-input=596579 e project-utm-y-input=8275253 (numéricos, 6 e 7 dígitos, faixa correta zona 21S). Bug de iter11 (Nominatim 403/Failed to fetch) resolvido pelo backend proxy.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration12.py",
+    "/app/test_reports/pytest/iter12_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "server.py 1694 linhas — ainda seria bom modular (rotas de /geo/*, /projects/*, /schedule/* em routers separados), não bloqueante.",
+    "geo_geocode: bom uso de httpx async, User-Agent identificando app, timeout 8s, filtro por country=BR. Sugestão: log estruturado dos hits/misses de Photon vs fallback para observabilidade.",
+    "Fallback Nominatim continua enviando countrycodes=br (correto) mas o UA ainda pode ser rate-limited em produção — considerar cache LRU (curto TTL, ex.: 60s) por q normalizada para reduzir chamadas externas.",
+    "AddressSearchInput debounce 450ms + AbortController: bom padrão."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iteration12.py"
+  ],
+  "success_rate": { "backend": "100% (10/10)", "frontend": "100% (fluxo address-search->UTM validado end-to-end)" },
+  "test_credentials": "admin@projectmatrix.com / Admin@123",
+  "seed_data_creation": "Nenhuma; drawer foi aberto mas não foi salvo projeto.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Proxy geocode via Photon funciona no ambiente de preview (Nominatim direto bloqueia 429). Backend testes em /app/backend/tests/test_iteration12.py cobrem 5 queries, faixa lat/lng MT, guard clause <3 chars, auth 401, regressão /api/geo/projects e route-pdf. Frontend: fluxo ProjectDrawer address search -> UTM auto-fill validado (Cuiabá -> 596579/8275253). Regressão iter11 (Anexo IV banner, HScroller, filtros Dashboard/Análise, Top 10) não foi re-executada porque não teve alteração nesta iteração; se necessário retestar, ver test_iteration11.py e iter10.",
+  "rca of the issue": "Iter11 tinha Nominatim direto retornando 429/403 no ambiente. Fix: backend proxy /api/geo/geocode agora chama Photon (photon.komoot.io) primeiro (sem parâmetro lang, apenas q+limit) filtrando resultados por country=BR, com Nominatim como fallback. Confirmado por 10 testes pytest verdes e Playwright end-to-end preenchendo UTM a partir da seleção."
+}

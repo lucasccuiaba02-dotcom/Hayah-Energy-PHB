@@ -27,26 +27,28 @@ export function latLngToUtm21s(lat, lng) {
 }
 
 /**
- * Nominatim geocoding (OpenStreetMap). Free — rate limit 1 req/s.
- * Restringido para Brasil.
+ * Geocoding via backend proxy (Nominatim OSM).
+ * Backend adiciona User-Agent conforme política de uso e evita CORS.
  */
 export async function geocodeAddress(query, { limit = 5, signal } = {}) {
   if (!query || query.trim().length < 3) return [];
-  const url = `https://nominatim.openstreetmap.org/search?format=json&addressdetails=1&limit=${limit}&countrycodes=br&q=${encodeURIComponent(query)}`;
+  const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
+  const url = `${BACKEND_URL}/api/geo/geocode?q=${encodeURIComponent(query)}&limit=${limit}`;
   try {
+    // Reuse axios auth if available; fall back to fetch with credentials
     const res = await fetch(url, {
-      headers: { 'Accept': 'application/json', 'Accept-Language': 'pt-BR' },
+      credentials: 'include',
+      headers: { 'Authorization': `Bearer ${localStorage.getItem('token') || ''}` },
       signal,
     });
     if (!res.ok) return [];
     const data = await res.json();
     return data.map((it) => ({
-      display: it.display_name,
+      display: it.display,
       lat: parseFloat(it.lat),
-      lng: parseFloat(it.lon),
-      city: it.address?.city || it.address?.town || it.address?.village || it.address?.municipality || '',
-      state: it.address?.state || '',
-      raw: it,
+      lng: parseFloat(it.lng),
+      city: it.city || '',
+      state: it.state || '',
     }));
   } catch { return []; }
 }

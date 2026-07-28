@@ -1322,6 +1322,93 @@ async def geo_route_pdf(body: RoutePdfBody, current_user: dict = Depends(get_cur
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
 
+@api_router.get("/geo/geocode")
+async def geo_geocode(q: str = "", limit: int = 5, current_user: dict = Depends(get_current_user)):
+    """Proxy geocoding — uses Photon (Komoot, OSM-based) primary + Nominatim fallback.
+    Photon has more generous rate limits and works well from shared IPs.
+    """
+    q = (q or "").strip()
+    if len(q) < 3:
+        return []
+    import httpx
+    lim = max(1, min(limit, 10))
+    headers = {
+        "User-Agent": "HayahEnergy/1.0 (matriz-programacao; contato@hayahenergy.com.br)",
+        "Accept-Language": "pt-BR",
+        "Accept": "application/json",
+    }
+
+    # Try Photon first (Komoot). Não aceita lang=pt — remover.
+    try:
+        photon_url = "https://photon.komoot.io/api/"
+        photon_params = {"q": q, "limit": lim}
+        async with httpx.AsyncClient(timeout=8.0) as http:
+            r = await http.get(photon_url, params=photon_params, headers=headers)
+        if r.status_code == 200:
+            gj = r.json()
+            out = []
+            for f in (gj.get("features") or []):
+                geom = f.get("geometry") or {}
+                if geom.get("type") != "Point":
+                    continue
+                coords = geom.get("coordinates") or []
+                if len(coords) < 2:
+                    continue
+                props = f.get("properties") or {}
+                # Filtra Brasil apenas
+                cc = (props.get("countrycode") or "").upper()
+                country = (props.get("country") or "").lower()
+                if cc and cc != "BR":
+                    continue
+                if not cc and country and country not in ("brasil", "brazil"):
+                    continue
+                street = props.get("street") or ""
+                number = props.get("housenumber") or ""
+                name = props.get("name") or ""
+                city = props.get("city") or props.get("locality") or props.get("town") or props.get("village") or props.get("county") or ""
+                state = props.get("state") or ""
+                country_name = props.get("country") or ""
+                street_part = f"{street}{(', '+number) if number else ''}" if street else ""
+                pieces = [p for p in [street_part or name, city, state, country_name] if p]
+                display = ", ".join(pieces) if pieces else name or f"{coords[1]:.5f}, {coords[0]:.5f}"
+                out.append({
+                    "display": display,
+                    "lat": float(coords[1]),
+                    "lng": float(coords[0]),
+                    "city": city,
+                    "state": state,
+                })
+            if out:
+                return out[:lim]
+        else:
+            logger.warning(f"Photon {r.status_code}: {r.text[:150]}")
+    except Exception as e:
+        logger.warning(f"Photon geocode error: {e}")
+
+    # Nominatim fallback
+    try:
+        nom_url = "https://nominatim.openstreetmap.org/search"
+        nom_params = {"q": q, "format": "json", "addressdetails": 1, "limit": lim, "countrycodes": "br"}
+        async with httpx.AsyncClient(timeout=8.0) as http:
+            r = await http.get(nom_url, params=nom_params, headers=headers)
+        if r.status_code == 200:
+            data = r.json()
+            out = []
+            for it in data:
+                addr = it.get("address") or {}
+                out.append({
+                    "display": it.get("display_name", ""),
+                    "lat": float(it.get("lat", 0)),
+                    "lng": float(it.get("lon", 0)),
+                    "city": addr.get("city") or addr.get("town") or addr.get("village") or addr.get("municipality") or "",
+                    "state": addr.get("state") or "",
+                })
+            return out
+        logger.warning(f"Nominatim {r.status_code}")
+    except Exception as e:
+        logger.warning(f"Nominatim fallback error: {e}")
+    return []
+
 # Configuração exposta ao frontend
 @api_router.get("/config")
 async def get_config():
