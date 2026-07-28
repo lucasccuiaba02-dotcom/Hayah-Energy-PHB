@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import axios from 'axios';
 import { AppLayout } from '../components/AppLayout';
+import { HScroller } from '../components/HScroller';
 import { ChevronLeft, ChevronRight, Zap, AlertTriangle } from 'lucide-react';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
@@ -108,7 +109,7 @@ export const CalendarioPage = () => {
           data-testid="calendar-grid"
           className="glass-panel rounded-2xl overflow-hidden"
         >
-          <div className="hscroll-fancy">
+          <HScroller step={400} testid="calendario-hscroll">
             <table className="w-full border-collapse min-w-max">
               <thead>
                 <tr className="border-b border-white/10">
@@ -175,7 +176,7 @@ export const CalendarioPage = () => {
                 })}
               </tbody>
             </table>
-          </div>
+          </HScroller>
         </motion.div>
       )}
     </AppLayout>

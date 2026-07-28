@@ -1,9 +1,9 @@
 import React from 'react';
 import { motion } from 'framer-motion';
-import { X, Calendar as CalendarIcon, Users } from 'lucide-react';
+import { X, Calendar as CalendarIcon, Users, DollarSign } from 'lucide-react';
 
-export const ProjectFilters = ({ filters, onChange, teams, onReset }) => {
-  const hasFilters = filters.startDate || filters.endDate || filters.teamId;
+export const ProjectFilters = ({ filters, onChange, teams, onReset, showValueFilter = false }) => {
+  const hasFilters = filters.startDate || filters.endDate || filters.teamId || filters.minValue || filters.maxValue;
 
   return (
     <motion.div
@@ -54,6 +54,29 @@ export const ProjectFilters = ({ filters, onChange, teams, onReset }) => {
             ))}
           </select>
         </div>
+
+        {showValueFilter && (
+          <div className="flex items-center gap-2">
+            <DollarSign className="w-4 h-4 text-zinc-500" />
+            <input
+              data-testid="filter-min-value"
+              type="number"
+              placeholder="Prog. mín"
+              value={filters.minValue || ''}
+              onChange={(e) => onChange({ ...filters, minValue: e.target.value })}
+              className="bg-zinc-950/90 border border-white/10 rounded-lg px-3 py-2 text-sm text-white w-28 focus:border-[#39FF14] focus:outline-none font-mono"
+            />
+            <span className="text-zinc-600">→</span>
+            <input
+              data-testid="filter-max-value"
+              type="number"
+              placeholder="Prog. máx"
+              value={filters.maxValue || ''}
+              onChange={(e) => onChange({ ...filters, maxValue: e.target.value })}
+              className="bg-zinc-950/90 border border-white/10 rounded-lg px-3 py-2 text-sm text-white w-28 focus:border-[#39FF14] focus:outline-none font-mono"
+            />
+          </div>
+        )}
 
         {hasFilters && (
           <button

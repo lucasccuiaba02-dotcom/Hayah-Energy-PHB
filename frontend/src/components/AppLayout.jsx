@@ -13,6 +13,7 @@ import {
   Truck,
   Package,
   HardHat,
+  Map,
 } from 'lucide-react';
 
 const navItems = [
@@ -21,6 +22,7 @@ const navItems = [
   { to: '/carteira', icon: Briefcase, label: 'Carteira', testid: 'nav-carteira' },
   { to: '/programacao', icon: Calendar, label: 'Programação', testid: 'nav-programacao' },
   { to: '/calendario', icon: Truck, label: 'Calendário', testid: 'nav-calendario' },
+  { to: '/geolocalizacao', icon: Map, label: 'Geolocalização', testid: 'nav-geolocalizacao' },
   { to: '/materiais', icon: Package, label: 'Materiais', testid: 'nav-materiais' },
   { to: '/analise', icon: BarChart3, label: 'Análise', testid: 'nav-analise' },
   { to: '/relatorios', icon: FileSpreadsheet, label: 'Relatórios', testid: 'nav-relatorios' },

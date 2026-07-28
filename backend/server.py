@@ -1265,17 +1265,27 @@ async def morning_shutdown_check_job():
     </div>"""
     await send_email_via_resend(recipients, f"[HAYAH] ⚠️ {len(pending)} checklist(s) de segurança pendente(s)", html)
 
-# Top 10 mais caras
+# Top 10 mais caras (filtro: aguardando_programacao, aguardando_inicio, programado, em_execucao)
 @api_router.get("/analytics/top-expensive")
 async def top_expensive_projects(current_user: dict = Depends(get_current_user)):
-    excluded = ["concluido", "cancelado", "executada"]
+    allowed = ["aguardando_programacao", "aguardando_inicio", "programado", "em_execucao"]
     projects = await db.projects.find({
         "user_id": current_user["_id"],
-        "execution_status": {"$nin": excluded},
+        "execution_status": {"$in": allowed},
     }).to_list(2000)
     projects.sort(key=lambda p: p.get("programmed_value", 0), reverse=True)
     top = projects[:10]
     return [build_project_response(p).model_dump() for p in top]
+
+# Geolocalização: retorna todos os projetos com utm_x/utm_y não vazios
+@api_router.get("/geo/projects")
+async def geo_projects(current_user: dict = Depends(get_current_user)):
+    projects = await db.projects.find({
+        "user_id": current_user["_id"],
+        "utm_x": {"$nin": ["", None]},
+        "utm_y": {"$nin": ["", None]},
+    }).to_list(2000)
+    return [build_project_response(p).model_dump() for p in projects]
 
 # Configuração exposta ao frontend
 @api_router.get("/config")

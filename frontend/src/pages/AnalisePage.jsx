@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { motion } from 'framer-motion';
 import axios from 'axios';
 import { AppLayout } from '../components/AppLayout';
@@ -32,7 +32,7 @@ export const AnalisePage = () => {
   const [analytics, setAnalytics] = useState(null);
   const [advanced, setAdvanced] = useState(null);
   const [teams, setTeams] = useState([]);
-  const [filters, setFilters] = useState({ startDate: '', endDate: '', teamId: '' });
+  const [filters, setFilters] = useState({ startDate: '', endDate: '', teamId: '', minValue: '', maxValue: '' });
   const [topExpensive, setTopExpensive] = useState([]);
 
   useEffect(() => {
@@ -40,6 +40,21 @@ export const AnalisePage = () => {
     axios.get(`${API}/analytics/advanced`).then(({ data }) => setAdvanced(data));
     axios.get(`${API}/analytics/top-expensive`).then(({ data }) => setTopExpensive(data)).catch(() => {});
   }, []);
+
+  const filteredTop = useMemo(() => {
+    const minV = parseFloat(filters.minValue);
+    const maxV = parseFloat(filters.maxValue);
+    return topExpensive.filter((p) => {
+      if (filters.teamId && p.team_id !== filters.teamId) return false;
+      const ps = (p.start_date || '').slice(0, 10);
+      if (filters.startDate && ps && ps < filters.startDate) return false;
+      if (filters.endDate && ps && ps > filters.endDate) return false;
+      const v = p.programmed_value || 0;
+      if (!isNaN(minV) && v < minV) return false;
+      if (!isNaN(maxV) && v > maxV) return false;
+      return true;
+    });
+  }, [topExpensive, filters]);
 
   useEffect(() => {
     const params = new URLSearchParams();
@@ -55,7 +70,8 @@ export const AnalisePage = () => {
         filters={filters}
         onChange={setFilters}
         teams={teams}
-        onReset={() => setFilters({ startDate: '', endDate: '', teamId: '' })}
+        onReset={() => setFilters({ startDate: '', endDate: '', teamId: '', minValue: '', maxValue: '' })}
+        showValueFilter={true}
       />
 
       {/* Monthly Production */}
@@ -262,14 +278,16 @@ export const AnalisePage = () => {
             <p className="text-xs text-zinc-500 mt-1">Ativas (excluindo concluídas e canceladas)</p>
           </div>
           <span className="px-3 py-1 rounded-full text-xs font-bold bg-[#E0FF00]/15 border border-[#E0FF00]/40 text-[#E0FF00]">
-            {topExpensive.length} obra{topExpensive.length !== 1 ? 's' : ''}
+            {filteredTop.length} obra{filteredTop.length !== 1 ? 's' : ''}
           </span>
         </div>
         {topExpensive.length === 0 ? (
           <div className="h-32 flex items-center justify-center text-zinc-600 text-sm">Sem obras ativas.</div>
+        ) : filteredTop.length === 0 ? (
+          <div className="h-32 flex items-center justify-center text-zinc-600 text-sm">Nenhuma obra dentro dos filtros.</div>
         ) : (
           <div className="space-y-2">
-            {topExpensive.map((p, i) => (
+            {filteredTop.map((p, i) => (
               <div key={p.id} data-testid={`top-expensive-${i}`} className="flex items-center gap-3 rounded-xl p-3 bg-white/[0.02] border border-white/10 hover:border-[#E0FF00]/40 transition-all">
                 <div className="w-10 h-10 rounded-lg flex items-center justify-center font-mono text-lg font-bold flex-shrink-0"
                   style={{

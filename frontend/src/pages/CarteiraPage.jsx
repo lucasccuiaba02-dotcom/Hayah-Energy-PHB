@@ -5,6 +5,7 @@ import { toast } from 'sonner';
 import { Plus, Edit2, Trash2, MapPin, Calendar as CalIcon, Search } from 'lucide-react';
 import { AppLayout } from '../components/AppLayout';
 import { ProjectDrawer } from '../components/ProjectDrawer';
+import { HScroller } from '../components/HScroller';
 import { PROJECT_TYPE_LABEL, MATERIAL_STATUS_LABEL, formatCurrency } from '../lib/constants';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
@@ -160,7 +161,7 @@ export const CarteiraPage = () => {
       )}
 
       <div className="glass-panel rounded-2xl overflow-hidden">
-        <div className="hscroll-fancy">
+        <HScroller step={400} testid="carteira-hscroll">
           <table className="w-full min-w-[900px]">
             <thead>
               <tr className="border-b border-white/5">
@@ -238,7 +239,7 @@ export const CarteiraPage = () => {
               )}
             </tbody>
           </table>
-        </div>
+        </HScroller>
       </div>
 
       <ProjectDrawer

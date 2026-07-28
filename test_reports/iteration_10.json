@@ -1,0 +1,29 @@
+{
+  "summary": "Iteration 10 tests for Hayah Energy - 7 novos pedidos: HScroll (Carteira/Calendario), filtros de valor no Dashboard/Analise, Top 10 status filter, /api/geo/projects, Geolocalização (Leaflet+OSM+OSRM+proj4 UTM21S). Backend 5/5 pytest OK. Frontend: filtros, badge 'Filtros ativos', navegação, mapa Leaflet, otimização Nearest-Neighbor e OSRM real (15.7 km / 22 min) todos funcionando. UTM->latlng converte corretamente para região Cuiabá (markers plotados dentro dos bounds -16..-15 lat / -57..-55 lng).",
+  "backend_issues": { "critical": [], "minor": [] },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration10.py",
+    "/app/test_reports/pytest/iter10_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "server.py está com >1500 linhas — considerar split em módulos (auth, projects, geo, analytics, schedule, ops) para manutenibilidade. Não bloqueante.",
+    "GeolocalizacaoPage: state 'active' filtra por default; se usuário criar UTM com status concluido/cancelado, não aparece — comportamento é intencional mas convém tornar explícito no UI (label 'Apenas ativas' já cumpre).",
+    "HScroller: quando não há overflow os botões ficam disabled (opacity 0 + pointer-events none). O teste verificou que o clique com force=True não altera scrollLeft com poucos dados — comportamento correto."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iteration10.py"
+  ],
+  "success_rate": { "backend": "100%", "frontend": "100%" },
+  "test_credentials": "admin@projectmatrix.com / Admin@123 (from /app/memory/test_credentials.md)",
+  "seed_data_creation": "3 UTM projects seeded via /api/projects (utm_x/y around Cuiabá) then deleted at teardown. Backend test creates 6 status projects + 3 UTM projects + reschedule + duplicate-code projects, all cleaned up via module teardown fixture (delete by id).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Iteration 10 validated: (a) GET /api/analytics/top-expensive filters strictly to allowed statuses [aguardando_programacao, aguardando_inicio, programado, em_execucao]; (b) GET /api/geo/projects returns only rows with utm_x AND utm_y non-empty; (c) ProjectFilters min/max value working on Dashboard + Análise with 'Filtros ativos' badge and 'obras filtradas' subtitle; (d) HScroller present with testid-viewport/-prev/-next in Carteira & Calendario; (e) Geolocalização page renders Leaflet+OSM (18 tiles), optimize-simple creates geo-stop-* entries, OSRM real route returned 15.7km/22min (public router not rate-limited in this environment), proj4 UTM21S->latlng lands markers over Cuiabá city (visual). All 5 pytest tests pass. Fresh seed each time is required for Geolocalização if teardown removed data.",
+  "rca of the issue": "N/A — no failures."
+}
