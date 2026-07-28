@@ -29,13 +29,20 @@ api_router = APIRouter(prefix="/api")
 
 JWT_ALGORITHM = "HS256"
 
-# Project type labels (Hayah Energy specific)
+# Project type labels (Hayah Energy specific) - Iteração 8
 PROJECT_TYPE_LABELS = {
     "anexo_iv": "ANEXO IV",
     "po": "P.O",
     "nivel_tensao": "Nível de Tensão",
     "seguranca": "Segurança",
     "particular": "Particular",
+    "auditoria": "AUDITORIA",
+    "judicial": "JUDICIAL",
+    "diretoria": "DIRETORIA",
+}
+
+# Tipos de serviço (usado ao programar)
+TIPO_SERVICO_LABELS = {
     "extensao_rede_bt": "Extensão de Rede BT",
     "extensao_rede_mt": "Extensão de Rede MT",
     "extensao_rede_monofasica_rural": "Extensão Rede Monofásica Rural",
@@ -45,13 +52,30 @@ PROJECT_TYPE_LABELS = {
     "troca_trafo_tri": "Troca Trafo Tri",
 }
 
+# Municípios da região Hayah
+MUNICIPIOS = [
+    "CUIABÁ",
+    "VÁRZEA GRANDE",
+    "SANTO ANTÔNIO DO LEVERGER",
+    "ROSÁRIO OESTE",
+    "ACORIZAL",
+    "BARÃO DO MELGAÇO",
+    "POCONÉ",
+    "NOSSA SENHORA DO LIVRAMENTO",
+    "CHAPADA DOS GUIMARÃES",
+]
+
 EXECUTION_STATUS_LABELS = {
-    "aguardando_inicio": "Aguardando Início",
+    "aguardando_programacao": "Aguardando Programação",
     "programado": "Programado",
     "em_execucao": "Em Execução",
+    "executada": "Executada",
     "concluido": "Concluído",
+    "suspenso": "Suspenso",
     "cancelado": "Cancelado",
 }
+
+RESCHEDULE_REASONS = ["frota", "seguranca", "temporal", "chuva", "acesso", "outro"]
 
 def safe_object_id(id_str: str) -> ObjectId:
     """Convert string to ObjectId, raise 404 if invalid."""
@@ -138,6 +162,7 @@ class TeamResponse(BaseModel):
 class ProjectCreate(BaseModel):
     name: str
     project_code: str = ""
+    tipo_servico: str = ""
     team_id: Optional[str] = None
     team_name: Optional[str] = None
     start_date: Optional[str] = ""
@@ -155,12 +180,17 @@ class ProjectCreate(BaseModel):
     labor_cost: float = 0.0
     material_cost: float = 0.0
     material_status: str = "pending"
-    execution_status: str = "aguardando_inicio"
+    execution_status: str = "aguardando_programacao"
     is_scheduled: bool = False
+    utm_x: str = ""
+    utm_y: str = ""
+    received_date: str = ""
+    expiry_date: str = ""
 
 class ProjectUpdate(BaseModel):
     name: Optional[str] = None
     project_code: Optional[str] = None
+    tipo_servico: Optional[str] = None
     team_id: Optional[str] = None
     team_name: Optional[str] = None
     start_date: Optional[str] = None
@@ -180,11 +210,17 @@ class ProjectUpdate(BaseModel):
     material_status: Optional[str] = None
     execution_status: Optional[str] = None
     is_scheduled: Optional[bool] = None
+    utm_x: Optional[str] = None
+    utm_y: Optional[str] = None
+    received_date: Optional[str] = None
+    expiry_date: Optional[str] = None
+    reschedule_reason: Optional[str] = None  # Motivo do remanejamento
 
 class ProjectResponse(BaseModel):
     id: str
     name: str
     project_code: str = ""
+    tipo_servico: str = ""
     team_id: Optional[str] = None
     team_name: Optional[str] = None
     start_date: str
@@ -202,8 +238,13 @@ class ProjectResponse(BaseModel):
     labor_cost: float = 0.0
     material_cost: float = 0.0
     material_status: str = "pending"
-    execution_status: str = "aguardando_inicio"
+    execution_status: str = "aguardando_programacao"
     is_scheduled: bool = False
+    utm_x: str = ""
+    utm_y: str = ""
+    received_date: str = ""
+    expiry_date: str = ""
+    reschedule_history: List[dict] = Field(default_factory=list)
     created_at: str
 
 class DashboardStats(BaseModel):
@@ -358,6 +399,7 @@ def build_project_response(project: dict) -> ProjectResponse:
         id=str(project["_id"]),
         name=project["name"],
         project_code=project.get("project_code", ""),
+        tipo_servico=project.get("tipo_servico", ""),
         team_id=project.get("team_id"),
         team_name=project.get("team_name"),
         start_date=project.get("start_date", ""),
@@ -375,27 +417,43 @@ def build_project_response(project: dict) -> ProjectResponse:
         labor_cost=project.get("labor_cost", 0.0),
         material_cost=project.get("material_cost", 0.0),
         material_status=project.get("material_status", "pending"),
-        execution_status=project.get("execution_status", "aguardando_inicio"),
+        execution_status=project.get("execution_status", "aguardando_programacao"),
         is_scheduled=project.get("is_scheduled", False),
+        utm_x=project.get("utm_x", ""),
+        utm_y=project.get("utm_y", ""),
+        received_date=project.get("received_date", ""),
+        expiry_date=project.get("expiry_date", ""),
+        reschedule_history=project.get("reschedule_history", []),
         created_at=project["created_at"].isoformat() if hasattr(project["created_at"], 'isoformat') else project["created_at"],
     )
 
 # Project Routes
 @api_router.post("/projects", response_model=ProjectResponse)
 async def create_project(project_data: ProjectCreate, current_user: dict = Depends(get_current_user)):
+    # Uniqueness check for project_code (per user)
+    if project_data.project_code and project_data.project_code.strip():
+        existing = await db.projects.find_one({
+            "user_id": current_user["_id"],
+            "project_code": project_data.project_code.strip(),
+        })
+        if existing:
+            raise HTTPException(
+                status_code=409,
+                detail=f"Já existe uma obra cadastrada com o código {project_data.project_code}"
+            )
+    
     project_doc = {
         **project_data.model_dump(),
         "created_at": datetime.now(timezone.utc),
         "user_id": current_user["_id"]
     }
     # Auto-set execution_status when scheduling
-    if project_doc.get("is_scheduled") and project_doc.get("execution_status") == "aguardando_inicio":
+    if project_doc.get("is_scheduled") and project_doc.get("execution_status") == "aguardando_programacao":
         project_doc["execution_status"] = "programado"
     
     result = await db.projects.insert_one(project_doc)
     project_doc["_id"] = result.inserted_id
     
-    # Fire email notification (fire-and-forget) if project is being scheduled
     if project_doc.get("is_scheduled"):
         recipients_str = os.environ.get("NOTIFICATION_EMAILS", "")
         recipients = [e.strip() for e in recipients_str.split(",") if e.strip()]
@@ -445,9 +503,46 @@ async def get_project(project_id: str, current_user: dict = Depends(get_current_
 
 @api_router.put("/projects/{project_id}", response_model=ProjectResponse)
 async def update_project(project_id: str, project_data: ProjectUpdate, current_user: dict = Depends(get_current_user)):
-    update_data = {k: v for k, v in project_data.model_dump().items() if v is not None}
+    existing = await db.projects.find_one({"_id": safe_object_id(project_id), "user_id": current_user["_id"]})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Project not found")
+    
+    payload = project_data.model_dump()
+    reschedule_reason = payload.pop("reschedule_reason", None)
+    update_data = {k: v for k, v in payload.items() if v is not None}
     if not update_data:
         raise HTTPException(status_code=400, detail="No fields to update")
+    
+    # Check for duplicate project_code if being changed
+    new_code = update_data.get("project_code", "").strip() if update_data.get("project_code") is not None else None
+    if new_code and new_code != existing.get("project_code", ""):
+        dup = await db.projects.find_one({
+            "user_id": current_user["_id"],
+            "project_code": new_code,
+            "_id": {"$ne": safe_object_id(project_id)},
+        })
+        if dup:
+            raise HTTPException(status_code=409, detail=f"Já existe uma obra com o código {new_code}")
+    
+    # Track reschedule history when dates change
+    old_start = existing.get("start_date", "")
+    old_end = existing.get("end_date", "")
+    new_start = update_data.get("start_date", old_start)
+    new_end = update_data.get("end_date", old_end)
+    if existing.get("is_scheduled") and (new_start != old_start or new_end != old_end) and old_start:
+        history_entry = {
+            "old_start": old_start,
+            "old_end": old_end,
+            "new_start": new_start,
+            "new_end": new_end,
+            "reason": reschedule_reason or "outro",
+            "changed_at": datetime.now(timezone.utc).isoformat(),
+            "changed_by": current_user.get("name", ""),
+        }
+        await db.projects.update_one(
+            {"_id": safe_object_id(project_id)},
+            {"$push": {"reschedule_history": history_entry}}
+        )
     
     result = await db.projects.update_one(
         {"_id": safe_object_id(project_id), "user_id": current_user["_id"]},
@@ -1028,6 +1123,29 @@ async def morning_shutdown_check_job():
       <p style="color:#71717a;font-size:11px;margin-top:24px;">HAYAH ENERGY — Sistema de Segurança Operacional</p>
     </div>"""
     await send_email_via_resend(recipients, f"[HAYAH] ⚠️ {len(pending)} checklist(s) de segurança pendente(s)", html)
+
+# Top 10 mais caras
+@api_router.get("/analytics/top-expensive")
+async def top_expensive_projects(current_user: dict = Depends(get_current_user)):
+    excluded = ["concluido", "cancelado", "executada"]
+    projects = await db.projects.find({
+        "user_id": current_user["_id"],
+        "execution_status": {"$nin": excluded},
+    }).to_list(2000)
+    projects.sort(key=lambda p: p.get("programmed_value", 0), reverse=True)
+    top = projects[:10]
+    return [build_project_response(p).model_dump() for p in top]
+
+# Configuração exposta ao frontend
+@api_router.get("/config")
+async def get_config():
+    return {
+        "project_types": PROJECT_TYPE_LABELS,
+        "tipo_servico": TIPO_SERVICO_LABELS,
+        "municipios": MUNICIPIOS,
+        "execution_status": EXECUTION_STATUS_LABELS,
+        "reschedule_reasons": RESCHEDULE_REASONS,
+    }
 
 # Calendar view (matriz por equipe x data)
 @api_router.get("/schedule/calendar")

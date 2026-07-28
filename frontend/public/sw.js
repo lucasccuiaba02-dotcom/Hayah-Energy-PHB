@@ -8,7 +8,7 @@ self.addEventListener('install', (event) => {
 });
 
 self.addEventListener('activate', (event) => {
-  event.waitUntil(clients.claim());
+  event.waitUntil(self.clients.claim());
 });
 
 // Network-first strategy for API, cache-first for static assets
@@ -47,7 +47,7 @@ self.addEventListener('sync', (event) => {
 
 async function syncOfflineQueue() {
   try {
-    const clients_list = await clients.matchAll();
+    const clients_list = await self.clients.matchAll();
     clients_list.forEach((c) => c.postMessage({ type: 'SYNC_REQUEST' }));
   } catch (e) {
     console.error('Sync error', e);
