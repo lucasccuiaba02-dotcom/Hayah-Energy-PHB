@@ -1008,6 +1008,77 @@ async def trigger_tomorrow_email(current_user: dict = Depends(get_current_user))
     await daily_scheduled_email_job()
     return {"status": "triggered"}
 
+# Anexo IV D-2 reminder
+async def anexo_iv_reminder_job():
+    """Runs daily at 09:00 America/Cuiaba - alerts Anexo IV projects starting in 2 days"""
+    from datetime import timedelta as td
+    target = (datetime.now(timezone.utc) + td(days=2)).strftime("%Y-%m-%d")
+    projects = await db.projects.find({
+        "project_type": "anexo_iv",
+        "is_scheduled": True,
+        "start_date": {"$regex": f"^{target}"},
+        "execution_status": {"$nin": ["concluido", "cancelado", "executada"]},
+    }).to_list(500)
+    if not projects:
+        logger.info(f"Anexo IV reminder: no projects for {target}")
+        return
+    recipients_str = os.environ.get("NOTIFICATION_EMAILS", "")
+    recipients = [e.strip() for e in recipients_str.split(",") if e.strip()]
+    rows = ""
+    for p in projects:
+        rows += f"""
+        <tr>
+          <td style="padding:10px;border-bottom:1px solid #333;color:#fff;">{p.get('project_code','') or '-'}</td>
+          <td style="padding:10px;border-bottom:1px solid #333;color:#fff;">{p.get('name','')}</td>
+          <td style="padding:10px;border-bottom:1px solid #333;color:#a1a1aa;">{p.get('team_name','') or '-'}</td>
+          <td style="padding:10px;border-bottom:1px solid #333;color:#a1a1aa;">{p.get('location','') or '-'}</td>
+          <td style="padding:10px;border-bottom:1px solid #333;color:#FF5E00;">{(p.get('start_date') or '')[:10]}</td>
+        </tr>
+        """
+    html = f"""
+    <div style="font-family:Arial,sans-serif;max-width:720px;margin:0 auto;background:#050505;color:#fff;padding:24px;">
+      <h1 style="color:#E0FF00;margin:0;">HAYAH ENERGY</h1>
+      <h2 style="color:#FF5E00;margin:8px 0 16px;">⚠️ LEMBRETE ANEXO IV — 2 DIAS ATÉ EXECUÇÃO ({target})</h2>
+      <p style="color:#a1a1aa;font-size:13px;">Garanta equipe, acesso ao local e materiais para as obras abaixo:</p>
+      <table width="100%" style="border-collapse:collapse;margin-top:12px;">
+        <thead><tr style="background:#111;">
+          <th style="padding:10px;color:#E0FF00;text-align:left;">Código</th>
+          <th style="padding:10px;color:#E0FF00;text-align:left;">Obra</th>
+          <th style="padding:10px;color:#E0FF00;text-align:left;">Equipe</th>
+          <th style="padding:10px;color:#E0FF00;text-align:left;">Localidade</th>
+          <th style="padding:10px;color:#E0FF00;text-align:left;">Início</th>
+        </tr></thead>
+        <tbody>{rows}</tbody>
+      </table>
+      <p style="color:#71717a;font-size:11px;margin-top:24px;">Sistema Hayah — Lembrete automático D-2 para Anexo IV.</p>
+    </div>"""
+    if recipients:
+        await send_email_via_resend(recipients, f"[HAYAH] ⚠️ Anexo IV D-2: {len(projects)} obra(s) em {target}", html)
+
+@api_router.get("/alerts/anexo-iv")
+async def get_anexo_iv_alerts(current_user: dict = Depends(get_current_user)):
+    """Return Anexo IV projects starting in the next 2 days (for dashboard banner)"""
+    from datetime import timedelta as td
+    now = datetime.now(timezone.utc)
+    d1 = (now + td(days=1)).strftime("%Y-%m-%d")
+    d2 = (now + td(days=2)).strftime("%Y-%m-%d")
+    projects = await db.projects.find({
+        "user_id": current_user["_id"],
+        "project_type": "anexo_iv",
+        "is_scheduled": True,
+        "execution_status": {"$nin": ["concluido", "cancelado", "executada"]},
+        "$or": [
+            {"start_date": {"$regex": f"^{d1}"}},
+            {"start_date": {"$regex": f"^{d2}"}},
+        ],
+    }).to_list(500)
+    return [build_project_response(p).model_dump() for p in projects]
+
+@api_router.post("/schedule/anexo-iv-reminder")
+async def trigger_anexo_iv_reminder(current_user: dict = Depends(get_current_user)):
+    await anexo_iv_reminder_job()
+    return {"status": "triggered"}
+
 # --- Checklist Operacional endpoints (Iteração 7) ---
 class ChecklistUpdate(BaseModel):
     hotline_confirmed: Optional[bool] = None
@@ -1379,8 +1450,7 @@ async def startup_db():
     await db.users.create_index("email", unique=True)
     await db.teams.create_index("user_id")
     await db.projects.create_index("user_id")
-    
-    # Seed admin
+
     admin_email = os.environ.get("ADMIN_EMAIL", "admin@example.com")
     admin_password = os.environ.get("ADMIN_PASSWORD", "admin123")
     existing = await db.users.find_one({"email": admin_email})
@@ -1391,20 +1461,19 @@ async def startup_db():
     elif not verify_password(admin_password, existing["password_hash"]):
         await db.users.update_one({"email": admin_email}, {"$set": {"password_hash": hash_password(admin_password)}})
         logger.info("Admin password updated")
-    
-    # Start scheduler for daily 18:00 email
+
     try:
         from apscheduler.schedulers.asyncio import AsyncIOScheduler
         from apscheduler.triggers.cron import CronTrigger
         scheduler = AsyncIOScheduler(timezone="America/Cuiaba")
         scheduler.add_job(daily_scheduled_email_job, CronTrigger(hour=18, minute=0), id="daily_18h_email", replace_existing=True)
         scheduler.add_job(morning_shutdown_check_job, CronTrigger(hour=8, minute=30), id="morning_shutdown_check", replace_existing=True)
+        scheduler.add_job(anexo_iv_reminder_job, CronTrigger(hour=9, minute=0), id="anexo_iv_d2_reminder", replace_existing=True)
         scheduler.start()
-        logger.info("Scheduler started: 08:30 shutdown check + 18:00 tomorrow email (America/Cuiaba)")
+        logger.info("Scheduler started: 08:30 shutdown + 09:00 anexo-IV D-2 + 18:00 tomorrow email (America/Cuiaba)")
     except Exception as e:
         logger.warning(f"Failed to start scheduler: {e}")
-    
-    # Write test credentials
+
     Path("/app/memory").mkdir(exist_ok=True)
     with open("/app/memory/test_credentials.md", "w") as f:
         f.write("# Test Credentials\n\n")

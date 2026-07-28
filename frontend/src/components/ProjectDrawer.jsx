@@ -43,6 +43,8 @@ export const ProjectDrawer = ({ isOpen, onClose, onSave, project, teams, default
 
   const [formData, setFormData] = useState(initialState());
   const [showRescheduleReason, setShowRescheduleReason] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [errorDialog, setErrorDialog] = useState(null);
 
   const isScheduling = formData.is_scheduled;
 
@@ -95,7 +97,7 @@ export const ProjectDrawer = ({ isOpen, onClose, onSave, project, teams, default
     setFormData((f) => ({ ...f, [field]: value }));
   };
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
     const payload = {
       ...formData,
@@ -107,7 +109,20 @@ export const ProjectDrawer = ({ isOpen, onClose, onSave, project, teams, default
       actual_value: parseFloat(formData.actual_value) || 0,
     };
     if (!showRescheduleReason) delete payload.reschedule_reason;
-    onSave(payload);
+    setSaving(true);
+    try {
+      await onSave(payload);
+    } catch (err) {
+      const status = err?.response?.status;
+      const detail = err?.response?.data?.detail || err?.message || 'Erro ao salvar projeto';
+      if ((status === 400 || status === 409) && (String(detail).toLowerCase().includes('código') || String(detail).toLowerCase().includes('codigo'))) {
+        setErrorDialog({ title: 'Código já cadastrado', message: detail });
+      } else {
+        setErrorDialog({ title: 'Não foi possível salvar', message: detail });
+      }
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -402,12 +417,41 @@ export const ProjectDrawer = ({ isOpen, onClose, onSave, project, teams, default
 
                 <div className="pt-4 flex gap-3">
                   <button type="button" onClick={onClose} className="flex-1 bg-white/5 border border-white/10 hover:bg-white/10 text-white font-bold py-3 rounded-full transition-all">Cancelar</button>
-                  <button type="submit" data-testid="save-project-button" className="flex-1 bg-[#E0FF00] hover:bg-[#C8E600] text-black font-bold py-3 rounded-full transition-all transform hover:scale-[1.02]">
-                    {project ? 'Salvar' : isScheduling ? 'Programar' : 'Cadastrar'}
+                  <button type="submit" data-testid="save-project-button" disabled={saving} className="flex-1 bg-[#E0FF00] hover:bg-[#C8E600] text-black font-bold py-3 rounded-full transition-all transform hover:scale-[1.02] disabled:opacity-60">
+                    {saving ? 'Salvando...' : project ? 'Salvar' : isScheduling ? 'Programar' : 'Cadastrar'}
                   </button>
                 </div>
               </form>
             </div>
+
+            {errorDialog && (
+              <div data-testid="duplicate-code-dialog" className="fixed inset-0 z-[60] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+                <motion.div
+                  initial={{ scale: 0.9, opacity: 0 }}
+                  animate={{ scale: 1, opacity: 1 }}
+                  className="glass-panel rounded-2xl border-2 border-[#FF003C] max-w-md w-full p-6"
+                  style={{ boxShadow: '0 0 40px rgba(255,0,60,0.3)' }}
+                >
+                  <div className="flex items-center gap-3 mb-4">
+                    <div className="w-12 h-12 rounded-full bg-[#FF003C]/20 flex items-center justify-center">
+                      <span className="text-2xl">⚠</span>
+                    </div>
+                    <div>
+                      <h3 className="text-white font-bold text-lg">{errorDialog.title}</h3>
+                      <p className="text-xs text-zinc-500">Verifique os dados e tente novamente</p>
+                    </div>
+                  </div>
+                  <p className="text-zinc-300 text-sm mb-6">{errorDialog.message}</p>
+                  <button
+                    data-testid="duplicate-code-dialog-ok"
+                    onClick={() => setErrorDialog(null)}
+                    className="w-full bg-[#FF003C] hover:bg-[#e00034] text-white font-bold py-3 rounded-full transition-all"
+                  >
+                    Entendi, corrigir
+                  </button>
+                </motion.div>
+              </div>
+            )}
           </motion.div>
         </>
       )}

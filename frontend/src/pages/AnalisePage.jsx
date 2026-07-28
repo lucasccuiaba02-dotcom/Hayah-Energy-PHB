@@ -33,10 +33,12 @@ export const AnalisePage = () => {
   const [advanced, setAdvanced] = useState(null);
   const [teams, setTeams] = useState([]);
   const [filters, setFilters] = useState({ startDate: '', endDate: '', teamId: '' });
+  const [topExpensive, setTopExpensive] = useState([]);
 
   useEffect(() => {
     axios.get(`${API}/teams`).then(({ data }) => setTeams(data));
     axios.get(`${API}/analytics/advanced`).then(({ data }) => setAdvanced(data));
+    axios.get(`${API}/analytics/top-expensive`).then(({ data }) => setTopExpensive(data)).catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -219,7 +221,7 @@ export const AnalisePage = () => {
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         data-testid="chart-billing-cycle"
-        className="glass-panel rounded-2xl p-6"
+        className="glass-panel rounded-2xl p-6 mb-6"
       >
         <div className="mb-4">
           <p className="text-xs tracking-[0.2em] uppercase font-bold text-zinc-500 mb-1">Ciclo</p>
@@ -243,6 +245,59 @@ export const AnalisePage = () => {
           </ResponsiveContainer>
         ) : (
           <div className="h-64 flex items-center justify-center text-zinc-600 text-sm">Sem dados</div>
+        )}
+      </motion.div>
+
+      {/* Top 10 obras mais caras */}
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        data-testid="chart-top-expensive"
+        className="glass-panel rounded-2xl p-6"
+      >
+        <div className="mb-4 flex items-center justify-between">
+          <div>
+            <p className="text-xs tracking-[0.2em] uppercase font-bold text-zinc-500 mb-1">Oportunidades</p>
+            <h3 className="font-heading font-black text-xl tracking-tighter text-white">Top 10 Obras Mais Caras</h3>
+            <p className="text-xs text-zinc-500 mt-1">Ativas (excluindo concluídas e canceladas)</p>
+          </div>
+          <span className="px-3 py-1 rounded-full text-xs font-bold bg-[#E0FF00]/15 border border-[#E0FF00]/40 text-[#E0FF00]">
+            {topExpensive.length} obra{topExpensive.length !== 1 ? 's' : ''}
+          </span>
+        </div>
+        {topExpensive.length === 0 ? (
+          <div className="h-32 flex items-center justify-center text-zinc-600 text-sm">Sem obras ativas.</div>
+        ) : (
+          <div className="space-y-2">
+            {topExpensive.map((p, i) => (
+              <div key={p.id} data-testid={`top-expensive-${i}`} className="flex items-center gap-3 rounded-xl p-3 bg-white/[0.02] border border-white/10 hover:border-[#E0FF00]/40 transition-all">
+                <div className="w-10 h-10 rounded-lg flex items-center justify-center font-mono text-lg font-bold flex-shrink-0"
+                  style={{
+                    backgroundColor: i < 3 ? '#E0FF0022' : 'rgba(255,255,255,0.03)',
+                    color: i < 3 ? '#E0FF00' : '#71717a',
+                    border: i < 3 ? '1px solid #E0FF00' : '1px solid rgba(255,255,255,0.05)',
+                  }}
+                >
+                  {i + 1}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    {p.project_code && <span className="font-mono text-[10px] text-[#00F0FF]">{p.project_code}</span>}
+                    <p className="text-white font-bold text-sm truncate">{p.name}</p>
+                  </div>
+                  <div className="text-[11px] text-zinc-500 flex items-center gap-2 flex-wrap mt-0.5">
+                    <span>{PROJECT_TYPE_LABEL[p.project_type] || p.project_type}</span>
+                    {p.team_name && <span>• {p.team_name}</span>}
+                    {p.location && <span>• {p.location}</span>}
+                  </div>
+                </div>
+                <div className="text-right flex-shrink-0">
+                  <p className="font-mono text-lg font-bold text-[#39FF14]">{formatCurrency(p.programmed_value)}</p>
+                  <p className="text-[10px] text-zinc-500 uppercase">{p.execution_status?.replace(/_/g, ' ')}</p>
+                </div>
+              </div>
+            ))}
+          </div>
         )}
       </motion.div>
     </AppLayout>

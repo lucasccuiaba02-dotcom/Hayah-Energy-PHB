@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { motion } from 'framer-motion';
 import axios from 'axios';
 import { toast } from 'sonner';
-import { Plus, Edit2, Trash2, Calendar, MapPin, Zap } from 'lucide-react';
+import { Plus, Edit2, Trash2, Calendar, MapPin, Zap, History } from 'lucide-react';
 import { AppLayout } from '../components/AppLayout';
 import { ProjectDrawer } from '../components/ProjectDrawer';
 import { ProjectFilters } from '../components/ProjectFilters';
@@ -19,6 +19,10 @@ export const ProgramacaoPage = () => {
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [editing, setEditing] = useState(null);
   const [filters, setFilters] = useState({ startDate: '', endDate: '', teamId: '' });
+  const [specificDate, setSpecificDate] = useState('');
+  const [minProd, setMinProd] = useState('');
+  const [maxProd, setMaxProd] = useState('');
+  const [historyOpen, setHistoryOpen] = useState(null);
 
   useEffect(() => {
     fetchData();
@@ -57,21 +61,17 @@ export const ProgramacaoPage = () => {
   };
 
   const handleSave = async (data) => {
-    try {
-      if (editing) {
-        await axios.put(`${API}/projects/${editing.id}`, data);
-        toast.success('Programação atualizada!');
-      } else {
-        await axios.post(`${API}/projects`, data);
-        toast.success('Projeto programado! Notificação enviada.');
-      }
-      fetchData();
-      fetchStats();
-      setIsDrawerOpen(false);
-      setEditing(null);
-    } catch {
-      toast.error('Erro ao salvar programação');
+    if (editing) {
+      await axios.put(`${API}/projects/${editing.id}`, data);
+      toast.success('Programação atualizada!');
+    } else {
+      await axios.post(`${API}/projects`, data);
+      toast.success('Projeto programado! Notificação enviada.');
     }
+    fetchData();
+    fetchStats();
+    setIsDrawerOpen(false);
+    setEditing(null);
   };
 
   const handleDelete = async (id) => {
@@ -87,15 +87,24 @@ export const ProgramacaoPage = () => {
   };
 
   const filtered = useMemo(() => {
+    const minP = parseFloat(minProd);
+    const maxP = parseFloat(maxProd);
     return projects.filter((p) => {
       if (filters.teamId && p.team_id !== filters.teamId) return false;
       const pStart = (p.start_date || '').slice(0, 10);
       const pEnd = (p.end_date || '').slice(0, 10);
       if (filters.startDate && pEnd && pEnd < filters.startDate) return false;
       if (filters.endDate && pStart && pStart > filters.endDate) return false;
+      if (specificDate) {
+        if (!pStart) return false;
+        if (specificDate < pStart || (pEnd && specificDate > pEnd) || (!pEnd && specificDate !== pStart)) return false;
+      }
+      const val = p.programmed_value || 0;
+      if (!isNaN(minP) && val < minP) return false;
+      if (!isNaN(maxP) && val > maxP) return false;
       return true;
     });
-  }, [projects, filters]);
+  }, [projects, filters, specificDate, minProd, maxProd]);
 
   const grouped = useMemo(() => {
     const map = {};
@@ -144,6 +153,48 @@ export const ProgramacaoPage = () => {
       )}
 
       <ProjectFilters filters={filters} onChange={setFilters} teams={teams} onReset={() => setFilters({ startDate: '', endDate: '', teamId: '' })} />
+
+      <div className="glass-panel rounded-xl p-4 mb-6 flex items-center gap-3 flex-wrap">
+        <div className="flex items-center gap-2">
+          <label className="text-[10px] tracking-[0.2em] uppercase font-bold text-zinc-500">Data específica</label>
+          <input
+            data-testid="prog-specific-date"
+            type="date"
+            value={specificDate}
+            onChange={(e) => setSpecificDate(e.target.value)}
+            className="bg-zinc-950/90 border border-white/10 rounded-lg px-3 py-1 text-sm text-white focus:border-[#E0FF00] focus:outline-none font-mono"
+          />
+        </div>
+        <div className="flex items-center gap-2">
+          <label className="text-[10px] tracking-[0.2em] uppercase font-bold text-zinc-500">Prog. mín (R$)</label>
+          <input
+            data-testid="prog-min-input"
+            type="number"
+            placeholder="0"
+            value={minProd}
+            onChange={(e) => setMinProd(e.target.value)}
+            className="bg-zinc-950/90 border border-white/10 rounded-lg px-3 py-1 text-sm text-white w-28 focus:border-[#E0FF00] focus:outline-none font-mono"
+          />
+        </div>
+        <div className="flex items-center gap-2">
+          <label className="text-[10px] tracking-[0.2em] uppercase font-bold text-zinc-500">Prog. máx (R$)</label>
+          <input
+            data-testid="prog-max-input"
+            type="number"
+            placeholder="∞"
+            value={maxProd}
+            onChange={(e) => setMaxProd(e.target.value)}
+            className="bg-zinc-950/90 border border-white/10 rounded-lg px-3 py-1 text-sm text-white w-28 focus:border-[#E0FF00] focus:outline-none font-mono"
+          />
+        </div>
+        <button
+          data-testid="prog-reset-extra"
+          onClick={() => { setSpecificDate(''); setMinProd(''); setMaxProd(''); }}
+          className="ml-auto text-xs text-zinc-400 hover:text-white underline"
+        >
+          Limpar filtros extra
+        </button>
+      </div>
 
       <div data-testid="programacao-matrix" className="space-y-4">
         {grouped.length === 0 ? (
@@ -264,6 +315,52 @@ export const ProgramacaoPage = () => {
         teams={teams}
         defaultScheduled={true}
       />
+
+      {historyOpen && (
+        <div data-testid="reschedule-history-modal" className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4" onClick={() => setHistoryOpen(null)}>
+          <motion.div
+            initial={{ scale: 0.9, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            onClick={(e) => e.stopPropagation()}
+            className="glass-panel rounded-2xl border border-[#E0FF00]/40 max-w-lg w-full p-6 max-h-[80vh] overflow-y-auto"
+          >
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-10 h-10 rounded-full bg-[#E0FF00]/20 flex items-center justify-center">
+                <History className="w-5 h-5 text-[#E0FF00]" />
+              </div>
+              <div>
+                <h3 className="text-white font-bold text-lg">Histórico de Remanejamento</h3>
+                <p className="text-xs text-zinc-500">{historyOpen.name}</p>
+              </div>
+              <button data-testid="close-history-modal" onClick={() => setHistoryOpen(null)} className="ml-auto w-8 h-8 rounded-full bg-white/5 border border-white/10 text-zinc-400 hover:text-white">✕</button>
+            </div>
+            <div className="space-y-2">
+              {(historyOpen.reschedule_history || []).length === 0 ? (
+                <p className="text-center text-zinc-500 py-6 text-sm">Sem remanejamentos.</p>
+              ) : (
+                [...(historyOpen.reschedule_history || [])].reverse().map((h, i) => (
+                  <div key={i} data-testid={`history-entry-${i}`} className="rounded-lg p-3 bg-white/[0.02] border border-white/10">
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-[#FF5E00]/20 border border-[#FF5E00]/40 text-[#FF5E00] uppercase">
+                        {h.reason || 'sem motivo'}
+                      </span>
+                      <span className="text-[10px] text-zinc-500 font-mono">
+                        {h.changed_at ? new Date(h.changed_at).toLocaleString('pt-BR') : ''}
+                      </span>
+                    </div>
+                    <div className="text-xs text-zinc-300 font-mono">
+                      <span className="text-zinc-500">{(h.old_start || '').slice(0, 10) || '—'}</span>
+                      <span className="mx-2 text-[#E0FF00]">→</span>
+                      <span className="text-white">{(h.new_start || '').slice(0, 10) || '—'}</span>
+                    </div>
+                    {h.changed_by && <p className="text-[10px] text-zinc-600 mt-1">por {h.changed_by}</p>}
+                  </div>
+                ))
+              )}
+            </div>
+          </motion.div>
+        </div>
+      )}
     </AppLayout>
   );
 };

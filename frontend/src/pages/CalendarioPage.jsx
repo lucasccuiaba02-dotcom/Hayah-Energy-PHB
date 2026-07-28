@@ -108,7 +108,7 @@ export const CalendarioPage = () => {
           data-testid="calendar-grid"
           className="glass-panel rounded-2xl overflow-hidden"
         >
-          <div className="overflow-x-auto">
+          <div className="hscroll-fancy">
             <table className="w-full border-collapse min-w-max">
               <thead>
                 <tr className="border-b border-white/10">

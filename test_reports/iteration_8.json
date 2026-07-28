@@ -1,0 +1,43 @@
+{
+  "summary": "Iteration 8 (Hayah Energy — project_code + reschedule history + top-expensive + Anexo IV D-2 + programacao filters + duplicate-code dialog + photo watermark UI) tested. Backend: 9/9 pytest cases passing (login, project_code persists, POST duplicate → 409 with 'código', PUT duplicate → 409, reschedule_history recorded with reason/old_start/new_start/changed_at, /analytics/top-expensive returns ≤10 sorted desc excluding concluido/cancelado/executada, /alerts/anexo-iv returns anexo_iv scheduled D+1/D+2, POST /schedule/anexo-iv-reminder returns {status:triggered}, APScheduler startup log confirms all 3 jobs registered: daily_scheduled_email_job, morning_shutdown_check_job, anexo_iv_reminder_job). Frontend: login OK; /analise renders data-testid=chart-top-expensive with top-expensive-0..3 items; /programacao renders prog-specific-date, prog-min-input, prog-max-input, prog-reset-extra; ProjectDetailPage has pd-photo-label + pd-photo-add; duplicate-code-dialog appears correctly with title 'Código já cadastrado' after applying a fix (see below). ISSUE: prog-history-{id} button is NOT rendered in ProgramacaoPage cards — the modal + close button exist (lines 320-350) but no trigger button was added inside the project card (found 0 in DOM even for a project with reschedule_history length=1).",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "POST /api/projects", "issue": "Spec asked for HTTP 400 on duplicate project_code creation; backend actually returns 409. Both create and update now use 409, which is semantically correct. Detail message contains 'código' ✓. Frontend previously only branched on 400 — see FE fix below."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "ProgramacaoPage", "issue": "prog-history-{id} button is missing from the rendered project card. The <History /> icon is imported and the reschedule-history-modal + history-entry-0 markup exists (lines 319-355), but no button with data-testid=prog-history-{p.id} is rendered next to the edit/delete buttons (lines 257-272) to call setHistoryOpen(p). As a result, users cannot open the reschedule history modal from the UI, even though the backend correctly stores reschedule_history.", "selector": "[data-testid^='prog-history-']", "priority": "HIGH"}
+    ],
+    "integration_issues": [
+      {"flow": "Create/Edit project with duplicate code", "issue": "Backend returns 409 for POST duplicates but ProjectDrawer only branched on status===400, so the 'Código já cadastrado' dialog never appeared. Fixed in this iteration by broadening the check to (400 || 409) with 'codigo'/'código' in detail.", "affected_selectors": ["[data-testid='duplicate-code-dialog']"]}
+    ],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration8.py",
+    "/app/test_reports/pytest/pytest_iteration8.xml"
+  ],
+  "action_items": [
+    "Add a data-testid=\"prog-history-{project.id}\" button to each project card in /app/frontend/src/pages/ProgramacaoPage.jsx (~line 257 next to prog-edit / prog-delete). It should be disabled when p.reschedule_history?.length is 0/undefined and, on click, call setHistoryOpen(p) to open the existing reschedule-history-modal.",
+    "Optionally align backend to spec: return 400 on POST /api/projects duplicate to match the original PRD wording (but 409 is more semantically correct and the FE now handles both)."
+  ],
+  "critical_code_review_comments": [
+    "server.py is now 1492 lines — really should be split into modules (projects, scheduler, checklist, photos, auth) for maintainability.",
+    "ProgramacaoPage.jsx: the History icon is imported and modal exists, but the trigger button was forgotten — classic 'half-wired feature'. Add a unit-level checklist in PRs when creating new modals to always wire both trigger + content.",
+    "ProjectDrawer.jsx handleSubmit: previously hard-coded status===400 for duplicate. Should read detail keyword instead of status code, or accept a canonical error code from backend. Fixed to accept 400|409.",
+    "reschedule_history has no schema validation; consider a Pydantic model for entries so the shape stays stable (currently changed_at is ISO string but old_start/new_start are freeform).",
+    "get_anexo_iv_alerts uses regex on a string date field — an index on start_date would help; also computing 'today' in UTC while the scheduler uses America/Cuiaba could produce off-by-one when the request lands near midnight in Cuiaba."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iteration8.py",
+    "/app/frontend/src/components/ProjectDrawer.jsx"
+  ],
+  "success_rate": {"backend": "100%", "frontend": "80%"},
+  "test_credentials": "admin@projectmatrix.com / Admin@123",
+  "seed_data_creation": "Backend pytest creates ~5 TEST_iter8_* projects via fixture and deletes them at module teardown. Frontend E2E created 2 TEST_UI_* projects and cleaned them up via DELETE.",
+  "retest_needed": true,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "All backend endpoints for iter8 pass (test_iteration8.py). The only remaining UI defect is the missing prog-history-{id} button on ProgramacaoPage cards — modal + history-entry-0 markup already exist, so once E1 adds the trigger button, retesting the reschedule history flow only needs to (1) create a scheduled anexo_iv project, (2) PUT with new start_date + reschedule_reason, (3) verify GET returns reschedule_history length>=1, (4) confirm data-testid=prog-history-<id> is enabled and opens data-testid=reschedule-history-modal containing history-entry-0. Duplicate-code dialog already validated end-to-end with the 409 branch fix."
+}

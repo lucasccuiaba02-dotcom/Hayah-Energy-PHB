@@ -56,19 +56,97 @@ export const ProjectDetailPage = () => {
     }
   };
 
+  const buildWatermarkedFile = (file) => new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = reject;
+    reader.onload = (ev) => {
+      const img = new Image();
+      img.onload = () => {
+        try {
+          const canvas = document.createElement('canvas');
+          const maxW = 1600;
+          const scale = img.width > maxW ? maxW / img.width : 1;
+          canvas.width = Math.round(img.width * scale);
+          canvas.height = Math.round(img.height * scale);
+          const ctx = canvas.getContext('2d');
+          ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+
+          const lines = [
+            project.project_code ? `Obra: ${project.project_code}` : `Obra: ${project.name}`,
+            `Ponto: ${photoLabel.toUpperCase()}`,
+            `Data: ${new Date().toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}`,
+            (project.utm_x || project.utm_y) ? `UTM: ${project.utm_x || '?'} / ${project.utm_y || '?'}` : (project.location ? `Local: ${project.location}` : null),
+          ].filter(Boolean);
+
+          const padding = Math.round(canvas.width * 0.02);
+          const fontSize = Math.max(16, Math.round(canvas.width * 0.024));
+          const lineHeight = Math.round(fontSize * 1.35);
+          const boxH = lines.length * lineHeight + padding * 2;
+          const boxY = canvas.height - boxH;
+
+          // gradient background
+          const grad = ctx.createLinearGradient(0, boxY, 0, canvas.height);
+          grad.addColorStop(0, 'rgba(0,0,0,0)');
+          grad.addColorStop(0.35, 'rgba(0,0,0,0.55)');
+          grad.addColorStop(1, 'rgba(0,0,0,0.85)');
+          ctx.fillStyle = grad;
+          ctx.fillRect(0, boxY - padding, canvas.width, boxH + padding);
+
+          // brand strip
+          ctx.fillStyle = '#E0FF00';
+          ctx.fillRect(0, canvas.height - 4, canvas.width, 4);
+
+          ctx.font = `bold ${Math.round(fontSize * 0.85)}px system-ui, sans-serif`;
+          ctx.fillStyle = '#E0FF00';
+          ctx.textBaseline = 'top';
+          ctx.fillText('HAYAH ENERGY', padding, boxY);
+
+          ctx.font = `bold ${fontSize}px system-ui, sans-serif`;
+          ctx.fillStyle = '#ffffff';
+          ctx.shadowColor = 'rgba(0,0,0,0.9)';
+          ctx.shadowBlur = 4;
+          lines.forEach((text, i) => {
+            ctx.fillText(text, padding, boxY + padding + i * lineHeight);
+          });
+          ctx.shadowBlur = 0;
+
+          canvas.toBlob(
+            (blob) => {
+              if (!blob) return reject(new Error('blob'));
+              resolve(new File([blob], file.name.replace(/\.[^.]+$/, '') + '_wm.jpg', { type: 'image/jpeg' }));
+            },
+            'image/jpeg',
+            0.9,
+          );
+        } catch (err) {
+          reject(err);
+        }
+      };
+      img.onerror = reject;
+      img.src = ev.target.result;
+    };
+    reader.readAsDataURL(file);
+  });
+
   const handlePhotoUpload = async (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
     setUploading(true);
     try {
+      let outFile = file;
+      try {
+        outFile = await buildWatermarkedFile(file);
+      } catch (err) {
+        console.warn('Watermark failed, sending original', err);
+      }
       const formData = new FormData();
-      formData.append('file', file);
+      formData.append('file', outFile);
       formData.append('label', photoLabel);
       const { data } = await axios.post(`${API}/operacional/photos/${id}`, formData, {
         headers: { 'Content-Type': 'multipart/form-data' },
       });
       setPhotos([...photos, data]);
-      toast.success('Foto enviada!');
+      toast.success('Foto enviada com marca d\'água!');
     } catch (err) {
       toast.error('Erro ao enviar foto');
     } finally {

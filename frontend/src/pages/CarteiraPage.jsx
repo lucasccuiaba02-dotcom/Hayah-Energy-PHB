@@ -39,20 +39,16 @@ export const CarteiraPage = () => {
   };
 
   const handleSave = async (data) => {
-    try {
-      if (editing) {
-        await axios.put(`${API}/projects/${editing.id}`, data);
-        toast.success('Projeto atualizado!');
-      } else {
-        await axios.post(`${API}/projects`, data);
-        toast.success('Projeto cadastrado na carteira!');
-      }
-      fetchData();
-      setIsDrawerOpen(false);
-      setEditing(null);
-    } catch {
-      toast.error('Erro ao salvar projeto');
+    if (editing) {
+      await axios.put(`${API}/projects/${editing.id}`, data);
+      toast.success('Projeto atualizado!');
+    } else {
+      await axios.post(`${API}/projects`, data);
+      toast.success('Projeto cadastrado na carteira!');
     }
+    fetchData();
+    setIsDrawerOpen(false);
+    setEditing(null);
   };
 
   const handleDelete = async (id) => {
@@ -164,8 +160,8 @@ export const CarteiraPage = () => {
       )}
 
       <div className="glass-panel rounded-2xl overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full">
+        <div className="hscroll-fancy">
+          <table className="w-full min-w-[900px]">
             <thead>
               <tr className="border-b border-white/5">
                 <th className="text-left px-4 py-3 text-xs tracking-[0.15em] uppercase font-bold text-zinc-500">Nome</th>
