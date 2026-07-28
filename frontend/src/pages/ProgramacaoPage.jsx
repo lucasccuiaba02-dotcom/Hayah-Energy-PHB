@@ -256,6 +256,20 @@ export const ProgramacaoPage = () => {
                         </div>
                         <div className="flex gap-1">
                           <button
+                            data-testid={`prog-history-${p.id}`}
+                            onClick={() => setHistoryOpen(p)}
+                            disabled={!p.reschedule_history || p.reschedule_history.length === 0}
+                            title="Histórico de remanejamento"
+                            className="w-7 h-7 rounded-md bg-white/5 border border-white/10 flex items-center justify-center text-zinc-400 hover:text-[#E0FF00] disabled:opacity-30 relative"
+                          >
+                            <History className="w-3 h-3" />
+                            {p.reschedule_history && p.reschedule_history.length > 0 && (
+                              <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-[#FF5E00] text-[9px] text-white font-bold flex items-center justify-center">
+                                {p.reschedule_history.length}
+                              </span>
+                            )}
+                          </button>
+                          <button
                             data-testid={`prog-edit-${p.id}`}
                             onClick={() => { setEditing(p); setIsDrawerOpen(true); }}
                             className="w-7 h-7 rounded-md bg-white/5 border border-white/10 flex items-center justify-center text-zinc-400 hover:text-[#00F0FF]"

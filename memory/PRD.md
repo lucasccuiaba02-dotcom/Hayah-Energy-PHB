@@ -1,41 +1,56 @@
-# PRD - Matriz de Programação de Projetos
+# PRD — Hayah Energy (Matriz de Programação de Projetos)
 
-## Problema Original
-"Quero construir uma matriz de programação de projetos com nome de equipes, data, valor programado, meta diária e cores com significados para planejamento assertivo e visão estratégica no dia a dia"
+## Objetivo
+Matriz de programação de projetos com nomes de equipes, datas, valores programados, meta diária e cores com significado, para planejamento assertivo e visão estratégica no dia a dia.
 
-## User Choices
-- Visualização: Ambas (Tabela + Timeline/Calendário)
-- Cores: Progresso da meta + Status + Prioridade (combinados)
-- Meta diária: Valor esperado definido pelo usuário
-- Design: Moderno/Criativo (Cyber-Dashboard neon)
-- Auth: Login simples (JWT httpOnly cookies)
+## Stack
+- Frontend: React 18 + Tailwind + Shadcn + Framer Motion (PWA)
+- Backend: FastAPI + Motor (MongoDB) + APScheduler
+- Integrações: Resend (emails), Emergent LLM (não usado ainda)
 
-## Implementado (Iteração 1 - Jul 2026)
-- Auth JWT completo (register/login/logout/me)
-- Backend CRUD (Teams, Projects, Dashboard stats)
-- LoginPage cyberpunk split screen
-- Dashboard com sidebar + cards de métricas + toggle Table/Timeline
-- ProjectTable com indicadores neon (progresso/status/prioridade)
-- ProjectTimeline Gantt-style com barras coloridas
-- Drawers para CRUD de Projetos e Equipes
-- Sistema de cores: goal_exceeded #00F0FF, goal_met #39FF14, goal_lagging #FF003C
-- Testado: 16/16 backend + fluxo frontend completo
+## Módulos entregues
+- Autenticação JWT + cookie fallback localStorage
+- Carteira (CRUD projetos com filtros + tabela + scrollbar customizado)
+- Programação (matriz por data com filtros e histórico de remanejamento)
+- Análise (Recharts: ciclo mensal, faturamento, produtividade, Top 10 obras caras)
+- Relatórios Excel
+- Operacional (checklist + fotos com marca d'água + QR code)
+- Solicitação de Material (upload PDF em base64 + email automático)
+- Calendário (visão semanal/matriz por equipe)
+- Dashboard com métricas
+- PWA offline (Service Worker + manifest)
+- Cron jobs: 08:30 shutdown, 09:00 Anexo IV D-2, 18:00 aviso do dia seguinte
 
-## Bug Fixes
-- Dashboard stats 500 (timezone naive vs aware) - FIXED
-- POST /api/teams 401 após 15min (token expirando) - FIXED (7 dias)
+## Regras chave
+- `project_code` único por usuário (409 em duplicidade, mensagem com "código")
+- Reschedule: gravado com `old_start`, `new_start`, `reason`, `changed_at`, `changed_by`
+- Fotos: marca d'água canvas (Código da obra, Ponto, Data, UTM x/y ou Local)
+- Anexo IV: alerta D-2 diário via Resend + banner via `/api/alerts/anexo-iv`
 
-## Backlog
-### P1
-- Filtros/busca no dashboard
-- Exportação de relatórios (PDF/Excel)
-- Gráficos burn-down (recharts)
+## Endpoints (parcial)
+- POST/PUT/GET/DELETE /api/projects
+- GET /api/analytics/top-expensive
+- GET /api/alerts/anexo-iv
+- POST /api/schedule/notify-tomorrow
+- POST /api/schedule/anexo-iv-reminder
+- POST /api/operacional/photos/{project_id}
 
-### P2
-- Notificações email (Resend) para projetos atrasados
-- Múltiplos usuários com permissões
-- Anexos em projetos
-- Hardening: brute force lockout, password validation
+## Feito nesta iteração (2026-02)
+- Dialog visual "Código já cadastrado" (400/409) no ProjectDrawer
+- Top 10 obras mais caras em /analise
+- Histórico de remanejamento com badge + modal em /programacao (botão History no card)
+- Filtros extras em /programacao: data específica + faixa de produção (min/max)
+- Scrollbars customizadas em desktop (`.hscroll-fancy`)
+- Marca d'água em fotos (canvas cliente): código + ponto + data + UTM/local
+- Cron `anexo_iv_reminder_job` (09:00) + endpoint /api/alerts/anexo-iv
 
-## Credenciais Admin
-- Email: admin@projectmatrix.com / Senha: Admin@123
+## Backlog (P1/P2)
+- Diário de Obra (PDF automático com fotos + checklist ao fim do turno)
+- Split de `server.py` em módulos (~1500 linhas)
+- Fotos em GridFS/object storage (hoje base64)
+- Índice em `start_date` para melhorar queries de alerta
+- Pydantic model para entries de `reschedule_history`
+- Notificação in-app quando alerta Anexo IV D-2 ativo (banner no Dashboard)
+
+## Credenciais de teste
+Ver `/app/memory/test_credentials.md`.
