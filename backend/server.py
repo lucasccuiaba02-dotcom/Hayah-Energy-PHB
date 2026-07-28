@@ -23,6 +23,9 @@ from push_notifications import ensure_vapid_keys, broadcast_push
 from daily_log_pdf import build_daily_log_pdf
 from route_pdf import build_route_pdf
 
+# Module-level cache for geocoding (TTL 60s handled per request)
+_geocode_cache: dict = {}
+
 # MongoDB connection
 mongo_url = os.environ['MONGO_URL']
 client = AsyncIOMotorClient(mongo_url)
@@ -1332,11 +1335,6 @@ async def geo_geocode(q: str = "", limit: int = 5, current_user: dict = Depends(
     lim = max(1, min(limit, 10))
     cache_key = f"{q.lower()}|{lim}"
     now = time.time()
-    global _geocode_cache
-    try:
-        _geocode_cache
-    except NameError:
-        _geocode_cache = {}
     # Evict expired
     for k in list(_geocode_cache.keys()):
         if now - _geocode_cache[k]["ts"] > 60:
@@ -1757,6 +1755,11 @@ async def startup_db():
     await db.users.create_index("email", unique=True)
     await db.teams.create_index("user_id")
     await db.projects.create_index("user_id")
+    # TTL index for live tracking positions — auto-expire after 10 minutes
+    try:
+        await db.tracking_positions.create_index("updated_at", expireAfterSeconds=600)
+    except Exception as e:
+        logger.warning(f"tracking TTL index: {e}")
 
     admin_email = os.environ.get("ADMIN_EMAIL", "admin@example.com")
     admin_password = os.environ.get("ADMIN_PASSWORD", "admin123")
