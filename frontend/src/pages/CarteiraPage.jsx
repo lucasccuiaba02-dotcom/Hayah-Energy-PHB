@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { motion } from 'framer-motion';
 import axios from 'axios';
 import { toast } from 'sonner';
-import { Plus, Edit2, Trash2, MapPin, Calendar as CalIcon, Search } from 'lucide-react';
+import { Plus, Edit2, Trash2, MapPin, Calendar as CalIcon, Search, Copy } from 'lucide-react';
 import { AppLayout } from '../components/AppLayout';
 import { ProjectDrawer } from '../components/ProjectDrawer';
 import { HScroller } from '../components/HScroller';
@@ -60,6 +60,16 @@ export const CarteiraPage = () => {
       fetchData();
     } catch {
       toast.error('Erro ao excluir');
+    }
+  };
+
+  const handleDuplicate = async (id) => {
+    try {
+      await axios.post(`${API}/projects/${id}/duplicate`);
+      toast.success('Obra duplicada — abra e ajuste o código!');
+      fetchData();
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || 'Erro ao duplicar');
     }
   };
 
@@ -217,6 +227,14 @@ export const CarteiraPage = () => {
                       </td>
                       <td className="px-4 py-3 text-right">
                         <div className="flex items-center justify-end gap-2">
+                          <button
+                            data-testid={`duplicate-carteira-${i}`}
+                            onClick={() => handleDuplicate(p.id)}
+                            title="Duplicar obra"
+                            className="w-8 h-8 rounded-lg bg-white/5 border border-white/10 flex items-center justify-center text-zinc-400 hover:text-[#E0FF00]"
+                          >
+                            <Copy className="w-4 h-4" />
+                          </button>
                           <button
                             data-testid={`edit-carteira-${i}`}
                             onClick={() => { setEditing(p); setIsDrawerOpen(true); }}

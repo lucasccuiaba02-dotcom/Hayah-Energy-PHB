@@ -8,7 +8,7 @@ import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import 'leaflet.markercluster/dist/MarkerCluster.css';
 import 'leaflet.markercluster/dist/MarkerCluster.Default.css';
-import { Route, RefreshCw, Navigation, LocateFixed, FileDown, Share2, Users } from 'lucide-react';
+import { Route, RefreshCw, Navigation, LocateFixed, FileDown, Share2, Users, Radio, RadioTower } from 'lucide-react';
 import { AppLayout } from '../components/AppLayout';
 import { utm21sToLatLng, nearestNeighborRoute, osrmRoute, haversineKm } from '../lib/geo';
 import { PROJECT_TYPE_LABEL, EXECUTION_STATUS, formatCurrency } from '../lib/constants';
@@ -36,6 +36,18 @@ const originIcon = L.divIcon({
   iconSize: [34, 34], iconAnchor: [17, 17],
 });
 
+const liveIcon = (color) => L.divIcon({
+  className: 'geo-live',
+  html: `<div style="width:22px;height:22px;border-radius:50%;background:${color};border:3px solid #050505;box-shadow:0 0 0 6px ${color}33, 0 0 0 12px ${color}18;animation:hayah-live-pulse 1.6s infinite;"></div>`,
+  iconSize: [22, 22], iconAnchor: [11, 11],
+});
+
+const hoverHighlightIcon = () => L.divIcon({
+  className: 'geo-hover',
+  html: `<div style="width:60px;height:60px;border-radius:50%;background:rgba(224,255,0,0.15);border:3px dashed #E0FF00;box-shadow:0 0 30px rgba(224,255,0,0.6);animation:hayah-hover-spin 3s linear infinite;"></div>`,
+  iconSize: [60, 60], iconAnchor: [30, 30],
+});
+
 const FitBounds = ({ points }) => {
   const map = useMap();
   useEffect(() => {
@@ -43,6 +55,16 @@ const FitBounds = ({ points }) => {
     const bounds = L.latLngBounds(points.map((p) => [p.lat, p.lng]));
     map.fitBounds(bounds, { padding: [50, 50], maxZoom: 12 });
   }, [points, map]);
+  return null;
+};
+
+const FlyTo = ({ target }) => {
+  const map = useMap();
+  useEffect(() => {
+    if (target && Number.isFinite(target.lat) && Number.isFinite(target.lng)) {
+      map.flyTo([target.lat, target.lng], Math.max(map.getZoom(), 14), { duration: 0.8 });
+    }
+  }, [target, map]);
   return null;
 };
 
@@ -56,6 +78,10 @@ export const GeolocalizacaoPage = () => {
   const [teamRoutes, setTeamRoutes] = useState({}); // { teamId: { stops:[], geom, mode, distance_km, duration_min } }
   const [routing, setRouting] = useState(false);
   const [exporting, setExporting] = useState(false);
+  const [hoveredStop, setHoveredStop] = useState(null);
+  const [liveList, setLiveList] = useState([]);
+  const [sharing, setSharing] = useState(false);
+  const watchIdRef = useRef(null);
   const mapRef = useRef(null);
 
   useEffect(() => {
@@ -68,6 +94,59 @@ export const GeolocalizacaoPage = () => {
       setLoading(false);
     });
   }, []);
+
+  // Live tracking: poll positions every 8s
+  useEffect(() => {
+    let cancel = false;
+    const poll = async () => {
+      try {
+        const { data } = await axios.get(`${API}/tracking/live`);
+        if (!cancel) setLiveList(data || []);
+      } catch { /* ignore */ }
+    };
+    poll();
+    const iv = setInterval(poll, 8000);
+    return () => { cancel = true; clearInterval(iv); };
+  }, []);
+
+  // Share my position while sharing=true
+  useEffect(() => {
+    if (!sharing) {
+      if (watchIdRef.current) { navigator.geolocation.clearWatch(watchIdRef.current); watchIdRef.current = null; }
+      return;
+    }
+    if (!navigator.geolocation) { toast.error('Geolocalização indisponível'); setSharing(false); return; }
+    const send = async (pos) => {
+      try {
+        await axios.post(`${API}/tracking/ping`, {
+          lat: pos.coords.latitude,
+          lng: pos.coords.longitude,
+          accuracy: pos.coords.accuracy,
+          heading: pos.coords.heading,
+          speed: pos.coords.speed,
+        });
+      } catch { /* ignore */ }
+    };
+    watchIdRef.current = navigator.geolocation.watchPosition(
+      send,
+      (err) => { console.warn('watch err', err); },
+      { enableHighAccuracy: true, maximumAge: 5000, timeout: 15000 },
+    );
+    return () => {
+      if (watchIdRef.current) { navigator.geolocation.clearWatch(watchIdRef.current); watchIdRef.current = null; }
+    };
+  }, [sharing]);
+
+  const toggleSharing = async () => {
+    if (sharing) {
+      try { await axios.delete(`${API}/tracking/ping`); } catch {}
+      setSharing(false);
+      toast.info('Compartilhamento de localização parado');
+    } else {
+      setSharing(true);
+      toast.success('Compartilhando localização ao vivo!');
+    }
+  };
 
   const teamName = (id) => teamsList.find((t) => t.id === id)?.name || 'Sem equipe';
 
@@ -254,6 +333,14 @@ export const GeolocalizacaoPage = () => {
 
         <div className="ml-auto flex gap-2 flex-wrap">
           <button
+            data-testid="geo-toggle-sharing"
+            onClick={toggleSharing}
+            className={`flex items-center gap-2 border text-xs font-bold px-4 py-2 rounded-full transition-all ${sharing ? 'bg-[#FF003C]/15 border-[#FF003C] text-[#FF003C]' : 'bg-white/5 border-white/10 text-white hover:bg-white/10'}`}
+          >
+            {sharing ? <RadioTower className="w-3 h-3 animate-pulse" /> : <Radio className="w-3 h-3" />}
+            {sharing ? 'Parar rastreio' : 'Compartilhar minha localização'}
+          </button>
+          <button
             data-testid="geo-optimize-simple"
             onClick={() => optimizeAll(false)}
             disabled={routing}
@@ -273,6 +360,22 @@ export const GeolocalizacaoPage = () => {
         </div>
       </div>
 
+      {liveList.length > 0 && (
+        <div data-testid="geo-live-bar" className="glass-panel rounded-xl px-4 py-2 mb-4 flex items-center gap-2 border-l-4 border-[#FF003C]">
+          <RadioTower className="w-4 h-4 text-[#FF003C] animate-pulse" />
+          <span className="text-xs font-bold text-white">Rastreio ao vivo:</span>
+          <span className="text-[11px] text-zinc-400">{liveList.length} equipe(s) online</span>
+          <div className="flex gap-2 ml-2">
+            {liveList.slice(0, 6).map((l) => (
+              <span key={l.user_id} className="text-[10px] px-2 py-0.5 rounded-full bg-white/5 border border-white/10 text-zinc-300">
+                {l.user_name?.split(' ')[0] || l.user_email?.split('@')[0]}
+              </span>
+            ))}
+            {liveList.length > 6 && <span className="text-[10px] text-zinc-500">+{liveList.length - 6}</span>}
+          </div>
+        </div>
+      )}
+
       <motion.div
         initial={{ opacity: 0 }} animate={{ opacity: 1 }}
         data-testid="geo-map-container"
@@ -288,9 +391,25 @@ export const GeolocalizacaoPage = () => {
               url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
             />
             <FitBounds points={[origin, ...points]} />
+            <FlyTo target={hoveredStop} />
             <Marker position={[origin.lat, origin.lng]} icon={originIcon}>
               <Popup><b>Origem</b><br />{origin.label || 'Ponto de partida'}</Popup>
             </Marker>
+            {hoveredStop && (
+              <Marker position={[hoveredStop.lat, hoveredStop.lng]} icon={hoverHighlightIcon()} interactive={false} />
+            )}
+            {liveList.map((l, i) => (
+              <Marker key={`live-${l.user_id}`} position={[l.lat, l.lng]} icon={liveIcon(TEAM_COLORS[i % TEAM_COLORS.length])}>
+                <Popup>
+                  <div style={{ minWidth: 180 }}>
+                    <b style={{ color: '#050505' }}>{l.user_name || l.user_email}</b>
+                    <div style={{ fontSize: 11, color: '#333' }}>{l.team_name || 'Equipe —'}</div>
+                    <div style={{ fontSize: 11, color: '#333' }}>Atualizado {new Date(l.updated_at).toLocaleTimeString('pt-BR')}</div>
+                    {l.accuracy && <div style={{ fontSize: 10, color: '#666' }}>±{Math.round(l.accuracy)}m</div>}
+                  </div>
+                </Popup>
+              </Marker>
+            ))}
             <MarkerClusterGroup
               chunkedLoading
               maxClusterRadius={45}

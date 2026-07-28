@@ -143,6 +143,17 @@ body::before {
   animation: slide-in-right 0.3s ease-out;
 }
 
+@keyframes hayah-live-pulse {
+  0% { transform: scale(1); opacity: 1; }
+  50% { transform: scale(1.15); opacity: 0.85; }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+@keyframes hayah-hover-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
 /* Glass morphism */
 .glass-panel {
   background: rgba(255, 255, 255, 0.02);

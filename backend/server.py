@@ -406,8 +406,8 @@ def build_project_response(project: dict) -> ProjectResponse:
         tipo_servico=project.get("tipo_servico", ""),
         team_id=project.get("team_id"),
         team_name=project.get("team_name"),
-        start_date=project.get("start_date", ""),
-        end_date=project.get("end_date", ""),
+        start_date=project.get("start_date") or "",
+        end_date=project.get("end_date") or "",
         programmed_value=project.get("programmed_value", 0.0),
         daily_goal=project.get("daily_goal", 0.0),
         status=project.get("status", "active"),
@@ -1324,20 +1324,32 @@ async def geo_route_pdf(body: RoutePdfBody, current_user: dict = Depends(get_cur
 
 @api_router.get("/geo/geocode")
 async def geo_geocode(q: str = "", limit: int = 5, current_user: dict = Depends(get_current_user)):
-    """Proxy geocoding — uses Photon (Komoot, OSM-based) primary + Nominatim fallback.
-    Photon has more generous rate limits and works well from shared IPs.
-    """
+    """Proxy geocoding — Photon primário + Nominatim fallback. Cache LRU 60s por (q,limit)."""
     q = (q or "").strip()
     if len(q) < 3:
         return []
-    import httpx
+    import time
     lim = max(1, min(limit, 10))
+    cache_key = f"{q.lower()}|{lim}"
+    now = time.time()
+    global _geocode_cache
+    try:
+        _geocode_cache
+    except NameError:
+        _geocode_cache = {}
+    # Evict expired
+    for k in list(_geocode_cache.keys()):
+        if now - _geocode_cache[k]["ts"] > 60:
+            _geocode_cache.pop(k, None)
+    hit = _geocode_cache.get(cache_key)
+    if hit:
+        return hit["data"]
+    import httpx
     headers = {
         "User-Agent": "HayahEnergy/1.0 (matriz-programacao; contato@hayahenergy.com.br)",
         "Accept-Language": "pt-BR",
         "Accept": "application/json",
     }
-
     # Try Photon first (Komoot). Não aceita lang=pt — remover.
     try:
         photon_url = "https://photon.komoot.io/api/"
@@ -1355,7 +1367,6 @@ async def geo_geocode(q: str = "", limit: int = 5, current_user: dict = Depends(
                 if len(coords) < 2:
                     continue
                 props = f.get("properties") or {}
-                # Filtra Brasil apenas
                 cc = (props.get("countrycode") or "").upper()
                 country = (props.get("country") or "").lower()
                 if cc and cc != "BR":
@@ -1379,12 +1390,10 @@ async def geo_geocode(q: str = "", limit: int = 5, current_user: dict = Depends(
                     "state": state,
                 })
             if out:
+                _geocode_cache[cache_key] = {"ts": now, "data": out[:lim]}
                 return out[:lim]
-        else:
-            logger.warning(f"Photon {r.status_code}: {r.text[:150]}")
     except Exception as e:
         logger.warning(f"Photon geocode error: {e}")
-
     # Nominatim fallback
     try:
         nom_url = "https://nominatim.openstreetmap.org/search"
@@ -1403,11 +1412,107 @@ async def geo_geocode(q: str = "", limit: int = 5, current_user: dict = Depends(
                     "city": addr.get("city") or addr.get("town") or addr.get("village") or addr.get("municipality") or "",
                     "state": addr.get("state") or "",
                 })
+            _geocode_cache[cache_key] = {"ts": now, "data": out}
             return out
         logger.warning(f"Nominatim {r.status_code}")
     except Exception as e:
         logger.warning(f"Nominatim fallback error: {e}")
     return []
+
+# ============ Live Tracking (Rastreio Ao Vivo) ============
+class TrackingPing(BaseModel):
+    lat: float
+    lng: float
+    accuracy: Optional[float] = None
+    team_id: Optional[str] = None
+    heading: Optional[float] = None
+    speed: Optional[float] = None
+
+@api_router.post("/tracking/ping")
+async def tracking_ping(body: TrackingPing, current_user: dict = Depends(get_current_user)):
+    """Store a live position ping for the current user."""
+    doc = {
+        "user_id": current_user["_id"],
+        "user_email": current_user.get("email", ""),
+        "user_name": current_user.get("name", current_user.get("email", "")),
+        "lat": body.lat,
+        "lng": body.lng,
+        "accuracy": body.accuracy,
+        "team_id": body.team_id,
+        "heading": body.heading,
+        "speed": body.speed,
+        "updated_at": datetime.now(timezone.utc),
+    }
+    await db.tracking_positions.update_one(
+        {"user_id": current_user["_id"]},
+        {"$set": doc},
+        upsert=True,
+    )
+    return {"status": "ok", "updated_at": doc["updated_at"].isoformat()}
+
+@api_router.get("/tracking/live")
+async def tracking_live(current_user: dict = Depends(get_current_user)):
+    """List active pings (last 5 minutes) for the current user's teams."""
+    from datetime import timedelta as td
+    cutoff = datetime.now(timezone.utc) - td(minutes=5)
+    docs = await db.tracking_positions.find({"updated_at": {"$gte": cutoff}}).to_list(500)
+    # Enrich with team name if available
+    team_ids = [d.get("team_id") for d in docs if d.get("team_id")]
+    teams = {}
+    if team_ids:
+        team_docs = await db.teams.find({"_id": {"$in": [safe_object_id(t) for t in team_ids if t]}}).to_list(500)
+        for t in team_docs:
+            teams[str(t["_id"])] = t.get("name", "")
+    out = []
+    for d in docs:
+        out.append({
+            "user_id": d["user_id"],
+            "user_email": d.get("user_email", ""),
+            "user_name": d.get("user_name", ""),
+            "team_id": d.get("team_id"),
+            "team_name": teams.get(d.get("team_id") or "", ""),
+            "lat": d["lat"],
+            "lng": d["lng"],
+            "accuracy": d.get("accuracy"),
+            "heading": d.get("heading"),
+            "speed": d.get("speed"),
+            "updated_at": d["updated_at"].isoformat() if isinstance(d["updated_at"], datetime) else d["updated_at"],
+        })
+    return out
+
+@api_router.delete("/tracking/ping")
+async def tracking_stop(current_user: dict = Depends(get_current_user)):
+    """Stop sharing: remove current user's position."""
+    await db.tracking_positions.delete_one({"user_id": current_user["_id"]})
+    return {"status": "stopped"}
+
+# ============ Duplicar Obra (clone) ============
+@api_router.post("/projects/{project_id}/duplicate")
+async def duplicate_project(project_id: str, current_user: dict = Depends(get_current_user)):
+    """Clone a project, clearing scheduling/execution fields and project_code."""
+    src = await db.projects.find_one({"_id": safe_object_id(project_id), "user_id": current_user["_id"]})
+    if not src:
+        raise HTTPException(status_code=404, detail="Projeto não encontrado")
+    clone = {k: v for k, v in src.items() if k not in ("_id",)}
+    clone["name"] = f"{src.get('name', '')} (cópia)"
+    clone["project_code"] = ""  # deve ser único
+    clone["is_scheduled"] = False
+    clone["execution_status"] = "aguardando_programacao"
+    clone["scheduled_date"] = ""
+    clone["start_date"] = ""
+    clone["end_date"] = ""
+    clone["actual_value"] = 0
+    clone["billing_value"] = 0
+    clone["team_id"] = None
+    clone["team_name"] = ""
+    clone["reschedule_history"] = []
+    clone["photos"] = []
+    clone["checklist"] = {}
+    clone["created_at"] = datetime.now(timezone.utc)
+    clone["updated_at"] = datetime.now(timezone.utc)
+    result = await db.projects.insert_one(clone)
+    new_doc = await db.projects.find_one({"_id": result.inserted_id})
+    return build_project_response(new_doc).model_dump()
 
 # Configuração exposta ao frontend
 @api_router.get("/config")

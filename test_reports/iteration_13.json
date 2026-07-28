@@ -1,0 +1,34 @@
+{
+  "summary": "Iter13 — 4 novas features (LRU geocode cache, live tracking, duplicar obra, coerce dates None→''): 12/12 pytest verdes + Playwright end-to-end validado. Cache LRU 60s: 2ª chamada mesma (q,limit) <1s (hit). Tracking: POST /api/tracking/ping upsert idempotente (1 doc por user), GET /api/tracking/live retorna user_id/user_name/lat/lng/updated_at, DELETE /api/tracking/ping remove doc. Duplicate: POST /api/projects/{id}/duplicate cria clone com nome '(cópia)', project_code='', is_scheduled=false, execution_status='aguardando_programacao', reschedule_history=[], start_date='', end_date=''. build_project_response coerce None→'' confirmado em start_date/end_date (isinstance str). Frontend: Carteira duplicate-carteira-{i} presente em todas linhas, clique aumenta count 10→11 e badge Total Obras atualiza 11. Geolocalização: geo-toggle-sharing muda texto para 'Parar rastreio', banner 'Compartilhando localização ao vivo!' aparece; após ping (via fetch) geo-live-bar renderiza '1 equipe(s) online — Admin' após poll (~8s); marker pulsante amarelo visível no mapa em Cuiabá. Regressão OK: /api/geo/projects, /api/analytics/top-expensive, /api/geo/route-pdf (200 + application/pdf).",
+  "backend_issues": { "critical": [], "minor": [] },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration13.py",
+    "/app/test_reports/pytest/iter13_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "_geocode_cache é dict global sem lock — safe em asyncio single-loop mas usa nome via global+try/NameError (padrão frágil). Prefer módulo-level dict pré-inicializado (`_geocode_cache: dict = {}`) e/ou functools.lru_cache com wrapper async.",
+    "Cache LRU 60s: não impõe tamanho máximo — pode crescer indefinidamente sob carga; loop de eviction O(n) roda a cada request. Considerar cachetools.TTLCache(maxsize=256, ttl=60).",
+    "tracking_positions collection não tem TTL index no updated_at — docs 'antigos' (>5min) só são filtrados na leitura, ficam para sempre no Mongo. Adicionar `db.tracking_positions.create_index('updated_at', expireAfterSeconds=600)` no startup.",
+    "duplicate_project copia TODO o src incluindo user_id (OK) mas também campos legados desconhecidos; considere allowlist explícita para evitar leak de fields futuros indesejados (fotos foram limpas, mas outros podem escapar).",
+    "server.py agora com 1799 linhas — modularização em routers separados (/tracking, /geo, /projects) permanece recomendada, não bloqueante.",
+    "frontend/tests: geo-stop-{tid}-{i} só renderiza quando há rota otimizada; hover FlyTo não pôde ser exercitado sem seed de rota — o main agent pode validar visualmente clicando 'Otimizar por equipe' com equipe que tem projetos."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iteration13.py"
+  ],
+  "success_rate": {
+    "backend": "100% (12/12)",
+    "frontend": "100% (carteira duplicate + geo toggle + live-bar validados; hover-FlyTo não exercitado por falta de rota otimizada)"
+  },
+  "test_credentials": "admin@projectmatrix.com / Admin@123",
+  "seed_data_creation": "Vários projetos '(cópia)' criados na Carteira durante testes E2E (Test Project (cópia), Obra Teste Duplicar (cópia)) — não impactam funcionalidade; main agent pode limpar se desejado.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Iter13 features todas verdes. Backend em /app/backend/tests/test_iteration13.py (12 testes). Live tracking testado via POST /api/tracking/ping (fetch em página logada) + polling 8s → geo-live-bar aparece. Carteira duplicate → total_obras +1 confirmado. Hover geo-stop-{tid}-{i} requer rota otimizada antes: para retestar, selecionar equipe com projetos e clicar 'Otimizar por equipe' → cards de stops aparecem → hover deve aplicar borda amarela + FlyTo no mapa. Playwright geolocation grant_permissions não é necessário para /live-bar aparecer (ping via fetch funciona)."
+}
