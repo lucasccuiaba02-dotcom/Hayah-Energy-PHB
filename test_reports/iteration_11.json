@@ -1,0 +1,42 @@
+{
+  "summary": "Iteration 11 — 4 novas features Hayah Energy. Backend POST /api/geo/route-pdf 100% OK (6/6 pytest passing). Frontend Geolocalização: geo-team-filter com 'Todas as equipes' + times + 'Sem equipe' OK; 'Otimizar por equipe' cria seções por equipe com cores distintas e botões geo-export-pdf-{tid}/geo-share-wa-{tid}; PDF blob download testado (application/pdf, 2871 bytes, %PDF magic); WhatsApp abre com https://wa.me/?text=... OK; MarkerClusterGroup renderiza .marker-cluster em zoom baixo (2 clusters vistos com 8 pontos). ProjectDrawer: testids project-address-search, -input, -results definidos corretamente — porém a busca via Nominatim retorna 'Failed to fetch' no browser (Nominatim OSM bloqueia UA/origem — cURL de dentro do container recebe HTTP 403 do nominatim.openstreetmap.org). Assim, o fluxo de auto-fill utm_x/utm_y não pôde ser validado end-to-end nesse ambiente.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [
+      {
+        "flow": "ProjectDrawer address search (Nominatim geocoding)",
+        "issue": "Chamada direta do browser para https://nominatim.openstreetmap.org/search falha (TypeError: Failed to fetch / net::ERR_FAILED). Nominatim retorna 403 quando testado via cURL sem UA amigável; do browser Playwright também falha. Isso quebra a feature '(1) endereços pesquisáveis via Nominatim' fora do ambiente do usuário final que pode ter UA aceito, mas é um risco: no ambiente de preview atual a busca sempre exibe 'Nenhum resultado'. Recomendação: proxy backend `/api/geo/geocode` que chame Nominatim server-side com User-Agent identificando a app (política de uso do Nominatim exige isso).",
+        "affected_selectors": ["[data-testid=\"project-address-search-input\"]","[data-testid=\"project-address-search-results\"]"]
+      }
+    ],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration11.py",
+    "/app/test_reports/pytest/iter11_results.xml"
+  ],
+  "action_items": [
+    "Considerar proxy backend (/api/geo/geocode) para Nominatim com User-Agent 'HayahEnergy/1.0 (contato@...)' — política de uso Nominatim proíbe chamadas anônimas em massa e o preview environment está sendo bloqueado. Isso resolve tanto CORS quanto o 403.",
+    "Opcional: adicionar rate-limit visível/mensagem no UI quando geocoding falhar (hoje mostra apenas 'Nenhum resultado')."
+  ],
+  "critical_code_review_comments": [
+    "server.py continua com >1600 linhas — split em módulos ainda pendente (não bloqueante).",
+    "Frontend geocodeAddress em /app/frontend/src/lib/geo.js chama Nominatim diretamente do browser sem User-Agent identificando a app; conforme política do Nominatim (https://operations.osmfoundation.org/policies/nominatim/), é obrigatório identificar o app e limitar a 1 req/s. Ideal proxy no backend.",
+    "GeolocalizacaoPage.jsx: exportPdf/shareWhatsApp bem estruturados; download blob usa createObjectURL + revoke corretamente.",
+    "MarkerClusterGroup: iconCreateFunction custom com className 'geo-cluster' funciona; .marker-cluster nativo também aparece — o teste conta ambos os selectors."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iteration11.py"
+  ],
+  "success_rate": { "backend": "100%", "frontend": "~85% (feature de address-search bloqueada por Nominatim externo)" },
+  "test_credentials": "admin@projectmatrix.com / Admin@123",
+  "seed_data_creation": "Seed de 8 projetos TEST_iter11_obra_{0..7} com UTMs em Cuiabá dividido entre 2 equipes (Test Team, Mobile Team). Removidos ao final via DELETE /api/projects/{id}.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Backend POST /api/geo/route-pdf validado (application/pdf, Content-Disposition attachment, %PDF header, empty stops também retorna 200). Geolocalização UI: geo-team-filter + otimização por equipe + MarkerClusterGroup + botões PDF/WhatsApp funcionando com dados semeados. Único bloqueio: Nominatim retorna 403/Failed to fetch dentro deste ambiente — recomenda-se proxy backend. Fluxo de utm auto-fill não pôde ser exercitado end-to-end mas a UI está correta (testids presentes, input e handler onSelect->latLngToUtm21s corretos).",
+  "rca of the issue": "Nominatim bloqueia requisições sem User-Agent identificado. cURL de dentro do container: HTTP 403. Browser Playwright: net::ERR_FAILED (provável CORS/politica). Solução recomendada: criar endpoint GET /api/geo/geocode?q=... no backend que faça a request com header User-Agent válido e devolva JSON normalizado — o AddressSearchInput passaria a chamar essa rota interna."
+}

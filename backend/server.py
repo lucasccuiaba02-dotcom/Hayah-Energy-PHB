@@ -21,6 +21,7 @@ import base64
 
 from push_notifications import ensure_vapid_keys, broadcast_push
 from daily_log_pdf import build_daily_log_pdf
+from route_pdf import build_route_pdf
 
 # MongoDB connection
 mongo_url = os.environ['MONGO_URL']
@@ -1286,6 +1287,40 @@ async def geo_projects(current_user: dict = Depends(get_current_user)):
         "utm_y": {"$nin": ["", None]},
     }).to_list(2000)
     return [build_project_response(p).model_dump() for p in projects]
+
+class RouteStop(BaseModel):
+    order: Optional[int] = None
+    project_code: Optional[str] = ""
+    name: Optional[str] = ""
+    project_type: Optional[str] = ""
+    location: Optional[str] = ""
+    programmed_value: Optional[float] = 0
+    lat: float
+    lng: float
+    execution_status: Optional[str] = ""
+
+class RouteOrigin(BaseModel):
+    label: Optional[str] = ""
+    lat: float
+    lng: float
+
+class RoutePdfBody(BaseModel):
+    team_name: Optional[str] = None
+    origin: RouteOrigin
+    distance_km: Optional[float] = 0
+    duration_min: Optional[float] = 0
+    route_mode: Optional[str] = "haversine"
+    stops: List[RouteStop]
+
+@api_router.post("/geo/route-pdf")
+async def geo_route_pdf(body: RoutePdfBody, current_user: dict = Depends(get_current_user)):
+    pdf_bytes = build_route_pdf(body.model_dump())
+    filename = f"roteiro_{(body.team_name or 'todas').replace(' ', '_')[:24]}_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M')}.pdf"
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 # Configuração exposta ao frontend
 @api_router.get("/config")

@@ -10,6 +10,7 @@ import {
   RESCHEDULE_REASONS,
   todayISO,
 } from '../lib/constants';
+import { AddressSearchInput } from './AddressSearchInput';
 
 export const ProjectDrawer = ({ isOpen, onClose, onSave, project, teams, defaultScheduled = false }) => {
   const initialState = () => ({
@@ -243,6 +244,22 @@ export const ProjectDrawer = ({ isOpen, onClose, onSave, project, teams, default
                       placeholder="Ex: 8283412"
                     />
                   </div>
+                </div>
+
+                <div className="rounded-xl border border-dashed border-[#00F0FF]/30 bg-[#00F0FF]/[0.03] p-3">
+                  <label className="text-[10px] tracking-[0.2em] uppercase font-bold text-[#00F0FF] block mb-2">
+                    Ou busque o endereço (converte para UTM automaticamente)
+                  </label>
+                  <AddressSearchInput
+                    testid="project-address-search"
+                    onSelect={(sel) => setFormData({
+                      ...formData,
+                      utm_x: String(sel.utm_x || formData.utm_x),
+                      utm_y: String(sel.utm_y || formData.utm_y),
+                      location: (sel.city && MUNICIPIOS.includes(sel.city.toUpperCase())) ? sel.city.toUpperCase() : formData.location,
+                    })}
+                  />
+                  <p className="text-[10px] text-zinc-500 mt-2">Usa OpenStreetMap · Zona UTM 21 Sul (SIRGAS 2000)</p>
                 </div>
 
                 <div className="grid grid-cols-2 gap-4">

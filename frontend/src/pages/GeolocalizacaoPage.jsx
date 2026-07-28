@@ -3,9 +3,12 @@ import { motion } from 'framer-motion';
 import axios from 'axios';
 import { toast } from 'sonner';
 import { MapContainer, TileLayer, Marker, Popup, Polyline, useMap } from 'react-leaflet';
+import MarkerClusterGroup from 'react-leaflet-cluster';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
-import { MapPin, Route, RefreshCw, Navigation, LocateFixed } from 'lucide-react';
+import 'leaflet.markercluster/dist/MarkerCluster.css';
+import 'leaflet.markercluster/dist/MarkerCluster.Default.css';
+import { Route, RefreshCw, Navigation, LocateFixed, FileDown, Share2, Users } from 'lucide-react';
 import { AppLayout } from '../components/AppLayout';
 import { utm21sToLatLng, nearestNeighborRoute, osrmRoute, haversineKm } from '../lib/geo';
 import { PROJECT_TYPE_LABEL, EXECUTION_STATUS, formatCurrency } from '../lib/constants';
@@ -13,19 +16,16 @@ import { PROJECT_TYPE_LABEL, EXECUTION_STATUS, formatCurrency } from '../lib/con
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
 
-// Cuiabá central default
 const DEFAULT_ORIGIN = { lat: -15.6014, lng: -56.0979, label: 'Cuiabá — Centro' };
-
 const STATUS_COLOR = EXECUTION_STATUS.reduce((acc, s) => ({ ...acc, [s.value]: s.color }), {});
+const TEAM_COLORS = ['#E0FF00', '#00F0FF', '#FF5E00', '#39FF14', '#A855F7', '#EC4899', '#22D3EE', '#F59E0B', '#6366F1', '#10B981'];
 
-const makeIcon = (color, index) => L.divIcon({
+const makeIcon = (color, label) => L.divIcon({
   className: 'geo-pin',
   html: `<div style="width:32px;height:32px;border-radius:50% 50% 50% 0;background:${color};transform:rotate(-45deg);border:2px solid #050505;box-shadow:0 4px 10px rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;">
-           <span style="transform:rotate(45deg);color:#050505;font-weight:900;font-size:12px;font-family:monospace;">${index}</span>
+           <span style="transform:rotate(45deg);color:#050505;font-weight:900;font-size:11px;font-family:monospace;">${label}</span>
          </div>`,
-  iconSize: [32, 42],
-  iconAnchor: [16, 42],
-  popupAnchor: [0, -40],
+  iconSize: [32, 42], iconAnchor: [16, 42], popupAnchor: [0, -40],
 });
 
 const originIcon = L.divIcon({
@@ -33,8 +33,7 @@ const originIcon = L.divIcon({
   html: `<div style="width:34px;height:34px;border-radius:50%;background:#E0FF00;border:3px solid #050505;box-shadow:0 0 20px rgba(224,255,0,0.7);display:flex;align-items:center;justify-content:center;">
            <span style="color:#050505;font-weight:900;font-size:14px;">★</span>
          </div>`,
-  iconSize: [34, 34],
-  iconAnchor: [17, 17],
+  iconSize: [34, 34], iconAnchor: [17, 17],
 });
 
 const FitBounds = ({ points }) => {
@@ -42,129 +41,178 @@ const FitBounds = ({ points }) => {
   useEffect(() => {
     if (!points || points.length === 0) return;
     const bounds = L.latLngBounds(points.map((p) => [p.lat, p.lng]));
-    map.fitBounds(bounds, { padding: [40, 40], maxZoom: 12 });
+    map.fitBounds(bounds, { padding: [50, 50], maxZoom: 12 });
   }, [points, map]);
   return null;
 };
 
 export const GeolocalizacaoPage = () => {
   const [projects, setProjects] = useState([]);
+  const [teamsList, setTeamsList] = useState([]);
   const [loading, setLoading] = useState(true);
   const [origin, setOrigin] = useState(DEFAULT_ORIGIN);
-  const [ordered, setOrdered] = useState([]);
-  const [routeGeom, setRouteGeom] = useState(null);
-  const [routing, setRouting] = useState(false);
-  const [routeMode, setRouteMode] = useState('haversine'); // 'haversine' | 'osrm'
   const [statusFilter, setStatusFilter] = useState('active');
+  const [teamFilter, setTeamFilter] = useState(''); // '' = todas, id = specific team
+  const [teamRoutes, setTeamRoutes] = useState({}); // { teamId: { stops:[], geom, mode, distance_km, duration_min } }
+  const [routing, setRouting] = useState(false);
+  const [exporting, setExporting] = useState(false);
   const mapRef = useRef(null);
 
   useEffect(() => {
-    axios.get(`${API}/geo/projects`)
-      .then(({ data }) => setProjects(data))
-      .catch(() => toast.error('Erro ao carregar projetos'))
-      .finally(() => setLoading(false));
+    Promise.allSettled([
+      axios.get(`${API}/geo/projects`),
+      axios.get(`${API}/teams`),
+    ]).then(([g, t]) => {
+      if (g.status === 'fulfilled') setProjects(g.value.data);
+      if (t.status === 'fulfilled') setTeamsList(t.value.data);
+      setLoading(false);
+    });
   }, []);
+
+  const teamName = (id) => teamsList.find((t) => t.id === id)?.name || 'Sem equipe';
 
   const points = useMemo(() => {
     return projects
       .map((p) => {
-        const coord = utm21sToLatLng(p.utm_x, p.utm_y);
-        if (!coord) return null;
-        return { ...p, lat: coord.lat, lng: coord.lng };
+        const c = utm21sToLatLng(p.utm_x, p.utm_y);
+        if (!c) return null;
+        return { ...p, lat: c.lat, lng: c.lng };
       })
       .filter(Boolean)
       .filter((p) => {
-        if (statusFilter === 'all') return true;
-        if (statusFilter === 'active') return !['concluido', 'cancelado', 'executada'].includes(p.execution_status);
-        return p.execution_status === statusFilter;
+        if (statusFilter === 'active') { if (['concluido', 'cancelado', 'executada'].includes(p.execution_status)) return false; }
+        else if (statusFilter !== 'all') { if (p.execution_status !== statusFilter) return false; }
+        if (teamFilter && (p.team_id || 'unassigned') !== teamFilter) return false;
+        return true;
       });
-  }, [projects, statusFilter]);
+  }, [projects, statusFilter, teamFilter]);
 
-  const totalPointsWithUTM = projects.filter((p) => utm21sToLatLng(p.utm_x, p.utm_y)).length;
+  const groupedByTeam = useMemo(() => {
+    const g = {};
+    points.forEach((p) => {
+      const k = p.team_id || 'unassigned';
+      if (!g[k]) g[k] = [];
+      g[k].push(p);
+    });
+    return g;
+  }, [points]);
 
-  const routeInfo = useMemo(() => {
-    if (!ordered.length) return null;
-    let total = haversineKm(origin, ordered[0]);
-    for (let i = 1; i < ordered.length; i++) total += haversineKm(ordered[i - 1], ordered[i]);
-    return { distance_km: total, count: ordered.length };
-  }, [ordered, origin]);
-
-  const optimizeHaversine = () => {
-    if (!points.length) { toast.error('Nenhum projeto com coordenadas'); return; }
-    setOrdered(nearestNeighborRoute(origin, points));
-    setRouteGeom(null);
-    setRouteMode('haversine');
-    toast.success(`Rota otimizada: ${points.length} obra(s)`);
-  };
-
-  const optimizeOSRM = async () => {
-    if (!points.length) { toast.error('Nenhum projeto com coordenadas'); return; }
+  const optimizeAll = async (useOsrm) => {
+    if (!points.length) { toast.error('Nenhum projeto com coordenadas nesse filtro'); return; }
     setRouting(true);
+    const next = {};
+    let idx = 0;
     try {
-      const seq = nearestNeighborRoute(origin, points);
-      setOrdered(seq);
-      const waypoints = [origin, ...seq];
-      const res = await osrmRoute(waypoints);
-      if (res) {
-        setRouteGeom(res);
-        setRouteMode('osrm');
-        toast.success(`Rota real: ${res.distance_km.toFixed(1)} km · ${Math.round(res.duration_min)} min`);
-      } else {
-        setRouteGeom(null);
-        setRouteMode('haversine');
-        toast.warning('Roteador OSRM indisponível. Mostrando linha reta.');
+      for (const [tid, pts] of Object.entries(groupedByTeam)) {
+        const ordered = nearestNeighborRoute(origin, pts);
+        let geom = null, distance = null, duration = null, mode = 'haversine';
+        if (useOsrm) {
+          const r = await osrmRoute([origin, ...ordered]);
+          if (r) { geom = r.coordinates; distance = r.distance_km; duration = r.duration_min; mode = 'osrm'; }
+        }
+        if (!geom) {
+          let d = haversineKm(origin, ordered[0]);
+          for (let i = 1; i < ordered.length; i++) d += haversineKm(ordered[i - 1], ordered[i]);
+          distance = d;
+        }
+        next[tid] = { stops: ordered, geom, distance_km: distance, duration_min: duration, mode, color: TEAM_COLORS[idx % TEAM_COLORS.length] };
+        idx++;
       }
-    } finally {
-      setRouting(false);
-    }
+      setTeamRoutes(next);
+      const teamCount = Object.keys(next).length;
+      toast.success(`${teamCount} rota${teamCount > 1 ? 's' : ''} otimizada${teamCount > 1 ? 's' : ''}${useOsrm ? ' (OSRM)' : ''}`);
+    } finally { setRouting(false); }
   };
 
   const useMyLocation = () => {
     if (!navigator.geolocation) { toast.error('Geolocalização não suportada'); return; }
     navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        setOrigin({ lat: pos.coords.latitude, lng: pos.coords.longitude, label: 'Minha localização' });
-        toast.success('Origem definida na sua localização atual');
-      },
+      (pos) => { setOrigin({ lat: pos.coords.latitude, lng: pos.coords.longitude, label: 'Minha localização' }); toast.success('Origem atualizada'); },
       () => toast.error('Não foi possível obter localização'),
       { enableHighAccuracy: true, timeout: 8000 },
     );
   };
 
-  const polylinePositions = useMemo(() => {
-    if (routeGeom && routeMode === 'osrm') return routeGeom.coordinates;
-    if (!ordered.length) return [];
-    return [[origin.lat, origin.lng], ...ordered.map((p) => [p.lat, p.lng])];
-  }, [routeGeom, routeMode, ordered, origin]);
+  const teamRoutesList = Object.entries(teamRoutes);
+  const totalDistance = teamRoutesList.reduce((s, [, r]) => s + (r.distance_km || 0), 0);
+  const totalDuration = teamRoutesList.reduce((s, [, r]) => s + (r.duration_min || 0), 0);
+
+  const exportPdf = async (teamId) => {
+    const route = teamRoutes[teamId];
+    if (!route) { toast.error('Otimize primeiro'); return; }
+    setExporting(true);
+    try {
+      const payload = {
+        team_name: teamId === 'unassigned' ? 'Sem equipe' : teamName(teamId),
+        origin: { label: origin.label, lat: origin.lat, lng: origin.lng },
+        distance_km: route.distance_km || 0,
+        duration_min: route.duration_min || 0,
+        route_mode: route.mode || 'haversine',
+        stops: route.stops.map((s, i) => ({
+          order: i + 1,
+          project_code: s.project_code || '',
+          name: s.name || '',
+          project_type: s.project_type || '',
+          location: s.location || '',
+          programmed_value: s.programmed_value || 0,
+          lat: s.lat, lng: s.lng,
+          execution_status: s.execution_status || '',
+        })),
+      };
+      const { data } = await axios.post(`${API}/geo/route-pdf`, payload, { responseType: 'blob' });
+      const url = window.URL.createObjectURL(new Blob([data], { type: 'application/pdf' }));
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `roteiro_${(teamId === 'unassigned' ? 'sem-equipe' : teamName(teamId)).toLowerCase().replace(/\s+/g, '_')}.pdf`;
+      document.body.appendChild(a); a.click(); a.remove();
+      window.URL.revokeObjectURL(url);
+      toast.success('Roteiro em PDF pronto!');
+    } catch { toast.error('Erro ao gerar PDF'); }
+    finally { setExporting(false); }
+  };
+
+  const shareWhatsApp = (teamId) => {
+    const route = teamRoutes[teamId];
+    if (!route) { toast.error('Otimize primeiro'); return; }
+    const name = teamId === 'unassigned' ? 'Sem equipe' : teamName(teamId);
+    let msg = `*HAYAH ENERGY — Roteiro de ${name}*\n`;
+    msg += `Origem: ${origin.label}\n`;
+    msg += `Distância: ${route.distance_km?.toFixed(1) || '?'} km`;
+    if (route.duration_min) msg += ` · ${Math.round(route.duration_min)} min`;
+    msg += `\n\n`;
+    route.stops.forEach((s, i) => {
+      msg += `${i + 1}. ${s.project_code || ''} ${s.name}\n`;
+      if (s.location) msg += `   ${s.location}\n`;
+      msg += `   https://maps.google.com/?q=${s.lat},${s.lng}\n\n`;
+    });
+    window.open(`https://wa.me/?text=${encodeURIComponent(msg)}`, '_blank');
+  };
+
+  const allPolylines = teamRoutesList.map(([tid, r]) => ({
+    key: tid,
+    color: r.color,
+    positions: r.geom || [[origin.lat, origin.lng], ...r.stops.map((s) => [s.lat, s.lng])],
+    dash: r.mode === 'osrm' ? null : '8 6',
+  }));
 
   return (
-    <AppLayout title="Geolocalização" subtitle="Mapa de obras e roteirização otimizada">
-      <div className="grid grid-cols-1 lg:grid-cols-4 gap-4 mb-4">
-        <div data-testid="geo-stat-total" className="glass-panel rounded-xl p-4">
-          <p className="text-[10px] tracking-[0.2em] uppercase font-bold text-zinc-500 mb-1">Com Coordenadas</p>
-          <p className="font-mono text-2xl font-bold text-white">{totalPointsWithUTM}</p>
-          <p className="text-[10px] text-zinc-600 mt-1">de {projects.length} projetos com UTM</p>
-        </div>
+    <AppLayout title="Geolocalização" subtitle="Mapa de obras e roteirização otimizada por equipe">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
         <div data-testid="geo-stat-plotted" className="glass-panel rounded-xl p-4">
-          <p className="text-[10px] tracking-[0.2em] uppercase font-bold text-zinc-500 mb-1">Plotados</p>
+          <p className="text-[10px] tracking-[0.2em] uppercase font-bold text-zinc-500 mb-1">Obras no mapa</p>
           <p className="font-mono text-2xl font-bold text-[#00F0FF]">{points.length}</p>
-          <p className="text-[10px] text-zinc-600 mt-1">após filtro</p>
+        </div>
+        <div data-testid="geo-stat-teams" className="glass-panel rounded-xl p-4">
+          <p className="text-[10px] tracking-[0.2em] uppercase font-bold text-zinc-500 mb-1">Equipes em rota</p>
+          <p className="font-mono text-2xl font-bold text-[#E0FF00]">{teamRoutesList.length}</p>
         </div>
         <div data-testid="geo-stat-distance" className="glass-panel rounded-xl p-4">
-          <p className="text-[10px] tracking-[0.2em] uppercase font-bold text-zinc-500 mb-1">Distância</p>
-          <p className="font-mono text-2xl font-bold text-[#E0FF00]">
-            {routeGeom && routeMode === 'osrm' ? `${routeGeom.distance_km.toFixed(1)}` : routeInfo ? `${routeInfo.distance_km.toFixed(1)}` : '—'}
-            <span className="text-xs text-zinc-500 ml-1">km</span>
-          </p>
-          <p className="text-[10px] text-zinc-600 mt-1">{routeMode === 'osrm' ? 'rota real' : 'linha reta'}</p>
+          <p className="text-[10px] tracking-[0.2em] uppercase font-bold text-zinc-500 mb-1">Distância total</p>
+          <p className="font-mono text-2xl font-bold text-[#39FF14]">{totalDistance ? totalDistance.toFixed(1) : '—'} <span className="text-xs text-zinc-500">km</span></p>
         </div>
         <div data-testid="geo-stat-duration" className="glass-panel rounded-xl p-4">
-          <p className="text-[10px] tracking-[0.2em] uppercase font-bold text-zinc-500 mb-1">Tempo Estimado</p>
-          <p className="font-mono text-2xl font-bold text-[#FF5E00]">
-            {routeGeom && routeMode === 'osrm' ? `${Math.round(routeGeom.duration_min)}` : '—'}
-            <span className="text-xs text-zinc-500 ml-1">min</span>
-          </p>
-          <p className="text-[10px] text-zinc-600 mt-1">via OSRM</p>
+          <p className="text-[10px] tracking-[0.2em] uppercase font-bold text-zinc-500 mb-1">Tempo total</p>
+          <p className="font-mono text-2xl font-bold text-[#FF5E00]">{totalDuration ? Math.round(totalDuration) : '—'} <span className="text-xs text-zinc-500">min</span></p>
         </div>
       </div>
 
@@ -176,55 +224,65 @@ export const GeolocalizacaoPage = () => {
           className="bg-zinc-950/90 border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:border-[#E0FF00] focus:outline-none"
         >
           <option value="active">Apenas ativas</option>
-          <option value="all">Todas</option>
+          <option value="all">Todos os status</option>
           {EXECUTION_STATUS.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
         </select>
+
+        <div className="flex items-center gap-2">
+          <Users className="w-4 h-4 text-zinc-500" />
+          <select
+            data-testid="geo-team-filter"
+            value={teamFilter}
+            onChange={(e) => setTeamFilter(e.target.value)}
+            className="bg-zinc-950/90 border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:border-[#E0FF00] focus:outline-none"
+          >
+            <option value="">Todas as equipes</option>
+            {teamsList.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+            <option value="unassigned">Sem equipe</option>
+          </select>
+        </div>
+
         <button
           data-testid="geo-use-location"
           onClick={useMyLocation}
           className="flex items-center gap-2 bg-white/5 border border-white/10 hover:bg-white/10 text-white text-xs font-bold px-3 py-2 rounded-full transition-all"
         >
-          <LocateFixed className="w-3 h-3" /> Usar minha localização
+          <LocateFixed className="w-3 h-3" /> Minha localização
         </button>
-        <div className="text-[11px] text-zinc-500 font-mono">
-          Origem: {origin.label || `${origin.lat.toFixed(4)}, ${origin.lng.toFixed(4)}`}
-        </div>
-        <div className="ml-auto flex gap-2">
+
+        <div className="text-[11px] text-zinc-500 font-mono">Origem: {origin.label || `${origin.lat.toFixed(4)}, ${origin.lng.toFixed(4)}`}</div>
+
+        <div className="ml-auto flex gap-2 flex-wrap">
           <button
             data-testid="geo-optimize-simple"
-            onClick={optimizeHaversine}
-            className="flex items-center gap-2 bg-[#00F0FF]/15 border border-[#00F0FF]/40 hover:bg-[#00F0FF]/25 text-[#00F0FF] text-xs font-bold px-4 py-2 rounded-full transition-all"
+            onClick={() => optimizeAll(false)}
+            disabled={routing}
+            className="flex items-center gap-2 bg-[#00F0FF]/15 border border-[#00F0FF]/40 hover:bg-[#00F0FF]/25 text-[#00F0FF] text-xs font-bold px-4 py-2 rounded-full transition-all disabled:opacity-60"
           >
-            <Route className="w-3 h-3" /> Otimizar (rápido)
+            <Route className="w-3 h-3" /> Otimizar por equipe
           </button>
           <button
             data-testid="geo-optimize-osrm"
-            onClick={optimizeOSRM}
+            onClick={() => optimizeAll(true)}
             disabled={routing}
             className="flex items-center gap-2 bg-[#E0FF00] hover:bg-[#C8E600] text-black text-xs font-bold px-4 py-2 rounded-full transition-all disabled:opacity-60"
           >
             {routing ? <RefreshCw className="w-3 h-3 animate-spin" /> : <Navigation className="w-3 h-3" />}
-            {routing ? 'Traçando rota...' : 'Rota real (OSRM)'}
+            {routing ? 'Traçando...' : 'Rota real (OSRM)'}
           </button>
         </div>
       </div>
 
       <motion.div
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
+        initial={{ opacity: 0 }} animate={{ opacity: 1 }}
         data-testid="geo-map-container"
         className="glass-panel rounded-2xl overflow-hidden mb-4"
-        style={{ height: '560px' }}
+        style={{ height: '580px' }}
       >
         {loading ? (
           <div className="w-full h-full flex items-center justify-center text-zinc-500 text-sm">Carregando mapa...</div>
         ) : (
-          <MapContainer
-            center={[origin.lat, origin.lng]}
-            zoom={11}
-            style={{ height: '100%', width: '100%', background: '#050505' }}
-            ref={mapRef}
-          >
+          <MapContainer center={[origin.lat, origin.lng]} zoom={11} style={{ height: '100%', width: '100%', background: '#050505' }} ref={mapRef}>
             <TileLayer
               attribution='&copy; <a href="https://openstreetmap.org">OpenStreetMap</a>'
               url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
@@ -233,11 +291,19 @@ export const GeolocalizacaoPage = () => {
             <Marker position={[origin.lat, origin.lng]} icon={originIcon}>
               <Popup><b>Origem</b><br />{origin.label || 'Ponto de partida'}</Popup>
             </Marker>
-            {(ordered.length ? ordered : points).map((p, i) => {
-              const idx = ordered.length ? i + 1 : '·';
-              const color = STATUS_COLOR[p.execution_status] || '#00F0FF';
-              return (
-                <Marker key={p.id} position={[p.lat, p.lng]} icon={makeIcon(color, idx)}>
+            <MarkerClusterGroup
+              chunkedLoading
+              maxClusterRadius={45}
+              iconCreateFunction={(cluster) => L.divIcon({
+                html: `<div style="width:40px;height:40px;border-radius:50%;background:rgba(224,255,0,0.85);border:2px solid #050505;display:flex;align-items:center;justify-content:center;color:#050505;font-weight:900;font-family:monospace;font-size:13px;box-shadow:0 4px 12px rgba(0,0,0,0.5);">${cluster.getChildCount()}</div>`,
+                className: 'geo-cluster', iconSize: L.point(40, 40),
+              })}
+            >
+              {(teamRoutesList.length
+                ? teamRoutesList.flatMap(([tid, r]) => r.stops.map((s, i) => ({ ...s, __order: i + 1, __teamColor: r.color, __teamId: tid })))
+                : points.map((p) => ({ ...p, __order: '·', __teamColor: STATUS_COLOR[p.execution_status] || '#00F0FF', __teamId: p.team_id }))
+              ).map((p) => (
+                <Marker key={`${p.__teamId}-${p.id}`} position={[p.lat, p.lng]} icon={makeIcon(p.__teamColor, p.__order)}>
                   <Popup>
                     <div style={{ minWidth: 200 }}>
                       <div style={{ fontSize: 10, color: '#71717a', fontFamily: 'monospace' }}>{p.project_code || '—'}</div>
@@ -246,67 +312,83 @@ export const GeolocalizacaoPage = () => {
                         {PROJECT_TYPE_LABEL[p.project_type] || p.project_type}
                         {p.location ? ` · ${p.location}` : ''}
                       </div>
-                      <div style={{ fontSize: 11, color: '#333' }}>
-                        UTM: {p.utm_x} / {p.utm_y}
-                      </div>
-                      <div style={{ fontSize: 12, fontWeight: 700, marginTop: 4 }}>
-                        {formatCurrency(p.programmed_value)}
-                      </div>
+                      <div style={{ fontSize: 11, color: '#333' }}>Equipe: {p.__teamId === 'unassigned' ? '—' : teamName(p.__teamId)}</div>
+                      <div style={{ fontSize: 12, fontWeight: 700, marginTop: 4 }}>{formatCurrency(p.programmed_value)}</div>
                     </div>
                   </Popup>
                 </Marker>
-              );
-            })}
-            {polylinePositions.length > 0 && (
-              <Polyline
-                positions={polylinePositions}
-                pathOptions={{ color: '#E0FF00', weight: 4, opacity: 0.85, dashArray: routeMode === 'osrm' ? null : '8 6' }}
-              />
-            )}
+              ))}
+            </MarkerClusterGroup>
+            {allPolylines.map((pl) => (
+              <Polyline key={pl.key} positions={pl.positions} pathOptions={{ color: pl.color, weight: 4, opacity: 0.85, dashArray: pl.dash }} />
+            ))}
           </MapContainer>
         )}
       </motion.div>
 
-      {ordered.length > 0 && (
-        <div data-testid="geo-route-list" className="glass-panel rounded-2xl p-4">
-          <div className="flex items-center justify-between mb-3">
-            <div>
-              <p className="text-[10px] tracking-[0.2em] uppercase font-bold text-zinc-500">Ordem de Visita Otimizada</p>
-              <h3 className="font-heading font-black text-lg tracking-tighter text-white">{ordered.length} paradas</h3>
-            </div>
-            <span className="px-3 py-1 rounded-full text-xs font-bold bg-[#E0FF00]/15 border border-[#E0FF00]/40 text-[#E0FF00] uppercase">
-              {routeMode === 'osrm' ? 'Rota Real' : 'Nearest Neighbor'}
-            </span>
-          </div>
-          <div className="space-y-2">
-            {ordered.map((p, i) => (
-              <div key={p.id} data-testid={`geo-stop-${i}`} className="flex items-center gap-3 rounded-lg p-3 bg-white/[0.02] border border-white/10">
-                <div className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 font-mono font-bold text-sm"
-                  style={{ background: STATUS_COLOR[p.execution_status] + '22', border: `1px solid ${STATUS_COLOR[p.execution_status]}`, color: STATUS_COLOR[p.execution_status] }}
-                >
-                  {i + 1}
+      {teamRoutesList.length > 0 && (
+        <div data-testid="geo-team-routes" className="space-y-3">
+          {teamRoutesList.map(([tid, r]) => (
+            <div key={tid} data-testid={`geo-team-${tid}`} className="glass-panel rounded-2xl p-4" style={{ borderLeft: `4px solid ${r.color}` }}>
+              <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+                <div className="flex items-center gap-3">
+                  <span className="w-3 h-3 rounded-full" style={{ background: r.color }}></span>
+                  <div>
+                    <p className="text-[10px] tracking-[0.2em] uppercase font-bold text-zinc-500">{tid === 'unassigned' ? 'Sem equipe' : teamName(tid)}</p>
+                    <h3 className="font-heading font-black text-lg tracking-tighter text-white">
+                      {r.stops.length} parada{r.stops.length !== 1 ? 's' : ''} · {(r.distance_km || 0).toFixed(1)} km
+                      {r.duration_min ? ` · ${Math.round(r.duration_min)} min` : ''}
+                    </h3>
+                  </div>
                 </div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-white font-bold text-sm truncate">{p.project_code ? `${p.project_code} · ` : ''}{p.name}</p>
-                  <p className="text-[11px] text-zinc-500">
-                    {PROJECT_TYPE_LABEL[p.project_type] || p.project_type}
-                    {p.location ? ` · ${p.location}` : ''}
-                  </p>
-                </div>
-                <div className="text-right flex-shrink-0">
-                  <p className="font-mono text-sm text-[#39FF14]">{formatCurrency(p.programmed_value)}</p>
-                  <a
-                    href={`https://www.google.com/maps/dir/?api=1&destination=${p.lat},${p.lng}`}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="text-[10px] text-[#00F0FF] hover:underline"
+                <div className="flex gap-2">
+                  <button
+                    data-testid={`geo-export-pdf-${tid}`}
+                    onClick={() => exportPdf(tid)}
+                    disabled={exporting}
+                    className="flex items-center gap-2 bg-[#E0FF00] hover:bg-[#C8E600] text-black text-xs font-bold px-4 py-2 rounded-full transition-all disabled:opacity-60"
                   >
-                    Abrir no Maps ↗
-                  </a>
+                    <FileDown className="w-3 h-3" /> PDF
+                  </button>
+                  <button
+                    data-testid={`geo-share-wa-${tid}`}
+                    onClick={() => shareWhatsApp(tid)}
+                    className="flex items-center gap-2 bg-[#25D366] hover:bg-[#1DA851] text-white text-xs font-bold px-4 py-2 rounded-full transition-all"
+                  >
+                    <Share2 className="w-3 h-3" /> WhatsApp
+                  </button>
                 </div>
               </div>
-            ))}
-          </div>
+              <div className="space-y-1.5">
+                {r.stops.map((p, i) => (
+                  <div key={p.id} data-testid={`geo-stop-${tid}-${i}`} className="flex items-center gap-3 rounded-lg p-2 bg-white/[0.02] border border-white/5 hover:border-white/20 transition-colors">
+                    <div className="w-7 h-7 rounded-md flex items-center justify-center font-mono font-bold text-xs flex-shrink-0"
+                      style={{ background: `${r.color}22`, border: `1px solid ${r.color}`, color: r.color }}
+                    >
+                      {i + 1}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-white text-sm truncate">
+                        {p.project_code && <span className="font-mono text-[10px] text-[#00F0FF] mr-1">{p.project_code}</span>}
+                        {p.name}
+                      </p>
+                      <p className="text-[10px] text-zinc-500 truncate">
+                        {PROJECT_TYPE_LABEL[p.project_type] || p.project_type}{p.location ? ` · ${p.location}` : ''}
+                      </p>
+                    </div>
+                    <div className="text-right flex-shrink-0">
+                      <p className="font-mono text-xs text-[#39FF14]">{formatCurrency(p.programmed_value)}</p>
+                      <a
+                        href={`https://www.google.com/maps/dir/?api=1&destination=${p.lat},${p.lng}`}
+                        target="_blank" rel="noreferrer"
+                        className="text-[10px] text-[#00F0FF] hover:underline"
+                      >Maps ↗</a>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
         </div>
       )}
     </AppLayout>
