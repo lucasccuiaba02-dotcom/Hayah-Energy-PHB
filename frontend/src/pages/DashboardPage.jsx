@@ -2,10 +2,11 @@ import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import axios from 'axios';
 import { toast } from 'sonner';
-import { Target, TrendingUp, Activity, DollarSign, Users, Zap, Briefcase, Calendar } from 'lucide-react';
+import { AlertTriangle, TrendingUp, Activity, DollarSign, Users, Briefcase, Calendar, BellRing, BellOff } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { AppLayout } from '../components/AppLayout';
 import { formatCurrency } from '../lib/constants';
+import { isPushSupported, currentPushStatus, subscribeToPush, unsubscribeFromPush } from '../lib/push';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -13,28 +14,124 @@ const API = `${BACKEND_URL}/api`;
 export const DashboardPage = () => {
   const [stats, setStats] = useState(null);
   const [scheduleStats, setScheduleStats] = useState(null);
-  const [loading, setLoading] = useState(true);
+  const [anexoAlerts, setAnexoAlerts] = useState([]);
+  const [pushStatus, setPushStatus] = useState('unknown');
   const navigate = useNavigate();
 
   useEffect(() => {
-    fetchData();
-  }, []);
-
-  const fetchData = async () => {
-    try {
+    (async () => {
       const results = await Promise.allSettled([
         axios.get(`${API}/dashboard/stats`),
         axios.get(`${API}/schedule/stats`),
+        axios.get(`${API}/alerts/anexo-iv`),
       ]);
       if (results[0].status === 'fulfilled') setStats(results[0].value.data);
       if (results[1].status === 'fulfilled') setScheduleStats(results[1].value.data);
-    } finally {
-      setLoading(false);
+      if (results[2].status === 'fulfilled') setAnexoAlerts(results[2].value.data || []);
+      if (await isPushSupported()) setPushStatus(await currentPushStatus());
+      else setPushStatus('unsupported');
+    })();
+  }, []);
+
+  const handleEnablePush = async () => {
+    try {
+      await subscribeToPush();
+      setPushStatus('subscribed');
+      toast.success('Notificações ativadas neste dispositivo!');
+    } catch (err) {
+      toast.error(err.message || 'Não foi possível ativar push');
     }
+  };
+
+  const handleDisablePush = async () => {
+    await unsubscribeFromPush();
+    setPushStatus('default');
+    toast.info('Notificações desativadas neste dispositivo');
   };
 
   return (
     <AppLayout title="Dashboard" subtitle="Visão geral da operação">
+      {anexoAlerts.length > 0 && (
+        <motion.button
+          data-testid="anexo-iv-banner"
+          onClick={() => navigate('/programacao')}
+          initial={{ opacity: 0, y: -20 }}
+          animate={{ opacity: 1, y: 0 }}
+          whileHover={{ scale: 1.005 }}
+          className="w-full text-left mb-6 rounded-2xl border-2 border-[#FF5E00] p-5 relative overflow-hidden group"
+          style={{ background: 'linear-gradient(135deg, rgba(255,94,0,0.18), rgba(255,0,60,0.10))' }}
+        >
+          <div className="absolute inset-0 pointer-events-none">
+            <span className="absolute -top-8 -right-8 w-32 h-32 rounded-full bg-[#FF5E00]/25 blur-3xl animate-pulse"></span>
+          </div>
+          <div className="relative flex items-center gap-4">
+            <div className="w-14 h-14 rounded-2xl bg-[#FF5E00]/25 border border-[#FF5E00] flex items-center justify-center flex-shrink-0 animate-pulse">
+              <AlertTriangle className="w-7 h-7 text-[#FF5E00]" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-[10px] tracking-[0.25em] uppercase font-bold text-[#FF5E00] mb-1">Anexo IV — Alerta D-2</p>
+              <h3 className="font-heading font-black text-lg tracking-tight text-white leading-tight">
+                {anexoAlerts.length} obra{anexoAlerts.length !== 1 ? 's' : ''} inicia{anexoAlerts.length === 1 ? '' : 'm'} em até 2 dias
+              </h3>
+              <p className="text-xs text-zinc-300 mt-1 truncate">
+                {anexoAlerts.slice(0, 3).map((p) => p.project_code || p.name).join(' · ')}
+                {anexoAlerts.length > 3 && ` · +${anexoAlerts.length - 3}`}
+              </p>
+              <p className="text-[11px] text-zinc-400 mt-1">Garanta equipe, acesso ao local e materiais. Clique para revisar a programação.</p>
+            </div>
+            <div className="hidden md:flex flex-col items-end gap-1">
+              <span className="font-mono text-3xl font-black text-[#FF5E00]">{anexoAlerts.length}</span>
+              <span className="text-[10px] text-zinc-500 uppercase tracking-widest">urgente</span>
+            </div>
+          </div>
+        </motion.button>
+      )}
+
+      {pushStatus !== 'unsupported' && (
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          className="flex items-center justify-between gap-3 mb-6 rounded-xl border border-white/10 bg-white/[0.02] px-4 py-3"
+        >
+          <div className="flex items-center gap-3 flex-1 min-w-0">
+            {pushStatus === 'subscribed' ? (
+              <BellRing className="w-5 h-5 text-[#E0FF00] flex-shrink-0" />
+            ) : (
+              <BellOff className="w-5 h-5 text-zinc-500 flex-shrink-0" />
+            )}
+            <div className="flex-1 min-w-0">
+              <p className="text-xs font-bold text-white">
+                {pushStatus === 'subscribed' ? 'Notificações ativas' : 'Ative notificações no celular'}
+              </p>
+              <p className="text-[11px] text-zinc-500 truncate">
+                {pushStatus === 'subscribed'
+                  ? 'Você receberá alertas de Anexo IV D-2 e agenda do dia seguinte'
+                  : 'Receba lembretes D-2 para Anexo IV e programação diária direto no dispositivo'}
+              </p>
+            </div>
+          </div>
+          {pushStatus === 'subscribed' ? (
+            <button
+              data-testid="push-disable-btn"
+              onClick={handleDisablePush}
+              className="text-[11px] font-bold text-zinc-400 hover:text-white underline flex-shrink-0"
+            >
+              Desativar
+            </button>
+          ) : pushStatus === 'denied' ? (
+            <span className="text-[11px] text-[#FF003C] flex-shrink-0">Bloqueado no navegador</span>
+          ) : (
+            <button
+              data-testid="push-enable-btn"
+              onClick={handleEnablePush}
+              className="text-[11px] font-bold bg-[#E0FF00] text-black px-3 py-1.5 rounded-full hover:scale-105 transition-all flex-shrink-0"
+            >
+              Ativar
+            </button>
+          )}
+        </motion.div>
+      )}
+
       {stats && (
         <motion.div
           initial={{ opacity: 0, y: 20 }}

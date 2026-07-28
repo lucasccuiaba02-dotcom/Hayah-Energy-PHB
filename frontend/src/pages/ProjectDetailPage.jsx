@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import axios from 'axios';
 import { toast } from 'sonner';
-import { ArrowLeft, Zap, AlertTriangle, Package, CheckCircle2, Camera, X, MapPin, Wifi, WifiOff } from 'lucide-react';
+import { ArrowLeft, Zap, AlertTriangle, Package, CheckCircle2, Camera, X, MapPin, Wifi, WifiOff, FileText } from 'lucide-react';
 import { HayahLogo } from '../components/HayahLogo';
 import { PROJECT_TYPE_LABEL, EXECUTION_STATUS_LABEL, formatCurrency } from '../lib/constants';
 import { enqueue, syncQueue } from '../lib/offline';
@@ -21,6 +21,8 @@ export const ProjectDetailPage = () => {
   const [uploading, setUploading] = useState(false);
   const fileInputRef = useRef(null);
   const [photoLabel, setPhotoLabel] = useState('antes');
+  const [dailyNotes, setDailyNotes] = useState('');
+  const [downloadingPdf, setDownloadingPdf] = useState(false);
 
   useEffect(() => {
     axios.get(`${API}/projects/${id}`).then(({ data }) => setProject(data)).catch(() => toast.error('Projeto não encontrado'));
@@ -166,6 +168,29 @@ export const ProjectDetailPage = () => {
     }
   };
 
+  const handleDownloadDailyLog = async () => {
+    setDownloadingPdf(true);
+    try {
+      const { data } = await axios.get(`${API}/operacional/daily-log/${id}`, {
+        params: { notes: dailyNotes },
+        responseType: 'blob',
+      });
+      const url = window.URL.createObjectURL(new Blob([data], { type: 'application/pdf' }));
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `diario_${(project?.project_code || id).replace(/[^A-Za-z0-9]/g, '_')}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+      toast.success('Diário de Obra gerado!');
+    } catch (err) {
+      toast.error('Erro ao gerar o Diário de Obra');
+    } finally {
+      setDownloadingPdf(false);
+    }
+  };
+
   if (!project) return null;
   const execStatus = EXECUTION_STATUS_LABEL[project.execution_status];
 
@@ -306,6 +331,32 @@ export const ProjectDetailPage = () => {
                 </div>
               ))
             )}
+          </div>
+        </div>
+
+        <div>
+          <p className="text-xs tracking-[0.2em] uppercase font-bold text-zinc-500 mb-3">Diário de Obra</p>
+          <div className="glass-panel rounded-xl p-4 space-y-3">
+            <textarea
+              data-testid="pd-daily-notes"
+              value={dailyNotes}
+              onChange={(e) => setDailyNotes(e.target.value)}
+              placeholder="Observações do turno (opcional): ocorrências, decisões, pendências, etc."
+              rows={3}
+              className="w-full bg-zinc-950/90 border border-white/10 rounded-lg px-3 py-2 text-sm text-white placeholder:text-zinc-600 focus:border-[#E0FF00] focus:outline-none resize-none"
+            />
+            <button
+              data-testid="pd-download-daily-log"
+              onClick={handleDownloadDailyLog}
+              disabled={downloadingPdf}
+              className="w-full flex items-center justify-center gap-2 bg-[#E0FF00] hover:bg-[#C8E600] text-black font-bold py-3 rounded-full transition-all disabled:opacity-50"
+            >
+              <FileText className="w-4 h-4" />
+              {downloadingPdf ? 'Gerando PDF...' : 'Baixar Diário de Obra (PDF)'}
+            </button>
+            <p className="text-[11px] text-zinc-500 leading-relaxed">
+              Consolida checklist, fotos com marca d'água e observações em um único PDF do turno.
+            </p>
           </div>
         </div>
       </div>

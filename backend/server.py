@@ -19,6 +19,9 @@ import secrets
 import asyncio
 import base64
 
+from push_notifications import ensure_vapid_keys, broadcast_push
+from daily_log_pdf import build_daily_log_pdf
+
 # MongoDB connection
 mongo_url = os.environ['MONGO_URL']
 client = AsyncIOMotorClient(mongo_url)
@@ -1055,6 +1058,17 @@ async def anexo_iv_reminder_job():
     if recipients:
         await send_email_via_resend(recipients, f"[HAYAH] ⚠️ Anexo IV D-2: {len(projects)} obra(s) em {target}", html)
 
+    # Push broadcast
+    try:
+        await broadcast_push(db, {
+            "title": f"⚠️ Anexo IV D-2 — {target}",
+            "body": f"{len(projects)} obra(s) começam em 2 dias. Garanta equipe, acesso e materiais.",
+            "url": "/programacao",
+            "tag": "anexo-iv-d2",
+        })
+    except Exception as e:
+        logger.warning(f"Push broadcast failed: {e}")
+
 @api_router.get("/alerts/anexo-iv")
 async def get_anexo_iv_alerts(current_user: dict = Depends(get_current_user)):
     """Return Anexo IV projects starting in the next 2 days (for dashboard banner)"""
@@ -1143,6 +1157,62 @@ async def delete_photo(project_id: str, photo_id: str, current_user: dict = Depe
     if result.matched_count == 0:
         raise HTTPException(status_code=404, detail="Project not found")
     return {"status": "deleted"}
+
+# --- Diário de Obra (PDF) ---
+@api_router.get("/operacional/daily-log/{project_id}")
+async def daily_log_pdf(project_id: str, notes: str = "", current_user: dict = Depends(get_current_user)):
+    project = await db.projects.find_one({"_id": safe_object_id(project_id), "user_id": current_user["_id"]})
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    checklist = project.get("checklist", {}) or {}
+    photos = project.get("photos", []) or []
+    pdf_bytes = build_daily_log_pdf(project, checklist, photos, notes)
+    filename = f"diario_obra_{(project.get('project_code') or project_id)[:24]}_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M')}.pdf"
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+# --- Web Push Notifications ---
+class PushSubscribeBody(BaseModel):
+    endpoint: str
+    keys: dict
+
+@api_router.get("/push/vapid-key")
+async def get_vapid_key(current_user: dict = Depends(get_current_user)):
+    keys = await ensure_vapid_keys(db)
+    return {"public_key": keys["public_b64u"]}
+
+@api_router.post("/push/subscribe")
+async def subscribe_push(body: PushSubscribeBody, current_user: dict = Depends(get_current_user)):
+    subscription = {"endpoint": body.endpoint, "keys": body.keys}
+    await db.push_subscriptions.update_one(
+        {"endpoint": body.endpoint},
+        {"$set": {
+            "endpoint": body.endpoint,
+            "subscription": subscription,
+            "user_id": current_user["_id"],
+            "user_email": current_user.get("email", ""),
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        }},
+        upsert=True,
+    )
+    return {"status": "subscribed"}
+
+@api_router.post("/push/unsubscribe")
+async def unsubscribe_push(body: dict, current_user: dict = Depends(get_current_user)):
+    await db.push_subscriptions.delete_one({"endpoint": body.get("endpoint", "")})
+    return {"status": "unsubscribed"}
+
+@api_router.post("/push/test")
+async def send_push_test(current_user: dict = Depends(get_current_user)):
+    result = await broadcast_push(db, {
+        "title": "Hayah Energy",
+        "body": "Notificação de teste — Push funcionando!",
+        "url": "/",
+    })
+    return result
 
 # Morning alert (08:30) for unconfirmed shutdowns
 async def morning_shutdown_check_job():
