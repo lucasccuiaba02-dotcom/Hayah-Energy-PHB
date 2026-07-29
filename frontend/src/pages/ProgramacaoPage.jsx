@@ -2,12 +2,12 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { motion } from 'framer-motion';
 import axios from 'axios';
 import { toast } from 'sonner';
-import { Plus, Edit2, Trash2, Calendar, MapPin, Zap, History, ClipboardCheck, Users as UsersIcon } from 'lucide-react';
+import { Plus, Edit2, Trash2, Calendar, MapPin, Zap, History, ClipboardCheck, Users as UsersIcon, Sun } from 'lucide-react';
 import { AppLayout } from '../components/AppLayout';
 import { ProjectDrawer } from '../components/ProjectDrawer';
 import { ProjectFilters } from '../components/ProjectFilters';
 import { RetornoProgramacaoModal } from '../components/RetornoProgramacaoModal';
-import { PROJECT_TYPE_LABEL, EXECUTION_STATUS_LABEL, formatCurrency } from '../lib/constants';
+import { PROJECT_TYPE_LABEL, EXECUTION_STATUS_LABEL, formatCurrency, todayISO } from '../lib/constants';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -25,7 +25,8 @@ export const ProgramacaoPage = () => {
   const [maxProd, setMaxProd] = useState('');
   const [historyOpen, setHistoryOpen] = useState(null);
   const [retornoOpen, setRetornoOpen] = useState(false);
-  const [viewMode, setViewMode] = useState('date'); // 'date' | 'matrix'
+  const [hojeOpen, setHojeOpen] = useState(false);
+  const [viewMode, setViewMode] = useState('matrix'); // 'date' | 'matrix'
 
   useEffect(() => {
     fetchData();
@@ -157,6 +158,14 @@ export const ProgramacaoPage = () => {
       actions={
         <>
           <button
+            data-testid="open-hoje-button"
+            onClick={() => setHojeOpen(true)}
+            className="bg-[#00F0FF]/15 hover:bg-[#00F0FF]/25 border border-[#00F0FF]/50 text-[#00F0FF] font-bold px-4 py-2 rounded-full transition-all flex items-center gap-2"
+          >
+            <Sun className="w-4 h-4" />
+            Hoje
+          </button>
+          <button
             data-testid="open-retorno-button"
             onClick={() => setRetornoOpen(true)}
             className="bg-white/5 hover:bg-white/10 border border-[#E0FF00]/40 text-[#E0FF00] font-bold px-4 py-2 rounded-full transition-all flex items-center gap-2"
@@ -166,18 +175,18 @@ export const ProgramacaoPage = () => {
           </button>
           <div className="flex items-center bg-white/5 border border-white/10 rounded-full p-1">
             <button
-              data-testid="view-mode-date"
-              onClick={() => setViewMode('date')}
-              className={`text-[11px] font-bold px-3 py-1 rounded-full ${viewMode === 'date' ? 'bg-[#E0FF00] text-black' : 'text-zinc-400'}`}
-            >
-              Por Data
-            </button>
-            <button
               data-testid="view-mode-matrix"
               onClick={() => setViewMode('matrix')}
               className={`text-[11px] font-bold px-3 py-1 rounded-full ${viewMode === 'matrix' ? 'bg-[#E0FF00] text-black' : 'text-zinc-400'}`}
             >
-              Matriz Equipes
+              Matriz
+            </button>
+            <button
+              data-testid="view-mode-date"
+              onClick={() => setViewMode('date')}
+              className={`text-[11px] font-bold px-3 py-1 rounded-full ${viewMode === 'date' ? 'bg-[#E0FF00] text-black' : 'text-zinc-400'}`}
+            >
+              Cards
             </button>
           </div>
           <button
@@ -267,65 +276,68 @@ export const ProgramacaoPage = () => {
             <table className="w-full min-w-[900px]">
               <thead>
                 <tr className="border-b border-white/10 bg-white/[0.02]">
-                  <th className="sticky left-0 bg-[#09090b] text-left px-3 py-2 text-[10px] tracking-[0.15em] uppercase font-bold text-zinc-500 w-32">Data</th>
-                  {matrix.teamList.map((tid) => {
-                    const t = teams.find((x) => x.id === tid);
-                    return (
-                      <th key={tid} className="text-left px-3 py-2 text-[10px] tracking-[0.15em] uppercase font-bold text-[#E0FF00] min-w-[220px]">
-                        <span className="inline-flex items-center gap-1"><UsersIcon className="w-3 h-3" />{t?.name || 'Sem equipe'}</span>
-                      </th>
-                    );
-                  })}
+                  <th className="sticky left-0 bg-[#09090b] text-left px-3 py-2 text-[10px] tracking-[0.15em] uppercase font-bold text-zinc-500 w-40 z-10">Equipe</th>
+                  {matrix.dateList.map((date) => (
+                    <th key={date} className="text-left px-3 py-2 text-[10px] tracking-[0.15em] uppercase font-bold text-[#E0FF00] min-w-[200px]">
+                      <span className="inline-flex items-center gap-1">
+                        <Calendar className="w-3 h-3" />
+                        {date === 'Sem data' ? date : new Date(date + 'T00:00:00').toLocaleDateString('pt-BR', { weekday: 'short', day: '2-digit', month: '2-digit' })}
+                      </span>
+                    </th>
+                  ))}
                 </tr>
               </thead>
               <tbody>
-                {matrix.dateList.map((date) => (
-                  <tr key={date} data-testid={`matrix-row-${date}`} className="border-b border-white/5 align-top">
-                    <td className="sticky left-0 bg-[#09090b] px-3 py-3 text-xs font-mono text-white">
-                      {date === 'Sem data' ? date : new Date(date + 'T00:00:00').toLocaleDateString('pt-BR', { weekday: 'short', day: '2-digit', month: '2-digit' })}
-                    </td>
-                    {matrix.teamList.map((tid) => {
-                      const cellProjects = (matrix.map[date] || {})[tid] || [];
-                      return (
-                        <td key={tid} className="px-2 py-2">
-                          <div className="space-y-2">
-                            {cellProjects.length === 0 ? (
-                              <span className="text-[10px] text-zinc-700">—</span>
-                            ) : cellProjects.map((p) => {
-                              const execStatus = EXECUTION_STATUS_LABEL[p.execution_status];
-                              const bgColor = p.requires_hot_line ? '#FF5E00' : execStatus?.color || '#94A3B8';
-                              return (
-                                <div
-                                  key={`${p.id}-${p._teamColId}`}
-                                  data-testid={`matrix-cell-${p.id}-${p._teamColId}`}
-                                  className="rounded-lg p-2 border text-[11px]"
-                                  style={{ backgroundColor: `${bgColor}12`, borderColor: `${bgColor}40` }}
-                                >
-                                  <div className="flex items-center gap-1 mb-1 flex-wrap">
-                                    <span className="font-mono text-white font-bold">{p.project_code || p.name.slice(0, 12)}</span>
-                                    {p._isAdditional && (
-                                      <span title="Equipe adicional" className="px-1.5 py-0 rounded-full text-[9px] font-bold bg-[#00F0FF]/20 border border-[#00F0FF]/50 text-[#00F0FF]">2ª</span>
-                                    )}
-                                    {p.requires_hot_line && <Zap className="w-3 h-3 text-[#FF5E00]" />}
-                                  </div>
-                                  <p className="text-zinc-400 truncate">{p.name}</p>
-                                  <p className="font-mono text-[10px] text-zinc-500">{formatCurrency(p.programmed_value)}</p>
-                                  <button
-                                    onClick={() => { setEditing(p); setIsDrawerOpen(true); }}
-                                    className="text-[9px] text-[#00F0FF] hover:underline mt-1"
-                                    data-testid={`matrix-edit-${p.id}-${p._teamColId}`}
-                                  >
-                                    editar
-                                  </button>
-                                </div>
-                              );
-                            })}
+                {matrix.teamList.map((tid) => {
+                  const t = teams.find((x) => x.id === tid);
+                  return (
+                    <tr key={tid} data-testid={`matrix-team-row-${tid}`} className="border-b border-white/5 align-top">
+                      <td className="sticky left-0 bg-[#09090b] px-3 py-3 text-xs text-white z-10">
+                        <div className="flex items-center gap-1.5">
+                          <UsersIcon className="w-3 h-3 text-[#E0FF00]" />
+                          <div>
+                            <p className="font-bold">{t?.name || 'Sem equipe'}</p>
+                            {t?.supervisor && <p className="text-[10px] text-zinc-500">{t.supervisor}</p>}
                           </div>
-                        </td>
-                      );
-                    })}
-                  </tr>
-                ))}
+                        </div>
+                      </td>
+                      {matrix.dateList.map((date) => {
+                        const cellProjects = (matrix.map[date] || {})[tid] || [];
+                        return (
+                          <td key={date} className="px-2 py-2">
+                            <div className="space-y-2">
+                              {cellProjects.length === 0 ? (
+                                <span className="text-[10px] text-zinc-700">—</span>
+                              ) : cellProjects.map((p) => {
+                                const execStatus = EXECUTION_STATUS_LABEL[p.execution_status];
+                                const bgColor = p.requires_hot_line ? '#FF5E00' : execStatus?.color || '#94A3B8';
+                                return (
+                                  <div
+                                    key={`${p.id}-${p._teamColId}`}
+                                    data-testid={`matrix-cell-${p.id}-${p._teamColId}`}
+                                    className="rounded-lg p-2 border text-[11px] cursor-pointer hover:brightness-125 transition"
+                                    style={{ backgroundColor: `${bgColor}12`, borderColor: `${bgColor}40` }}
+                                    onClick={() => { setEditing(p); setIsDrawerOpen(true); }}
+                                  >
+                                    <div className="flex items-center gap-1 mb-1 flex-wrap">
+                                      <span className="font-mono text-white font-bold">{p.project_code || p.name.slice(0, 12)}</span>
+                                      {p._isAdditional && (
+                                        <span title="Equipe adicional" className="px-1.5 py-0 rounded-full text-[9px] font-bold bg-[#00F0FF]/20 border border-[#00F0FF]/50 text-[#00F0FF]">2ª</span>
+                                      )}
+                                      {p.requires_hot_line && <Zap className="w-3 h-3 text-[#FF5E00]" />}
+                                    </div>
+                                    <p className="text-zinc-300 truncate">{p.name}</p>
+                                    <p className="font-mono text-[10px] text-zinc-500">{formatCurrency(p.programmed_value)}</p>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -467,6 +479,114 @@ export const ProgramacaoPage = () => {
         onClose={() => setRetornoOpen(false)}
         onDone={() => { fetchData(); fetchStats(); }}
       />
+
+      {hojeOpen && (() => {
+        const today = todayISO();
+        const hojeList = projects.filter((p) => {
+          const s = (p.start_date || '').slice(0, 10);
+          const e = (p.end_date || '').slice(0, 10);
+          if (!s) return false;
+          if (e) return today >= s && today <= e;
+          return today === s;
+        });
+        const totalProg = hojeList.reduce((sum, p) => sum + (p.programmed_value || 0), 0);
+        return (
+          <div data-testid="hoje-modal" className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4" onClick={() => setHojeOpen(false)}>
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              onClick={(e) => e.stopPropagation()}
+              className="glass-panel rounded-2xl border border-[#00F0FF]/40 max-w-5xl w-full p-6 max-h-[85vh] overflow-y-auto"
+            >
+              <div className="flex items-center gap-3 mb-4 flex-wrap">
+                <div className="w-10 h-10 rounded-full bg-[#00F0FF]/20 flex items-center justify-center">
+                  <Calendar className="w-5 h-5 text-[#00F0FF]" />
+                </div>
+                <div className="flex-1">
+                  <h3 className="text-white font-bold text-lg">Programação de Hoje</h3>
+                  <p className="text-xs text-zinc-500">{new Date(today + 'T00:00:00').toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: 'long', year: 'numeric' })}</p>
+                </div>
+                <div className="text-right">
+                  <p className="text-[10px] tracking-[0.2em] uppercase font-bold text-zinc-500">Total</p>
+                  <p className="font-mono text-lg font-bold text-white">{hojeList.length} obra{hojeList.length !== 1 ? 's' : ''}</p>
+                  <p className="font-mono text-[10px] text-[#E0FF00]">{formatCurrency(totalProg)}</p>
+                </div>
+                <button data-testid="hoje-close" onClick={() => setHojeOpen(false)} className="w-8 h-8 rounded-full bg-white/5 border border-white/10 text-zinc-400 hover:text-white">✕</button>
+              </div>
+
+              {hojeList.length === 0 ? (
+                <div className="glass-panel rounded-xl p-8 text-center">
+                  <p className="text-zinc-400 text-sm">Nenhuma obra programada para hoje.</p>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  {hojeList.map((p) => {
+                    const execStatus = EXECUTION_STATUS_LABEL[p.execution_status];
+                    const bgColor = p.requires_hot_line ? '#FF5E00' : execStatus?.color || '#94A3B8';
+                    return (
+                      <div
+                        key={p.id}
+                        data-testid={`hoje-item-${p.id}`}
+                        className="rounded-xl p-4 border"
+                        style={{ backgroundColor: `${bgColor}10`, borderColor: `${bgColor}40` }}
+                      >
+                        <div className="flex items-start justify-between gap-2 mb-2">
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-1 flex-wrap mb-1">
+                              <span className="font-mono text-[11px] text-[#E0FF00] font-bold">{p.project_code || '—'}</span>
+                              {p.requires_hot_line && (
+                                <span className="px-1.5 py-0 rounded-full text-[9px] font-bold bg-[#FF5E00]/20 border border-[#FF5E00] text-[#FF5E00] inline-flex items-center gap-0.5"><Zap className="w-2.5 h-2.5" />LV</span>
+                              )}
+                            </div>
+                            <h4 className="text-white text-sm font-bold">{p.name}</h4>
+                            <p className="text-[10px] text-zinc-500 mt-0.5">{PROJECT_TYPE_LABEL[p.project_type]} · {p.team_name || 'sem equipe'}{p.additional_team_name ? ` + ${p.additional_team_name}` : ''}</p>
+                          </div>
+                          <button
+                            data-testid={`hoje-edit-${p.id}`}
+                            onClick={() => { setEditing(p); setIsDrawerOpen(true); setHojeOpen(false); }}
+                            className="w-7 h-7 rounded-md bg-white/5 border border-white/10 flex items-center justify-center text-zinc-400 hover:text-[#00F0FF]"
+                          >
+                            <Edit2 className="w-3 h-3" />
+                          </button>
+                        </div>
+                        {p.location && (
+                          <p className="text-[11px] text-zinc-300 flex items-start gap-1 mt-2">
+                            <MapPin className="w-3 h-3 mt-0.5 flex-shrink-0 text-zinc-500" />
+                            <span className="line-clamp-2">{p.location}</span>
+                          </p>
+                        )}
+                        {p.shutdown_info && (
+                          <p className="text-[10px] text-[#E0FF00]/80 italic mt-1">Desligamento: {p.shutdown_info}</p>
+                        )}
+                        <div className="grid grid-cols-3 gap-2 mt-3 pt-3 border-t border-white/5">
+                          <div>
+                            <p className="text-[9px] tracking-[0.15em] uppercase text-zinc-500">Prog.</p>
+                            <p className="font-mono text-[11px] text-white font-bold">{formatCurrency(p.programmed_value)}</p>
+                          </div>
+                          <div>
+                            <p className="text-[9px] tracking-[0.15em] uppercase text-zinc-500">Postes</p>
+                            <p className="font-mono text-[11px] text-white font-bold">{p.postes_qty || 0}</p>
+                          </div>
+                          <div>
+                            <p className="text-[9px] tracking-[0.15em] uppercase text-zinc-500">Trafos</p>
+                            <p className="font-mono text-[11px] text-white font-bold">{p.transformadores_qty || 0}</p>
+                          </div>
+                        </div>
+                        <span
+                          className="inline-block mt-2 px-2 py-0.5 rounded-full text-[9px] font-bold border"
+                          style={{ backgroundColor: `${execStatus?.color}15`, borderColor: `${execStatus?.color}40`, color: execStatus?.color }}
+                        >
+                          {execStatus?.label}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </motion.div>
+          </div>
+        );
+      })()}
 
 
       {historyOpen && (

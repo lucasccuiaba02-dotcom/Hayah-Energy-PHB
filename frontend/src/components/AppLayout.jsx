@@ -16,10 +16,12 @@ import {
   Map,
   Shield,
   CalendarX,
+  Search,
 } from 'lucide-react';
 
 const navItems = [
   { to: '/dashboard', icon: LayoutGrid, label: 'Dashboard', testid: 'nav-dashboard', perm: 'dashboard' },
+  { to: '/buscar', icon: Search, label: 'Buscar Obras', testid: 'nav-buscar', perm: 'carteira' },
   { to: '/operacional', icon: HardHat, label: 'Operacional', testid: 'nav-operacional', perm: 'operacional' },
   { to: '/carteira', icon: Briefcase, label: 'Carteira', testid: 'nav-carteira', perm: 'carteira' },
   { to: '/programacao', icon: Calendar, label: 'Programação', testid: 'nav-programacao', perm: 'programacao' },
@@ -55,7 +57,10 @@ export const AppLayout = ({ children, title, subtitle, actions }) => {
               .filter((item) => {
                 if (!user) return false;
                 if (user.role === 'admin') return true;
-                return (user.permissions || []).includes(item.perm);
+                const perms = user.permissions || [];
+                // Se lista vazia → libera tudo (open-by-default). Admin pode restringir em /admin/usuarios
+                if (perms.length === 0) return true;
+                return perms.includes(item.perm);
               })
               .map((item) => (
               <NavLink

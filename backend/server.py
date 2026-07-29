@@ -356,7 +356,7 @@ async def login(credentials: UserLogin, response: Response, request: Request):
         name=user["name"],
         role=user["role"],
         status=user.get("status", "approved"),
-        permissions=user.get("permissions") or (ALL_PERMISSIONS if user.get("role") == "admin" else []),
+        permissions=user.get("permissions") if user.get("permissions") else ALL_PERMISSIONS,
         created_at=user["created_at"].isoformat(),
         access_token=access_token,
     )
@@ -375,7 +375,7 @@ async def get_me(current_user: dict = Depends(get_current_user)):
         name=current_user["name"],
         role=current_user["role"],
         status=current_user.get("status", "approved"),
-        permissions=current_user.get("permissions") or (ALL_PERMISSIONS if current_user.get("role") == "admin" else []),
+        permissions=current_user.get("permissions") if current_user.get("permissions") else ALL_PERMISSIONS,
         created_at=current_user["created_at"].isoformat()
     )
 

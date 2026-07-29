@@ -16,6 +16,7 @@ import { ProjectDetailPage } from './pages/ProjectDetailPage';
 import { GeolocalizacaoPage } from './pages/GeolocalizacaoPage';
 import { AdminUsuariosPage } from './pages/AdminUsuariosPage';
 import { IndisponibilidadePage } from './pages/IndisponibilidadePage';
+import { BuscarObrasPage } from './pages/BuscarObrasPage';
 import { ProtectedRoute } from './components/ProtectedRoute';
 import '@/App.css';
 
@@ -44,6 +45,7 @@ function AppRoutes() {
       <Route path="/geolocalizacao" element={<ProtectedRoute><GeolocalizacaoPage /></ProtectedRoute>} />
       <Route path="/admin/usuarios" element={<ProtectedRoute><AdminUsuariosPage /></ProtectedRoute>} />
       <Route path="/indisponibilidade" element={<ProtectedRoute><IndisponibilidadePage /></ProtectedRoute>} />
+      <Route path="/buscar" element={<ProtectedRoute><BuscarObrasPage /></ProtectedRoute>} />
     </Routes>
   );
 }
