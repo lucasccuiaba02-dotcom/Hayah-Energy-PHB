@@ -280,8 +280,6 @@ class ProjectResponse(BaseModel):
     received_date: str = ""
     expiry_date: str = ""
     reschedule_history: List[dict] = Field(default_factory=list)
-    additional_team_id: Optional[str] = None
-    additional_team_name: Optional[str] = None
     postes_qty: int = 0
     transformadores_qty: int = 0
     km_rede: float = 0.0
