@@ -333,28 +333,27 @@ export const DashboardPage = () => {
         </>
       )}
 
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.1 }}
-          className="mb-8"
-        >
-          <div className="flex items-center justify-between mb-4">
-            <div>
-              <p className="text-xs tracking-[0.2em] uppercase font-bold text-zinc-500 mb-1">Programação</p>
-              <h2 className="font-heading font-black text-2xl tracking-tighter text-white">Status de Execução</h2>
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.1 }}
+        className="mb-8"
+      >
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <p className="text-xs tracking-[0.2em] uppercase font-bold text-zinc-500 mb-1">Programação</p>
+            <h2 className="font-heading font-black text-2xl tracking-tighter text-white">Status de Execução</h2>
+          </div>
+        </div>
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+          {Object.entries(hasActiveFilters ? filteredScheduleCounts : (scheduleStats?.counts || {})).map(([label, count]) => (
+            <div key={label} className="glass-panel rounded-xl p-5">
+              <p className="text-[10px] tracking-[0.2em] uppercase font-bold text-zinc-500 mb-1">{label.replace(/_/g, ' ')}</p>
+              <p className="font-mono text-3xl font-bold text-white">{count}</p>
             </div>
-          </div>
-          <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
-            {Object.entries(hasActiveFilters ? filteredScheduleCounts : (scheduleStats.counts || {})).map(([label, count]) => (
-              <div key={label} className="glass-panel rounded-xl p-5">
-                <p className="text-[10px] tracking-[0.2em] uppercase font-bold text-zinc-500 mb-1">{label.replace(/_/g, ' ')}</p>
-                <p className="font-mono text-3xl font-bold text-white">{count}</p>
-              </div>
-            ))}
-          </div>
-        </motion.div>
-      )}
+          ))}
+        </div>
+      </motion.div>
 
       <motion.div
         initial={{ opacity: 0, y: 20 }}

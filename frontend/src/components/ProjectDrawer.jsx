@@ -31,6 +31,14 @@ export const ProjectDrawer = ({ isOpen, onClose, onSave, project, teams, default
     actual_value: 0,
     team_id: '',
     team_name: '',
+    additional_team_id: '',
+    additional_team_name: '',
+    postes_qty: 0,
+    transformadores_qty: 0,
+    km_rede: 0,
+    ligacoes_novas: 0,
+    religacoes: 0,
+    desligamentos: 0,
     start_date: '',
     end_date: '',
     priority: 'medium',
@@ -408,6 +416,24 @@ export const ProjectDrawer = ({ isOpen, onClose, onSave, project, teams, default
                       <select data-testid="project-team-select" value={formData.team_id} onChange={(e) => handleTeamChange(e.target.value)} className="w-full bg-zinc-950/90 border border-white/10 rounded-lg px-4 py-3 text-white focus:border-[#E0FF00] focus:outline-none">
                         <option value="">Selecione uma equipe</option>
                         {teams.map((team) => (<option key={team.id} value={team.id}>{team.name} {team.supervisor && `(${team.supervisor})`}</option>))}
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="text-xs tracking-[0.2em] uppercase font-bold text-zinc-500 block mb-2">Equipe adicional <span className="text-[10px] text-zinc-600 normal-case tracking-normal">(opcional — duas equipes na mesma obra/dia)</span></label>
+                      <select
+                        data-testid="project-additional-team-select"
+                        value={formData.additional_team_id}
+                        onChange={(e) => {
+                          const t = teams.find((x) => x.id === e.target.value);
+                          setFormData({ ...formData, additional_team_id: e.target.value, additional_team_name: t ? t.name : '' });
+                        }}
+                        className="w-full bg-zinc-950/90 border border-white/10 rounded-lg px-4 py-3 text-white focus:border-[#00F0FF] focus:outline-none"
+                      >
+                        <option value="">— Nenhuma —</option>
+                        {teams.filter((t) => t.id !== formData.team_id).map((team) => (
+                          <option key={team.id} value={team.id}>{team.name} {team.supervisor && `(${team.supervisor})`}</option>
+                        ))}
                       </select>
                     </div>
 

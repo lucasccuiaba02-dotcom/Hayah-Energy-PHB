@@ -2,10 +2,11 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { motion } from 'framer-motion';
 import axios from 'axios';
 import { toast } from 'sonner';
-import { Plus, Edit2, Trash2, Calendar, MapPin, Zap, History } from 'lucide-react';
+import { Plus, Edit2, Trash2, Calendar, MapPin, Zap, History, ClipboardCheck, Users as UsersIcon } from 'lucide-react';
 import { AppLayout } from '../components/AppLayout';
 import { ProjectDrawer } from '../components/ProjectDrawer';
 import { ProjectFilters } from '../components/ProjectFilters';
+import { RetornoProgramacaoModal } from '../components/RetornoProgramacaoModal';
 import { PROJECT_TYPE_LABEL, EXECUTION_STATUS_LABEL, formatCurrency } from '../lib/constants';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
@@ -23,6 +24,8 @@ export const ProgramacaoPage = () => {
   const [minProd, setMinProd] = useState('');
   const [maxProd, setMaxProd] = useState('');
   const [historyOpen, setHistoryOpen] = useState(null);
+  const [retornoOpen, setRetornoOpen] = useState(false);
+  const [viewMode, setViewMode] = useState('date'); // 'date' | 'matrix'
 
   useEffect(() => {
     fetchData();
@@ -90,7 +93,7 @@ export const ProgramacaoPage = () => {
     const minP = parseFloat(minProd);
     const maxP = parseFloat(maxProd);
     return projects.filter((p) => {
-      if (filters.teamId && p.team_id !== filters.teamId) return false;
+      if (filters.teamId && p.team_id !== filters.teamId && p.additional_team_id !== filters.teamId) return false;
       const pStart = (p.start_date || '').slice(0, 10);
       const pEnd = (p.end_date || '').slice(0, 10);
       if (filters.startDate && pEnd && pEnd < filters.startDate) return false;
@@ -106,29 +109,86 @@ export const ProgramacaoPage = () => {
     });
   }, [projects, filters, specificDate, minProd, maxProd]);
 
+  // Expand projects: duplicate row per team when additional_team_id is set
+  const expanded = useMemo(() => {
+    const out = [];
+    filtered.forEach((p) => {
+      out.push({ ...p, _teamColId: p.team_id, _teamColName: p.team_name, _isAdditional: false });
+      if (p.additional_team_id) {
+        out.push({ ...p, _teamColId: p.additional_team_id, _teamColName: p.additional_team_name, _isAdditional: true });
+      }
+    });
+    return out;
+  }, [filtered]);
+
   const grouped = useMemo(() => {
     const map = {};
-    filtered.forEach((p) => {
+    expanded.forEach((p) => {
       const date = (p.start_date || '').slice(0, 10) || 'Sem data';
       if (!map[date]) map[date] = [];
       map[date].push(p);
     });
     return Object.keys(map).sort().map((date) => ({ date, projects: map[date] }));
-  }, [filtered]);
+  }, [expanded]);
+
+  // Matrix: dates x teams
+  const matrix = useMemo(() => {
+    const dateSet = new Set();
+    const teamSet = new Set();
+    const map = {}; // map[date][teamId] = [projects]
+    expanded.forEach((p) => {
+      const date = (p.start_date || '').slice(0, 10) || 'Sem data';
+      const tid = p._teamColId || '__none__';
+      dateSet.add(date);
+      teamSet.add(tid);
+      map[date] = map[date] || {};
+      map[date][tid] = map[date][tid] || [];
+      map[date][tid].push(p);
+    });
+    const dateList = Array.from(dateSet).sort();
+    const teamList = Array.from(teamSet);
+    return { dateList, teamList, map };
+  }, [expanded]);
 
   return (
     <AppLayout
       title="Programação"
       subtitle="Matriz de obras programadas"
       actions={
-        <button
-          data-testid="add-programacao-button"
-          onClick={() => { setEditing(null); setIsDrawerOpen(true); }}
-          className="bg-[#E0FF00] hover:bg-[#C8E600] text-black font-bold px-6 py-2 rounded-full transition-all transform hover:scale-105 flex items-center gap-2"
-        >
-          <Plus className="w-5 h-5" />
-          Programar Obra
-        </button>
+        <>
+          <button
+            data-testid="open-retorno-button"
+            onClick={() => setRetornoOpen(true)}
+            className="bg-white/5 hover:bg-white/10 border border-[#E0FF00]/40 text-[#E0FF00] font-bold px-4 py-2 rounded-full transition-all flex items-center gap-2"
+          >
+            <ClipboardCheck className="w-4 h-4" />
+            Retorno de Programação
+          </button>
+          <div className="flex items-center bg-white/5 border border-white/10 rounded-full p-1">
+            <button
+              data-testid="view-mode-date"
+              onClick={() => setViewMode('date')}
+              className={`text-[11px] font-bold px-3 py-1 rounded-full ${viewMode === 'date' ? 'bg-[#E0FF00] text-black' : 'text-zinc-400'}`}
+            >
+              Por Data
+            </button>
+            <button
+              data-testid="view-mode-matrix"
+              onClick={() => setViewMode('matrix')}
+              className={`text-[11px] font-bold px-3 py-1 rounded-full ${viewMode === 'matrix' ? 'bg-[#E0FF00] text-black' : 'text-zinc-400'}`}
+            >
+              Matriz Equipes
+            </button>
+          </div>
+          <button
+            data-testid="add-programacao-button"
+            onClick={() => { setEditing(null); setIsDrawerOpen(true); }}
+            className="bg-[#E0FF00] hover:bg-[#C8E600] text-black font-bold px-6 py-2 rounded-full transition-all transform hover:scale-105 flex items-center gap-2"
+          >
+            <Plus className="w-5 h-5" />
+            Programar Obra
+          </button>
+        </>
       }
     >
       {stats && (
@@ -202,6 +262,73 @@ export const ProgramacaoPage = () => {
             <p className="text-zinc-400 text-lg">Nenhuma obra programada.</p>
             <p className="text-zinc-600 text-sm mt-2">Clique em "Programar Obra" para começar.</p>
           </div>
+        ) : viewMode === 'matrix' ? (
+          <div data-testid="prog-matrix-view" className="glass-panel rounded-2xl overflow-auto">
+            <table className="w-full min-w-[900px]">
+              <thead>
+                <tr className="border-b border-white/10 bg-white/[0.02]">
+                  <th className="sticky left-0 bg-[#09090b] text-left px-3 py-2 text-[10px] tracking-[0.15em] uppercase font-bold text-zinc-500 w-32">Data</th>
+                  {matrix.teamList.map((tid) => {
+                    const t = teams.find((x) => x.id === tid);
+                    return (
+                      <th key={tid} className="text-left px-3 py-2 text-[10px] tracking-[0.15em] uppercase font-bold text-[#E0FF00] min-w-[220px]">
+                        <span className="inline-flex items-center gap-1"><UsersIcon className="w-3 h-3" />{t?.name || 'Sem equipe'}</span>
+                      </th>
+                    );
+                  })}
+                </tr>
+              </thead>
+              <tbody>
+                {matrix.dateList.map((date) => (
+                  <tr key={date} data-testid={`matrix-row-${date}`} className="border-b border-white/5 align-top">
+                    <td className="sticky left-0 bg-[#09090b] px-3 py-3 text-xs font-mono text-white">
+                      {date === 'Sem data' ? date : new Date(date + 'T00:00:00').toLocaleDateString('pt-BR', { weekday: 'short', day: '2-digit', month: '2-digit' })}
+                    </td>
+                    {matrix.teamList.map((tid) => {
+                      const cellProjects = (matrix.map[date] || {})[tid] || [];
+                      return (
+                        <td key={tid} className="px-2 py-2">
+                          <div className="space-y-2">
+                            {cellProjects.length === 0 ? (
+                              <span className="text-[10px] text-zinc-700">—</span>
+                            ) : cellProjects.map((p) => {
+                              const execStatus = EXECUTION_STATUS_LABEL[p.execution_status];
+                              const bgColor = p.requires_hot_line ? '#FF5E00' : execStatus?.color || '#94A3B8';
+                              return (
+                                <div
+                                  key={`${p.id}-${p._teamColId}`}
+                                  data-testid={`matrix-cell-${p.id}-${p._teamColId}`}
+                                  className="rounded-lg p-2 border text-[11px]"
+                                  style={{ backgroundColor: `${bgColor}12`, borderColor: `${bgColor}40` }}
+                                >
+                                  <div className="flex items-center gap-1 mb-1 flex-wrap">
+                                    <span className="font-mono text-white font-bold">{p.project_code || p.name.slice(0, 12)}</span>
+                                    {p._isAdditional && (
+                                      <span title="Equipe adicional" className="px-1.5 py-0 rounded-full text-[9px] font-bold bg-[#00F0FF]/20 border border-[#00F0FF]/50 text-[#00F0FF]">2ª</span>
+                                    )}
+                                    {p.requires_hot_line && <Zap className="w-3 h-3 text-[#FF5E00]" />}
+                                  </div>
+                                  <p className="text-zinc-400 truncate">{p.name}</p>
+                                  <p className="font-mono text-[10px] text-zinc-500">{formatCurrency(p.programmed_value)}</p>
+                                  <button
+                                    onClick={() => { setEditing(p); setIsDrawerOpen(true); }}
+                                    className="text-[9px] text-[#00F0FF] hover:underline mt-1"
+                                    data-testid={`matrix-edit-${p.id}-${p._teamColId}`}
+                                  >
+                                    editar
+                                  </button>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </td>
+                      );
+                    })}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         ) : (
           grouped.map(({ date, projects }) => (
             <motion.div
@@ -225,8 +352,8 @@ export const ProgramacaoPage = () => {
                   const bgColor = p.requires_hot_line ? '#FF5E00' : execStatus?.color || '#94A3B8';
                   return (
                     <div
-                      key={p.id}
-                      data-testid={`prog-project-${p.id}`}
+                      key={`${p.id}-${p._teamColId || 'x'}`}
+                      data-testid={`prog-project-${p.id}${p._isAdditional ? '-add' : ''}`}
                       className="rounded-xl p-4 border relative overflow-hidden"
                       style={{
                         backgroundColor: `${bgColor}0D`,
@@ -236,8 +363,13 @@ export const ProgramacaoPage = () => {
                     >
                       <div className="flex items-start justify-between mb-2">
                         <div className="flex-1">
-                          <div className="flex items-center gap-2 mb-1">
+                          <div className="flex items-center gap-2 mb-1 flex-wrap">
                             <h3 className="text-white font-bold text-sm">{p.name}</h3>
+                            {p._isAdditional && (
+                              <span title="Equipe adicional" className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-[#00F0FF]/20 border border-[#00F0FF]/50 text-[#00F0FF]">
+                                2ª EQUIPE
+                              </span>
+                            )}
                             {p.requires_hot_line && (
                               <span title="Linha Viva" className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-[#FF5E00]/20 border border-[#FF5E00] text-[#FF5E00]">
                                 <Zap className="w-3 h-3" /> LV
@@ -251,7 +383,7 @@ export const ProgramacaoPage = () => {
                           </div>
                           <div className="flex items-center gap-3 text-xs text-zinc-400 flex-wrap">
                             <span>{PROJECT_TYPE_LABEL[p.project_type]}</span>
-                            {p.team_name && <span>• {p.team_name}</span>}
+                            {p._teamColName && <span>• {p._teamColName}</span>}
                           </div>
                         </div>
                         <div className="flex gap-1">
@@ -329,6 +461,13 @@ export const ProgramacaoPage = () => {
         teams={teams}
         defaultScheduled={true}
       />
+
+      <RetornoProgramacaoModal
+        isOpen={retornoOpen}
+        onClose={() => setRetornoOpen(false)}
+        onDone={() => { fetchData(); fetchStats(); }}
+      />
+
 
       {historyOpen && (
         <div data-testid="reschedule-history-modal" className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4" onClick={() => setHistoryOpen(null)}>

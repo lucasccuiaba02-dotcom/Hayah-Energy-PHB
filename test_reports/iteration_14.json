@@ -1,0 +1,32 @@
+{
+  "summary": "Iteration 14 — Message 208 features validated end-to-end. Backend: 6/6 pytest verdes (test_iteration14.py) — dashboard KPIs com shape completo (counts/financeiro/operacional/tempo_medio/servicos_por_dia/vencidas/vencendo_amanha_list), Project CRUD com novos campos (postes_qty/transformadores_qty/km_rede/ligacoes_novas/religacoes/desligamentos + additional_team_id/additional_team_name), team-unavailability CRUD (GET/POST/DELETE + upsert idempotente por team_id+date), retorno de programação (executed=false → execution_status='a_reprogramar'; executed=true → 'executada'; pending-returns retorna programados sem retorno para a data), permissões granulares (POST /approve + PUT /permissions filtra valores fora de ALL_PERMISSIONS, /auth/me e /login retornam perms). Frontend: LOGIN admin OK → /dashboard renderiza kpi-critical-row + kpi-financial-row + kpi-operational-row + kpi-tempo-medio com labels Vencidas/Vencendo/Conclusão/Postes/Trafo/Km Rede/Ligações/Tempo Médio. Sidebar mostra nav-indisponibilidade. Programação: open-retorno-button abre retorno-modal com retorno-date; view-mode-date/view-mode-matrix funcionam. ProjectDrawer expõe project-postes/trafos/km/ligacoes/religacoes/desligamentos-input; ao ativar 'Programar obra?' aparece project-additional-team-select. E2E crítico: criei projeto com team_id=A + additional_team_id=B start_date=hoje+2 → na Matriz Equipes o mesmo projeto aparece em 2 colunas (matrix-cell-{pid}-{teamA} + matrix-cell-{pid}-{teamB}); na visão Por Data, 2 cards (o extra com badge '2ª EQUIPE'). Admin /admin/usuarios: 24 users listados, ao expandir 'Permissões' aparecem 11 admin-perm-{uid}-{tab} checkboxes + admin-save-{uid}. Permissões enforcement validado via /auth/me para usuário limitado.",
+  "backend_issues": { "critical": [], "minor": [] },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration14.py",
+    "/app/test_reports/pytest/iter14_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "ProjectResponse (server.py:252-291) declara additional_team_id e additional_team_name DUAS VEZES (linhas 259-260 e 283-284). Pydantic v2 aceita mas o field duplicado é code smell — remover a segunda ocorrência.",
+    "server.py excedeu 1799+ linhas — recomenda-se modularização (routers/tracking.py, routers/dashboard.py, routers/programacao.py, routers/admin.py) para manutenibilidade. Não-bloqueante.",
+    "pending_returns filtra por 'start_date' regex mas se a obra estiver em execution_status='executada' já registrado, ainda pode aparecer se não tiver daily_returns[] — considerar excluir também 'executada' (atualmente só exclui concluido/cancelado).",
+    "dashboard/kpis: sum de km_rede/programmed_value/actual_value assume campos numéricos; se algum doc antigo tiver string, causará TypeError. `(p.get('km_rede') or 0)` protege None mas não string — considerar `float(p.get('km_rede') or 0)` defensivo.",
+    "AdminUsuariosPage: permission checkboxes só renderizam ao clicar admin-edit-{uid}. Documente esse toggle no data-testid pattern para próximos testing agents (não é bug).",
+    "team-unavailability: DELETE não retorna 404 se o id não existir (delete_one silencioso). Considerar checar deleted_count e retornar 404 para UX.",
+    "PUT /admin/users/{id}/permissions silenciosamente descarta permissões inválidas em vez de erro 400 — comportamento OK para robustez, mas se cliente enviar typo, não recebe feedback."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iteration14.py"
+  ],
+  "success_rate": { "backend": "100% (6/6)", "frontend": "100% (dashboard + programação + matriz 2 equipes + retorno modal + drawer + admin perms + indisponibilidade)" },
+  "test_credentials": "admin@projectmatrix.com / Admin@123",
+  "seed_data_creation": "Test projects/teams criados durante testes foram limpos ao final (TEST_iter14_metrics, TEST_iter14_retorno, TEST_2eq_matrix deletados; equipes TEST_iter14_teamA/B removidas pela fixture; usuário TEST_limited_* removido). Restam eventualmente users TEST_ antigos de iterações prévias na página admin.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Iter14 (Message 208) todas features verdes. Backend em /app/backend/tests/test_iteration14.py (6 testes: KPIs shape, project metrics + additional_team, team-unavailability CRUD, retorno flow, admin permissions). E2E matriz confirmado: projeto com team_id=A + additional_team_id=B renderiza matrix-cell-{pid}-{tA} e matrix-cell-{pid}-{tB} simultaneamente + card '2ª EQUIPE' na visão Por Data. Para retestar drawer/admin: clicar 'Programar Obra' abre project-drawer com quantitativos; em /admin/usuarios PRECISA clicar admin-edit-{uid} para expandir e ver admin-perm-{uid}-{tab} (11 checkboxes) + admin-save-{uid}. ProjectResponse tem field duplicado — code smell mas funcional."
+}
