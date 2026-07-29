@@ -347,6 +347,7 @@ class ProjectResponse(BaseModel):
     cancel_reason: str = ""
     attachments: List[dict] = Field(default_factory=list)
     materials_list: List[dict] = Field(default_factory=list)
+    material_requisitions: List[dict] = Field(default_factory=list)
     postes_qty: int = 0
     transformadores_qty: int = 0
     km_rede: float = 0.0
@@ -801,6 +802,7 @@ def build_project_response(project: dict) -> ProjectResponse:
         cancel_reason=project.get("cancel_reason", ""),
         attachments=project.get("attachments", []) or [],
         materials_list=project.get("materials_list", []) or [],
+        material_requisitions=project.get("material_requisitions", []) or [],
         additional_team_id=project.get("additional_team_id"),
         additional_team_name=project.get("additional_team_name"),
         postes_qty=project.get("postes_qty", 0),
@@ -2410,13 +2412,71 @@ async def request_materials(
     </div>
     """
     subject = f"[HAYAH] Solicitação de Material · {project.get('project_code','') or ''} · {project.get('name','')}"
-    
-    # Send via Resend with attachments
+
+    # ====== Auto-generate requisition PDF and attach it ======
+    requisition_id = secrets.token_urlsafe(8)
+    try:
+        req_pdf_bytes = await asyncio.to_thread(
+            build_requisition_pdf,
+            project,
+            signature_name,
+            notes,
+            requisition_id,
+            current_user.get("name", ""),
+        )
+        # Store PDF in Emergent object storage
+        pdf_path = f"{APP_NAME}/requisitions/{current_user['_id']}/{requisition_id}.pdf"
+        try:
+            await storage_put(pdf_path, req_pdf_bytes, "application/pdf")
+        except Exception as e:
+            logger.warning(f"storage put requisition pdf failed: {e}")
+            pdf_path = None
+        attachments.insert(0, {
+            "filename": f"requisicao_{project.get('project_code','') or requisition_id}.pdf",
+            "content": list(req_pdf_bytes),
+        })
+    except Exception as e:
+        logger.error(f"failed to build requisition PDF: {e}")
+        pdf_path = None
+
+    # ====== Save history entry to project.material_requisitions ======
+    history_entry = {
+        "id": requisition_id,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "created_by": current_user.get("name", ""),
+        "created_by_email": current_user.get("email", ""),
+        "signature_name": signature_name,
+        "notes": notes,
+        "recipients": recipients,
+        "pdf_path": pdf_path,
+        "attachment_count": len(attachments),
+        "email_status": "pending",  # updated below
+        "email_id": None,
+        "materials_snapshot": [
+            {
+                "item": m.get("item", ""),
+                "unit": m.get("unit", "un"),
+                "qty_requested": m.get("qty_requested", m.get("quantity", 0)),
+                "qty_separated": m.get("qty_separated", 0),
+                "qty_written_off": m.get("qty_written_off", 0),
+                "qty_delivered": m.get("qty_delivered", 0),
+            }
+            for m in materials
+        ],
+        "receipt": None,  # filled by confirm-receipt endpoint
+    }
+
+    # ====== Send via Resend ======
     api_key = os.environ.get("RESEND_API_KEY", "").strip()
     if not api_key:
         logger.warning(f"[MATERIAL EMAIL SKIPPED - No RESEND_API_KEY] To={recipients}")
-        return {"status": "skipped", "reason": "no_api_key", "attachments_count": len(attachments)}
-    
+        history_entry["email_status"] = "skipped_no_key"
+        await db.projects.update_one(
+            {"_id": safe_object_id(project_id)},
+            {"$push": {"material_requisitions": history_entry}}
+        )
+        return {"status": "skipped", "reason": "no_api_key", "attachments_count": len(attachments), "requisition_id": requisition_id}
+
     try:
         import resend
         resend.api_key = api_key
@@ -2431,10 +2491,125 @@ async def request_materials(
             params["attachments"] = attachments
         result = await asyncio.to_thread(resend.Emails.send, params)
         logger.info(f"Material request email sent to {recipients}: id={result.get('id')}")
-        return {"status": "sent", "id": result.get("id"), "attachments_count": len(attachments)}
+        history_entry["email_status"] = "sent"
+        history_entry["email_id"] = result.get("id")
+        await db.projects.update_one(
+            {"_id": safe_object_id(project_id)},
+            {"$push": {"material_requisitions": history_entry}}
+        )
+        return {"status": "sent", "id": result.get("id"), "attachments_count": len(attachments), "requisition_id": requisition_id}
     except Exception as e:
         logger.error(f"Failed to send material request: {e}")
-        return {"status": "error", "error": str(e)}
+        history_entry["email_status"] = "error"
+        history_entry["email_error"] = str(e)
+        await db.projects.update_one(
+            {"_id": safe_object_id(project_id)},
+            {"$push": {"material_requisitions": history_entry}}
+        )
+        return {"status": "error", "error": str(e), "requisition_id": requisition_id}
+
+
+# ====== Material requisition detail endpoints ======
+
+@api_router.get("/projects/{project_id}/requisitions/{req_id}/pdf")
+async def download_requisition_pdf(
+    project_id: str,
+    req_id: str,
+    current_user: dict = Depends(get_current_user),
+):
+    project = await db.projects.find_one({"_id": safe_object_id(project_id), "user_id": current_user["_id"]})
+    if not project:
+        raise HTTPException(status_code=404, detail="Obra não encontrada")
+    reqs = project.get("material_requisitions", []) or []
+    req = next((r for r in reqs if r.get("id") == req_id), None)
+    if not req:
+        raise HTTPException(status_code=404, detail="Requisição não encontrada")
+    if req.get("pdf_path"):
+        try:
+            data, _ct = await storage_get(req["pdf_path"])
+            return Response(
+                content=data,
+                media_type="application/pdf",
+                headers={"Content-Disposition": f'inline; filename="requisicao_{req_id}.pdf"'},
+            )
+        except Exception:
+            pass
+    # Rebuild on the fly if storage missing
+    data = await asyncio.to_thread(
+        build_requisition_pdf,
+        project, req.get("signature_name", ""), req.get("notes", ""),
+        req_id, req.get("created_by", ""),
+    )
+    return Response(
+        content=data,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'inline; filename="requisicao_{req_id}.pdf"'},
+    )
+
+
+@api_router.post("/projects/{project_id}/requisitions/{req_id}/confirm-receipt")
+async def confirm_requisition_receipt(
+    project_id: str,
+    req_id: str,
+    receiver_name: str = Form(""),
+    notes: str = Form(""),
+    photo: Optional[UploadFile] = File(None),
+    current_user: dict = Depends(get_current_user),
+):
+    """Mark material as received on site. Optionally attach photo of the delivery ticket."""
+    project = await db.projects.find_one({"_id": safe_object_id(project_id), "user_id": current_user["_id"]})
+    if not project:
+        raise HTTPException(status_code=404, detail="Obra não encontrada")
+
+    photo_path = None
+    photo_url = None
+    if photo:
+        content = await photo.read()
+        if len(content) > 15 * 1024 * 1024:
+            raise HTTPException(status_code=400, detail="Foto maior que 15MB")
+        ext = (photo.filename.rsplit(".", 1)[-1] if photo.filename and "." in photo.filename else "jpg").lower()
+        photo_path = f"{APP_NAME}/receipts/{current_user['_id']}/{req_id}-{uuid.uuid4()}.{ext}"
+        try:
+            result = await storage_put(photo_path, content, photo.content_type or "image/jpeg")
+            photo_url = result.get("path")
+        except Exception as e:
+            logger.warning(f"receipt photo storage failed: {e}")
+            photo_path = None
+
+    receipt = {
+        "received_at": datetime.now(timezone.utc).isoformat(),
+        "received_by": receiver_name or current_user.get("name", ""),
+        "confirmed_by_email": current_user.get("email", ""),
+        "notes": notes,
+        "photo_path": photo_path,
+        "photo_url": photo_url,
+    }
+
+    result = await db.projects.update_one(
+        {"_id": safe_object_id(project_id), "material_requisitions.id": req_id},
+        {"$set": {"material_requisitions.$.receipt": receipt}}
+    )
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Requisição não encontrada")
+    return {"status": "confirmed", "receipt": receipt}
+
+
+@api_router.get("/projects/{project_id}/requisitions/{req_id}/receipt-photo")
+async def download_receipt_photo(
+    project_id: str,
+    req_id: str,
+    current_user: dict = Depends(get_current_user),
+):
+    project = await db.projects.find_one({"_id": safe_object_id(project_id), "user_id": current_user["_id"]})
+    if not project:
+        raise HTTPException(status_code=404, detail="Obra não encontrada")
+    reqs = project.get("material_requisitions", []) or []
+    req = next((r for r in reqs if r.get("id") == req_id), None)
+    if not req or not req.get("receipt") or not req["receipt"].get("photo_path"):
+        raise HTTPException(status_code=404, detail="Foto não encontrada")
+    data, ct = await storage_get(req["receipt"]["photo_path"])
+    return Response(content=data, media_type=ct or "image/jpeg")
+
 
 app.include_router(api_router)
 
