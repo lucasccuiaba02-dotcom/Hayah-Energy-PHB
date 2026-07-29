@@ -2547,6 +2547,146 @@ async def download_requisition_pdf(
     )
 
 
+@api_router.post("/projects/{project_id}/requisitions/{req_id}/resend")
+async def resend_requisition(
+    project_id: str,
+    req_id: str,
+    current_user: dict = Depends(get_current_user),
+):
+    """Resend the same requisition (same PDF, same recipients) — logs a new history entry linked to the original."""
+    project = await db.projects.find_one({"_id": safe_object_id(project_id), "user_id": current_user["_id"]})
+    if not project:
+        raise HTTPException(status_code=404, detail="Obra não encontrada")
+    reqs = project.get("material_requisitions", []) or []
+    original = next((r for r in reqs if r.get("id") == req_id), None)
+    if not original:
+        raise HTTPException(status_code=404, detail="Requisição original não encontrada")
+
+    recipients = original.get("recipients") or []
+    if not recipients:
+        raise HTTPException(status_code=400, detail="Requisição original sem destinatários")
+
+    # Load or rebuild the PDF
+    pdf_bytes = None
+    if original.get("pdf_path"):
+        try:
+            pdf_bytes, _ = await storage_get(original["pdf_path"])
+        except Exception:
+            pdf_bytes = None
+    if not pdf_bytes:
+        pdf_bytes = await asyncio.to_thread(
+            build_requisition_pdf,
+            project, original.get("signature_name", ""), original.get("notes", ""),
+            req_id, original.get("created_by", ""),
+        )
+
+    # Build a lightweight resend email HTML (references original snapshot)
+    snap = original.get("materials_snapshot", []) or []
+    rows_html = ""
+    for m in snap:
+        rows_html += f"""
+        <tr>
+          <td style="padding:6px 8px;border-bottom:1px solid #eee;">{m.get('item','')}</td>
+          <td style="padding:6px 8px;border-bottom:1px solid #eee;text-align:center;">{m.get('unit','un')}</td>
+          <td style="padding:6px 8px;border-bottom:1px solid #eee;text-align:right;font-weight:bold;">{m.get('qty_requested', 0):g}</td>
+          <td style="padding:6px 8px;border-bottom:1px solid #eee;text-align:right;color:#00A050;">{m.get('qty_separated', 0):g}</td>
+          <td style="padding:6px 8px;border-bottom:1px solid #eee;text-align:right;color:#E55400;">{m.get('qty_written_off', 0):g}</td>
+          <td style="padding:6px 8px;border-bottom:1px solid #eee;text-align:right;color:#005EE0;font-weight:bold;">{m.get('qty_delivered', 0):g}</td>
+        </tr>"""
+    original_date_iso = (original.get("created_at") or "")[:16].replace("T", " ")
+    html = f"""
+    <div style="font-family: Arial, sans-serif; max-width: 720px; margin: 0 auto; padding: 24px;">
+      <div style="background:#FF5E00;color:#050505;padding:10px 16px;font-weight:bold;">🔁 REENVIO da requisição de {original_date_iso}</div>
+      <h1 style="color: #E0FF00; background: #050505; padding: 16px; margin: 0;">HAYAH ENERGY</h1>
+      <div style="background: #050505; color: #fff; padding: 24px;">
+        <h2 style="color: #00F0FF; margin-top: 0;">Solicitação de Material (Reenvio)</h2>
+        <table width="100%" style="border-collapse: collapse;">
+          <tr><td style="padding: 6px 0; color: #a1a1aa; width: 40%;">Projeto:</td><td style="color: #fff; font-weight: bold;">{project.get('name','')}</td></tr>
+          <tr><td style="padding: 6px 0; color: #a1a1aa;">Nº Obra:</td><td style="color: #fff;">{project.get('project_code','') or '-'}</td></tr>
+          <tr><td style="padding: 6px 0; color: #a1a1aa;">Localidade:</td><td style="color: #fff;">{project.get('location','') or '-'}</td></tr>
+          <tr><td style="padding: 6px 0; color: #a1a1aa;">Equipe:</td><td style="color: #fff;">{project.get('team_name','') or '-'}{(' + ' + (project.get('additional_team_name') or '')) if project.get('additional_team_name') else ''}</td></tr>
+          <tr><td style="padding: 6px 0; color: #a1a1aa;">Solicitado por:</td><td style="color: #fff;">{original.get('created_by','')}</td></tr>
+          <tr><td style="padding: 6px 0; color: #a1a1aa;">Assinado por:</td><td style="color: #fff;">{original.get('signature_name','')}</td></tr>
+          <tr><td style="padding: 6px 0; color: #a1a1aa;">Reenviado por:</td><td style="color: #fff;">{current_user.get('name','')}</td></tr>
+          <tr><td style="padding: 6px 0; color: #a1a1aa;">Reenviado em:</td><td style="color: #fff;">{datetime.now(timezone.utc).strftime('%d/%m/%Y %H:%M UTC')}</td></tr>
+        </table>
+        <h3 style="color:#00F0FF;margin-top:24px;margin-bottom:8px;">Lista original ({len(snap)} itens)</h3>
+        <table width="100%" style="border-collapse:collapse;background:#fff;color:#050505;font-size:12px;border:1px solid #ddd;">
+          <thead><tr style="background:#050505;color:#E0FF00;">
+            <th style="padding:6px 8px;text-align:left;">Item</th>
+            <th style="padding:6px 8px;">Un</th>
+            <th style="padding:6px 8px;text-align:right;">Solicitado</th>
+            <th style="padding:6px 8px;text-align:right;">Separado</th>
+            <th style="padding:6px 8px;text-align:right;">Baixado</th>
+            <th style="padding:6px 8px;text-align:right;">Entregue</th>
+          </tr></thead>
+          <tbody>{rows_html}</tbody>
+        </table>
+        <p style="color:#71717a;font-size:11px;margin-top:24px;">PDF original em anexo. Requisição nº <b>{req_id}</b>.</p>
+      </div>
+    </div>
+    """
+    subject = f"[HAYAH · REENVIO] Solicitação de Material · {project.get('project_code','') or ''} · {project.get('name','')}"
+
+    attachments = [{
+        "filename": f"requisicao_{project.get('project_code','') or req_id}.pdf",
+        "content": list(pdf_bytes),
+    }]
+
+    resend_entry = {
+        "id": secrets.token_urlsafe(8),
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "created_by": current_user.get("name", ""),
+        "created_by_email": current_user.get("email", ""),
+        "signature_name": original.get("signature_name", ""),
+        "notes": f"(Reenvio da requisição {req_id})",
+        "recipients": recipients,
+        "pdf_path": original.get("pdf_path"),
+        "attachment_count": 1,
+        "email_status": "pending",
+        "email_id": None,
+        "materials_snapshot": snap,
+        "receipt": None,
+        "is_resend": True,
+        "original_req_id": req_id,
+    }
+
+    api_key = os.environ.get("RESEND_API_KEY", "").strip()
+    if not api_key:
+        resend_entry["email_status"] = "skipped_no_key"
+        await db.projects.update_one(
+            {"_id": safe_object_id(project_id)},
+            {"$push": {"material_requisitions": resend_entry}}
+        )
+        return {"status": "skipped", "reason": "no_api_key", "resend_id": resend_entry["id"]}
+
+    try:
+        import resend
+        resend.api_key = api_key
+        sender = os.environ.get("SENDER_EMAIL", "Hayah Energy <onboarding@resend.dev>")
+        result = await asyncio.to_thread(resend.Emails.send, {
+            "from": sender, "to": recipients, "subject": subject, "html": html,
+            "attachments": attachments,
+        })
+        logger.info(f"Requisition RESEND to {recipients}: id={result.get('id')}")
+        resend_entry["email_status"] = "sent"
+        resend_entry["email_id"] = result.get("id")
+        await db.projects.update_one(
+            {"_id": safe_object_id(project_id)},
+            {"$push": {"material_requisitions": resend_entry}}
+        )
+        return {"status": "sent", "id": result.get("id"), "resend_id": resend_entry["id"]}
+    except Exception as e:
+        logger.error(f"Resend failed: {e}")
+        resend_entry["email_status"] = "error"
+        resend_entry["email_error"] = str(e)
+        await db.projects.update_one(
+            {"_id": safe_object_id(project_id)},
+            {"$push": {"material_requisitions": resend_entry}}
+        )
+        return {"status": "error", "error": str(e), "resend_id": resend_entry["id"]}
+
+
 @api_router.post("/projects/{project_id}/requisitions/{req_id}/confirm-receipt")
 async def confirm_requisition_receipt(
     project_id: str,

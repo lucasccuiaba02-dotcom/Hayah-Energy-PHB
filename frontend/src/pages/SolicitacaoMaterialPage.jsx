@@ -5,7 +5,7 @@ import { toast } from 'sonner';
 import { AppLayout } from '../components/AppLayout';
 import {
   Package, Send, FileText, MapPin, Users, Calendar, Hash, PenLine,
-  CheckCircle2, History, FileDown, Camera, Truck, AlertCircle, Loader,
+  CheckCircle2, History, FileDown, Camera, Truck, AlertCircle, Loader, RefreshCw,
 } from 'lucide-react';
 import { PROJECT_TYPE_LABEL, formatCurrency, todayISO } from '../lib/constants';
 
@@ -20,6 +20,7 @@ export const SolicitacaoMaterialPage = () => {
   const [savingRow, setSavingRow] = useState(null);
   const [sending, setSending] = useState(false);
   const [confirmingId, setConfirmingId] = useState(null);
+  const [resendingId, setResendingId] = useState(null);
   const [me, setMe] = useState(null);
 
   useEffect(() => {
@@ -125,6 +126,19 @@ export const SolicitacaoMaterialPage = () => {
       window.open(url, '_blank');
       setTimeout(() => URL.revokeObjectURL(url), 30000);
     } catch { toast.error('Erro ao abrir foto'); }
+  };
+
+  const resendReq = async (reqId) => {
+    setResendingId(reqId);
+    try {
+      const { data } = await axios.post(`${API}/projects/${selectedProject}/requisitions/${reqId}/resend`);
+      if (data.status === 'sent') toast.success('Reenviado ao almoxarifado!');
+      else if (data.status === 'skipped') toast.info('Reenvio registrado. Email pendente (configure RESEND_API_KEY).');
+      else toast.error(`Falha: ${data.error || 'erro'}`);
+      await reloadProjects();
+    } catch (err) {
+      toast.error(err.response?.data?.detail || 'Erro ao reenviar');
+    } finally { setResendingId(null); }
   };
 
   return (
@@ -272,7 +286,9 @@ export const SolicitacaoMaterialPage = () => {
                   onOpenPdf={() => openReqPdf(r.id)}
                   onOpenPhoto={() => openReceiptPhoto(r.id)}
                   onConfirm={(receiver, notes, photo) => confirmReceipt(r.id, receiver, notes, photo)}
+                  onResend={() => resendReq(r.id)}
                   confirming={confirmingId === r.id}
+                  resending={resendingId === r.id}
                   defaultReceiver={me?.name || ''}
                 />
               ))}
@@ -303,7 +319,7 @@ const QtyInput = ({ value, onCommit, saving, color, testid }) => {
   );
 };
 
-const RequisitionRow = ({ req, onOpenPdf, onOpenPhoto, onConfirm, confirming, defaultReceiver }) => {
+const RequisitionRow = ({ req, onOpenPdf, onOpenPhoto, onConfirm, onResend, confirming, resending, defaultReceiver }) => {
   const [expand, setExpand] = useState(false);
   const [receiver, setReceiver] = useState(defaultReceiver || '');
   const [rNotes, setRNotes] = useState('');
@@ -348,6 +364,22 @@ const RequisitionRow = ({ req, onOpenPdf, onOpenPhoto, onConfirm, confirming, de
         >
           <FileDown className="w-3 h-3" /> PDF
         </button>
+        {!req.is_resend && (
+          <button
+            data-testid={`req-resend-${req.id}`}
+            onClick={onResend}
+            disabled={resending}
+            className="text-[10px] bg-[#FF5E00]/15 border border-[#FF5E00]/40 hover:bg-[#FF5E00]/25 text-[#FF5E00] px-2 py-1 rounded-full inline-flex items-center gap-1 disabled:opacity-60"
+          >
+            {resending ? <Loader className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3" />}
+            {resending ? '...' : 'Reenviar'}
+          </button>
+        )}
+        {req.is_resend && (
+          <span className="text-[10px] bg-[#FF5E00]/10 border border-[#FF5E00]/40 text-[#FF5E00] px-2 py-1 rounded-full inline-flex items-center gap-1">
+            <RefreshCw className="w-3 h-3" /> Reenvio
+          </span>
+        )}
         <button
           data-testid={`req-expand-${req.id}`}
           onClick={() => setExpand((x) => !x)}
