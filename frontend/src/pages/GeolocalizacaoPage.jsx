@@ -2,17 +2,19 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { motion } from 'framer-motion';
 import axios from 'axios';
 import { toast } from 'sonner';
-import { MapContainer, TileLayer, Marker, Popup, Polyline, useMap } from 'react-leaflet';
+import { MapContainer, TileLayer, Marker, Popup, Polyline, useMap, useMapEvents } from 'react-leaflet';
 import MarkerClusterGroup from 'react-leaflet-cluster';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import 'leaflet.markercluster/dist/MarkerCluster.css';
 import 'leaflet.markercluster/dist/MarkerCluster.Default.css';
-import { Route, RefreshCw, Navigation, LocateFixed, FileDown, Share2, Users, Radio, RadioTower, Maximize, MessageCircle, Ruler, X } from 'lucide-react';
+import { Route, RefreshCw, Navigation, LocateFixed, FileDown, Share2, Users, Radio, RadioTower, Maximize, MessageCircle, Ruler, X, Plus, MousePointerClick } from 'lucide-react';
 import { AppLayout } from '../components/AppLayout';
 import { SearchBar } from '../components/SearchBar';
-import { utm21sToLatLng, nearestNeighborRoute, osrmRoute, haversineKm } from '../lib/geo';
-import { PROJECT_TYPE_LABEL, EXECUTION_STATUS, formatCurrency } from '../lib/constants';
+import { ProjectDrawer } from '../components/ProjectDrawer';
+import { AddressSearchInput } from '../components/AddressSearchInput';
+import { utm21sToLatLng, latLngToUtm21s, nearestNeighborRoute, osrmRoute, haversineKm } from '../lib/geo';
+import { PROJECT_TYPE_LABEL, EXECUTION_STATUS, MUNICIPIOS, formatCurrency } from '../lib/constants';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -72,6 +74,23 @@ const FlyTo = ({ target }) => {
   return null;
 };
 
+const MapClickHandler = ({ onClick }) => {
+  useMapEvents({
+    click: (e) => {
+      onClick({ lat: e.latlng.lat, lng: e.latlng.lng });
+    },
+  });
+  return null;
+};
+
+const dropPinIcon = L.divIcon({
+  className: 'geo-drop-pin',
+  html: `<div style="width:38px;height:38px;border-radius:50% 50% 50% 0;background:#00F0FF;transform:rotate(-45deg);border:3px solid #050505;box-shadow:0 6px 16px rgba(0,240,255,0.6);display:flex;align-items:center;justify-content:center;">
+           <span style="transform:rotate(45deg);color:#050505;font-weight:900;font-size:16px;">+</span>
+         </div>`,
+  iconSize: [38, 46], iconAnchor: [19, 46], popupAnchor: [0, -46],
+});
+
 export const GeolocalizacaoPage = () => {
   const [projects, setProjects] = useState([]);
   const [teamsList, setTeamsList] = useState([]);
@@ -88,6 +107,9 @@ export const GeolocalizacaoPage = () => {
   const [search, setSearch] = useState('');
   const [fitSignal, setFitSignal] = useState(0);
   const [focusedProject, setFocusedProject] = useState(null);
+  const [clickedPoint, setClickedPoint] = useState(null); // { lat, lng, utm_x, utm_y, label }
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [drawerInitial, setDrawerInitial] = useState(null);
   const watchIdRef = useRef(null);
   const mapRef = useRef(null);
 
@@ -312,6 +334,55 @@ export const GeolocalizacaoPage = () => {
     }
   };
 
+  const handleMapClick = ({ lat, lng }) => {
+    const utm = latLngToUtm21s(lat, lng);
+    setClickedPoint({
+      lat, lng,
+      utm_x: utm?.utm_x || '',
+      utm_y: utm?.utm_y || '',
+      label: '',
+    });
+    toast.info(`Ponto marcado: ${lat.toFixed(5)}, ${lng.toFixed(5)}`);
+  };
+
+  const handleAddressPick = (sel) => {
+    setClickedPoint({
+      lat: sel.lat,
+      lng: sel.lng,
+      utm_x: sel.utm_x || '',
+      utm_y: sel.utm_y || '',
+      label: sel.display || '',
+      city: (sel.city && MUNICIPIOS.includes(sel.city.toUpperCase())) ? sel.city.toUpperCase() : '',
+    });
+    toast.success('Endereço encontrado — clique em "Criar obra aqui" para cadastrar');
+  };
+
+  const createProjectAtPoint = () => {
+    if (!clickedPoint) return;
+    setDrawerInitial({
+      utm_x: String(clickedPoint.utm_x || ''),
+      utm_y: String(clickedPoint.utm_y || ''),
+      location: clickedPoint.city || '',
+      name: clickedPoint.label ? clickedPoint.label.split(',').slice(0, 2).join(', ') : '',
+    });
+    setDrawerOpen(true);
+  };
+
+  const handleDrawerSave = async (payload) => {
+    try {
+      await axios.post(`${API}/projects`, payload);
+      toast.success('Obra criada no local marcado!');
+      const { data } = await axios.get(`${API}/geo/projects`);
+      setProjects(data);
+      setDrawerOpen(false);
+      setDrawerInitial(null);
+      setClickedPoint(null);
+    } catch (err) {
+      const detail = err?.response?.data?.detail || 'Erro ao criar obra';
+      toast.error(detail);
+    }
+  };
+
   return (
     <AppLayout title="Geolocalização" subtitle="Mapa de obras e roteirização otimizada por equipe">
       <div className="mb-4 flex items-center gap-2 flex-wrap">
@@ -324,6 +395,22 @@ export const GeolocalizacaoPage = () => {
         >
           <Maximize className="w-3 h-3" /> Ajustar vista
         </button>
+      </div>
+
+      <div className="mb-4 rounded-2xl border border-dashed border-[#00F0FF]/40 bg-[#00F0FF]/[0.03] p-3">
+        <p className="text-[10px] tracking-[0.2em] uppercase font-bold text-[#00F0FF] mb-2 inline-flex items-center gap-1">
+          <MousePointerClick className="w-3 h-3" /> Localizar obra no mapa
+        </p>
+        <div className="grid md:grid-cols-2 gap-2 items-start">
+          <AddressSearchInput
+            testid="geo-address-search"
+            onSelect={handleAddressPick}
+            placeholder="Digite o endereço, CEP ou ponto de referência..."
+          />
+          <p className="text-[11px] text-zinc-500 self-center">
+            Ou <b className="text-[#00F0FF]">clique em qualquer ponto do mapa</b> — mostro as coordenadas UTM e um botão para criar obra ali.
+          </p>
+        </div>
       </div>
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
@@ -441,7 +528,50 @@ export const GeolocalizacaoPage = () => {
               url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
             />
             <FitBounds points={[origin, ...points]} signal={fitSignal} />
-            <FlyTo target={hoveredStop || focusedProject} />
+            <FlyTo target={hoveredStop || focusedProject || clickedPoint} />
+            <MapClickHandler onClick={handleMapClick} />
+            {clickedPoint && (
+              <Marker position={[clickedPoint.lat, clickedPoint.lng]} icon={dropPinIcon}>
+                <Popup>
+                  <div style={{ minWidth: 220 }}>
+                    <b style={{ color: '#050505' }}>Novo ponto</b>
+                    {clickedPoint.label && <div style={{ fontSize: 11, color: '#333', marginTop: 4 }}>{clickedPoint.label}</div>}
+                    <div style={{ fontSize: 11, color: '#333', marginTop: 4, fontFamily: 'monospace' }}>
+                      Lat: {clickedPoint.lat.toFixed(6)}<br />
+                      Lng: {clickedPoint.lng.toFixed(6)}
+                    </div>
+                    {clickedPoint.utm_x && (
+                      <div style={{ fontSize: 11, color: '#050505', marginTop: 4, fontFamily: 'monospace', background: '#E0FF0022', padding: '4px 6px', borderRadius: 4 }}>
+                        UTM 21S: {clickedPoint.utm_x} / {clickedPoint.utm_y}
+                      </div>
+                    )}
+                    <div style={{ display: 'flex', gap: 4, marginTop: 8, flexWrap: 'wrap' }}>
+                      <button
+                        onClick={(e) => { e.stopPropagation(); createProjectAtPoint(); }}
+                        style={{ background: '#E0FF00', color: '#050505', border: 'none', padding: '6px 10px', borderRadius: 999, fontSize: 11, fontWeight: 800, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 4 }}
+                        data-testid="drop-pin-create-obra"
+                      >
+                        + Criar obra aqui
+                      </button>
+                      <button
+                        onClick={(e) => { e.stopPropagation(); copyToWhatsApp({ lat: clickedPoint.lat, lng: clickedPoint.lng, name: clickedPoint.label || 'Ponto no mapa', location: clickedPoint.label }); }}
+                        style={{ background: '#25D366', color: '#fff', border: 'none', padding: '6px 10px', borderRadius: 999, fontSize: 11, fontWeight: 700, cursor: 'pointer' }}
+                        data-testid="drop-pin-wa"
+                      >
+                        📱 WhatsApp
+                      </button>
+                      <button
+                        onClick={(e) => { e.stopPropagation(); setClickedPoint(null); }}
+                        style={{ background: '#FF003C', color: '#fff', border: 'none', padding: '6px 10px', borderRadius: 999, fontSize: 11, fontWeight: 700, cursor: 'pointer' }}
+                        data-testid="drop-pin-remove"
+                      >
+                        ✕ Remover
+                      </button>
+                    </div>
+                  </div>
+                </Popup>
+              </Marker>
+            )}
             <Marker position={[origin.lat, origin.lng]} icon={originIcon}>
               <Popup><b>Origem</b><br />{origin.label || 'Ponto de partida'}</Popup>
             </Marker>
@@ -603,6 +733,14 @@ export const GeolocalizacaoPage = () => {
           ))}
         </div>
       )}
+
+      <ProjectDrawer
+        isOpen={drawerOpen}
+        onClose={() => { setDrawerOpen(false); setDrawerInitial(null); }}
+        onSave={handleDrawerSave}
+        project={drawerInitial}
+        teams={teamsList}
+      />
     </AppLayout>
   );
 };

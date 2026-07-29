@@ -37,15 +37,16 @@ Dashboard, **Buscar Obras**, Operacional, Carteira, Programação, Calendário, 
 - Retorno de Programação (modal)
 - Página Indisponibilidade de equipes
 - Admin de usuários com checkboxes de permissão
-- **Nova aba "Buscar Obras"** (`/buscar`) — search inline com edit/duplicate/delete
+- **Nova aba "Buscar Obras"** (`/buscar`)
 - Dashboard: KPIs financeiro/operacional/tempo médio/vencidas/vencendo/produção
-- **Multi-data schedule_entries**: obra pode ser programada em várias datas com equipes distintas por dia. Aparece em cada célula (data × equipe) na matriz
+- **Multi-data schedule_entries**: obra pode ser programada em várias datas com equipes distintas
 - **cancel_reason obrigatório** quando status=cancelado/suspenso
-- **Geolocalização — 4 melhorias**:
-  * FitBounds só na primeira carga (usa `signal` + `useRef`). Botão "Ajustar vista" para refit manual → **não volta mais ao zoom-out sozinho**
-  * Popup dos markers: 3 botões — 📱 WhatsApp (copia msg formatada), 📏 Distância (foca só nesta obra), 🗺️ Rota (google maps)
-  * "Distância só desta" desenha polyline única + painel flutuante com km + botão "Rota real (OSRM)" para tempo/distância real
+- **Geolocalização — melhorias**:
+  * FitBounds só na primeira carga + botão "Ajustar vista" → não volta mais ao zoom-out sozinho
+  * Popup dos markers: 3 botões — 📱 WhatsApp, 📏 Distância (foca só nesta), 🗺️ Rota
+  * "Distância só desta" desenha polyline única + painel flutuante com km + OSRM
   * Search bar com placeholder "número da obra, nome ou local"
+  * **NOVO: Localizar obra no mapa** — barra de endereço/CEP no topo + **clique em qualquer ponto** do mapa: mostra coordenadas UTM 21S + toast, pin ciano aparece com popup para "+ Criar obra aqui" (abre drawer pré-preenchido), 📱 WhatsApp e ✕ Remover
 
 ## Backlog (P1/P2)
 - Lead Time Indicators (Rec→Prog→Exec→Fech→Fatur)
