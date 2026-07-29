@@ -3,6 +3,7 @@ import { motion } from 'framer-motion';
 import axios from 'axios';
 import { AppLayout } from '../components/AppLayout';
 import { ProjectFilters } from '../components/ProjectFilters';
+import { SearchBar } from '../components/SearchBar';
 import { PROJECT_TYPE_LABEL, formatCurrency } from '../lib/constants';
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
@@ -34,6 +35,7 @@ export const AnalisePage = () => {
   const [teams, setTeams] = useState([]);
   const [filters, setFilters] = useState({ startDate: '', endDate: '', teamId: '', minValue: '', maxValue: '' });
   const [topExpensive, setTopExpensive] = useState([]);
+  const [search, setSearch] = useState('');
 
   useEffect(() => {
     axios.get(`${API}/teams`).then(({ data }) => setTeams(data));
@@ -44,6 +46,7 @@ export const AnalisePage = () => {
   const filteredTop = useMemo(() => {
     const minV = parseFloat(filters.minValue);
     const maxV = parseFloat(filters.maxValue);
+    const q = (search || '').toLowerCase();
     return topExpensive.filter((p) => {
       if (filters.teamId && p.team_id !== filters.teamId) return false;
       const ps = (p.start_date || '').slice(0, 10);
@@ -52,9 +55,10 @@ export const AnalisePage = () => {
       const v = p.programmed_value || 0;
       if (!isNaN(minV) && v < minV) return false;
       if (!isNaN(maxV) && v > maxV) return false;
+      if (q && !((p.project_code || '').toLowerCase().includes(q) || (p.name || '').toLowerCase().includes(q))) return false;
       return true;
     });
-  }, [topExpensive, filters]);
+  }, [topExpensive, filters, search]);
 
   useEffect(() => {
     const params = new URLSearchParams();
@@ -66,6 +70,8 @@ export const AnalisePage = () => {
 
   return (
     <AppLayout title="Análise" subtitle="Visão completa da operação">
+      <div className="mb-4"><SearchBar value={search} onChange={setSearch} testid="analise-search" /></div>
+
       <ProjectFilters
         filters={filters}
         onChange={setFilters}

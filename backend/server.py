@@ -149,8 +149,17 @@ class UserResponse(BaseModel):
     email: str
     name: str
     role: str
+    status: str = "approved"
+    permissions: List[str] = Field(default_factory=list)
     created_at: str
     access_token: Optional[str] = None
+
+# Available page permissions
+ALL_PERMISSIONS = [
+    "dashboard", "carteira", "programacao", "calendario",
+    "operacional", "geolocalizacao", "materiais", "analise",
+    "relatorios", "equipes", "admin",
+]
 
 class TeamCreate(BaseModel):
     name: str
@@ -172,6 +181,8 @@ class ProjectCreate(BaseModel):
     tipo_servico: str = ""
     team_id: Optional[str] = None
     team_name: Optional[str] = None
+    additional_team_id: Optional[str] = None
+    additional_team_name: Optional[str] = None
     start_date: Optional[str] = ""
     end_date: Optional[str] = ""
     programmed_value: float = 0.0
@@ -193,6 +204,13 @@ class ProjectCreate(BaseModel):
     utm_y: str = ""
     received_date: str = ""
     expiry_date: str = ""
+    # Quantitativos operacionais (planejado no cadastro)
+    postes_qty: int = 0
+    transformadores_qty: int = 0
+    km_rede: float = 0.0
+    ligacoes_novas: int = 0
+    religacoes: int = 0
+    desligamentos: int = 0
 
 class ProjectUpdate(BaseModel):
     name: Optional[str] = None
@@ -200,6 +218,8 @@ class ProjectUpdate(BaseModel):
     tipo_servico: Optional[str] = None
     team_id: Optional[str] = None
     team_name: Optional[str] = None
+    additional_team_id: Optional[str] = None
+    additional_team_name: Optional[str] = None
     start_date: Optional[str] = None
     end_date: Optional[str] = None
     programmed_value: Optional[float] = None
@@ -221,7 +241,13 @@ class ProjectUpdate(BaseModel):
     utm_y: Optional[str] = None
     received_date: Optional[str] = None
     expiry_date: Optional[str] = None
-    reschedule_reason: Optional[str] = None  # Motivo do remanejamento
+    reschedule_reason: Optional[str] = None
+    postes_qty: Optional[int] = None
+    transformadores_qty: Optional[int] = None
+    km_rede: Optional[float] = None
+    ligacoes_novas: Optional[int] = None
+    religacoes: Optional[int] = None
+    desligamentos: Optional[int] = None
 
 class ProjectResponse(BaseModel):
     id: str
@@ -230,6 +256,8 @@ class ProjectResponse(BaseModel):
     tipo_servico: str = ""
     team_id: Optional[str] = None
     team_name: Optional[str] = None
+    additional_team_id: Optional[str] = None
+    additional_team_name: Optional[str] = None
     start_date: str
     end_date: str
     programmed_value: float
@@ -252,6 +280,14 @@ class ProjectResponse(BaseModel):
     received_date: str = ""
     expiry_date: str = ""
     reschedule_history: List[dict] = Field(default_factory=list)
+    additional_team_id: Optional[str] = None
+    additional_team_name: Optional[str] = None
+    postes_qty: int = 0
+    transformadores_qty: int = 0
+    km_rede: float = 0.0
+    ligacoes_novas: int = 0
+    religacoes: int = 0
+    desligamentos: int = 0
     created_at: str
 
 class DashboardStats(BaseModel):
@@ -278,24 +314,22 @@ async def register(user_data: UserRegister, response: Response):
         "password_hash": password_hash,
         "name": user_data.name,
         "role": "user",
+        "status": "pending",
+        "permissions": [],
         "created_at": datetime.now(timezone.utc)
     }
     result = await db.users.insert_one(user_doc)
     user_id = str(result.inserted_id)
-    
-    access_token = create_access_token(user_id, email)
-    refresh_token = create_refresh_token(user_id)
-    
-    response.set_cookie(key="access_token", value=access_token, httponly=True, secure=True, samesite="none", max_age=604800, path="/")
-    response.set_cookie(key="refresh_token", value=refresh_token, httponly=True, secure=True, samesite="none", max_age=604800, path="/")
-    
+
     return UserResponse(
         id=user_id,
         email=email,
         name=user_data.name,
         role="user",
+        status="pending",
+        permissions=[],
         created_at=user_doc["created_at"].isoformat(),
-        access_token=access_token,
+        access_token=None,
     )
 
 @api_router.post("/auth/login", response_model=UserResponse)
@@ -305,19 +339,26 @@ async def login(credentials: UserLogin, response: Response, request: Request):
     
     if not user or not verify_password(credentials.password, user["password_hash"]):
         raise HTTPException(status_code=401, detail="Invalid email or password")
-    
+
+    if user.get("status", "approved") == "pending":
+        raise HTTPException(status_code=403, detail="Cadastro pendente de aprovação pelo administrador")
+    if user.get("status") == "rejected":
+        raise HTTPException(status_code=403, detail="Cadastro não autorizado")
+
     user_id = str(user["_id"])
     access_token = create_access_token(user_id, email)
     refresh_token = create_refresh_token(user_id)
-    
+
     response.set_cookie(key="access_token", value=access_token, httponly=True, secure=True, samesite="none", max_age=604800, path="/")
     response.set_cookie(key="refresh_token", value=refresh_token, httponly=True, secure=True, samesite="none", max_age=604800, path="/")
-    
+
     return UserResponse(
         id=user_id,
         email=user["email"],
         name=user["name"],
         role=user["role"],
+        status=user.get("status", "approved"),
+        permissions=user.get("permissions") or (ALL_PERMISSIONS if user.get("role") == "admin" else []),
         created_at=user["created_at"].isoformat(),
         access_token=access_token,
     )
@@ -335,8 +376,268 @@ async def get_me(current_user: dict = Depends(get_current_user)):
         email=current_user["email"],
         name=current_user["name"],
         role=current_user["role"],
+        status=current_user.get("status", "approved"),
+        permissions=current_user.get("permissions") or (ALL_PERMISSIONS if current_user.get("role") == "admin" else []),
         created_at=current_user["created_at"].isoformat()
     )
+
+async def require_admin(current_user: dict = Depends(get_current_user)) -> dict:
+    if current_user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Acesso restrito ao administrador")
+    return current_user
+
+@api_router.get("/admin/users")
+async def admin_list_users(current_user: dict = Depends(require_admin)):
+    users = await db.users.find({}).to_list(1000)
+    return [{
+        "id": str(u["_id"]),
+        "email": u["email"],
+        "name": u["name"],
+        "role": u.get("role", "user"),
+        "status": u.get("status", "approved"),
+        "permissions": u.get("permissions", []),
+        "created_at": u["created_at"].isoformat() if hasattr(u["created_at"], "isoformat") else u["created_at"],
+    } for u in users]
+
+class UserApprovalBody(BaseModel):
+    permissions: List[str] = Field(default_factory=list)
+    role: Optional[str] = "user"
+
+@api_router.post("/admin/users/{user_id}/approve")
+async def admin_approve_user(user_id: str, body: UserApprovalBody, current_user: dict = Depends(require_admin)):
+    perms = [p for p in body.permissions if p in ALL_PERMISSIONS]
+    await db.users.update_one({"_id": ObjectId(user_id)}, {"$set": {
+        "status": "approved",
+        "permissions": perms,
+        "role": body.role or "user",
+    }})
+    return {"status": "approved", "permissions": perms}
+
+@api_router.post("/admin/users/{user_id}/reject")
+async def admin_reject_user(user_id: str, current_user: dict = Depends(require_admin)):
+    await db.users.update_one({"_id": ObjectId(user_id)}, {"$set": {"status": "rejected"}})
+    return {"status": "rejected"}
+
+@api_router.put("/admin/users/{user_id}/permissions")
+async def admin_update_permissions(user_id: str, body: UserApprovalBody, current_user: dict = Depends(require_admin)):
+    perms = [p for p in body.permissions if p in ALL_PERMISSIONS]
+    update = {"permissions": perms}
+    if body.role: update["role"] = body.role
+    await db.users.update_one({"_id": ObjectId(user_id)}, {"$set": update})
+    return {"status": "updated", "permissions": perms}
+
+@api_router.delete("/admin/users/{user_id}")
+async def admin_delete_user(user_id: str, current_user: dict = Depends(require_admin)):
+    if str(current_user["_id"]) == user_id:
+        raise HTTPException(status_code=400, detail="Não é possível remover o próprio usuário")
+    await db.users.delete_one({"_id": ObjectId(user_id)})
+    return {"status": "deleted"}
+
+# ============ Team Unavailability ============
+class TeamUnavailabilityBody(BaseModel):
+    team_id: str
+    date: str  # YYYY-MM-DD
+    reason: str = "outro"
+    notes: str = ""
+
+@api_router.get("/team-unavailability")
+async def list_team_unavailability(current_user: dict = Depends(get_current_user), start: str = "", end: str = ""):
+    q = {"user_id": current_user["_id"]}
+    if start or end:
+        rng = {}
+        if start: rng["$gte"] = start
+        if end: rng["$lte"] = end
+        q["date"] = rng
+    docs = await db.team_unavailability.find(q).sort("date", 1).to_list(1000)
+    return [{
+        "id": str(d["_id"]),
+        "team_id": d["team_id"],
+        "team_name": d.get("team_name", ""),
+        "date": d["date"],
+        "reason": d.get("reason", "outro"),
+        "notes": d.get("notes", ""),
+    } for d in docs]
+
+@api_router.post("/team-unavailability")
+async def create_team_unavailability(body: TeamUnavailabilityBody, current_user: dict = Depends(get_current_user)):
+    team = await db.teams.find_one({"_id": safe_object_id(body.team_id), "user_id": current_user["_id"]})
+    if not team: raise HTTPException(status_code=404, detail="Equipe não encontrada")
+    doc = {
+        "user_id": current_user["_id"],
+        "team_id": body.team_id,
+        "team_name": team.get("name", ""),
+        "date": body.date,
+        "reason": body.reason,
+        "notes": body.notes,
+        "created_at": datetime.now(timezone.utc),
+    }
+    r = await db.team_unavailability.update_one(
+        {"user_id": current_user["_id"], "team_id": body.team_id, "date": body.date},
+        {"$set": doc}, upsert=True,
+    )
+    return {"status": "ok", "team_id": body.team_id, "date": body.date, "reason": body.reason}
+
+@api_router.delete("/team-unavailability/{unavailability_id}")
+async def delete_team_unavailability(unavailability_id: str, current_user: dict = Depends(get_current_user)):
+    await db.team_unavailability.delete_one({"_id": safe_object_id(unavailability_id), "user_id": current_user["_id"]})
+    return {"status": "deleted"}
+
+# ============ Retorno diário de programação ============
+class DailyReturnBody(BaseModel):
+    project_id: str
+    date: str  # YYYY-MM-DD (data programada)
+    executed: bool
+    reason: Optional[str] = None  # motivo se não executado
+    notes: Optional[str] = ""
+
+@api_router.post("/programacao/return")
+async def register_daily_return(body: DailyReturnBody, current_user: dict = Depends(get_current_user)):
+    project = await db.projects.find_one({"_id": safe_object_id(body.project_id), "user_id": current_user["_id"]})
+    if not project: raise HTTPException(status_code=404, detail="Projeto não encontrado")
+    entry = {
+        "date": body.date,
+        "executed": body.executed,
+        "reason": body.reason or "",
+        "notes": body.notes or "",
+        "registered_at": datetime.now(timezone.utc).isoformat(),
+        "registered_by": current_user.get("email", ""),
+    }
+    update = {"$push": {"daily_returns": entry}}
+    if body.executed:
+        update["$set"] = {"execution_status": "executada", "execution_finished_at": entry["registered_at"]}
+    else:
+        update["$set"] = {"execution_status": "a_reprogramar"}
+    await db.projects.update_one({"_id": safe_object_id(body.project_id)}, update)
+    return {"status": "ok", "executed": body.executed, "new_status": update["$set"].get("execution_status")}
+
+@api_router.get("/programacao/pending-returns")
+async def pending_returns(current_user: dict = Depends(get_current_user), date: str = ""):
+    """Retorna projetos programados para uma data que ainda não têm retorno registrado."""
+    from datetime import timedelta as td
+    target = date or (datetime.now(timezone.utc) - td(days=1)).strftime("%Y-%m-%d")
+    projects = await db.projects.find({
+        "user_id": current_user["_id"],
+        "is_scheduled": True,
+        "start_date": {"$regex": f"^{target}"},
+    }).to_list(500)
+    result = []
+    for p in projects:
+        returns = p.get("daily_returns", [])
+        has_return = any(r.get("date") == target for r in returns)
+        if not has_return and p.get("execution_status") not in ("concluido", "cancelado"):
+            result.append(build_project_response(p).model_dump() | {"target_date": target})
+    return result
+
+# ============ Dashboard KPIs ============
+@api_router.get("/dashboard/kpis")
+async def dashboard_kpis(current_user: dict = Depends(get_current_user)):
+    from datetime import timedelta as td
+    now = datetime.now(timezone.utc)
+    today = now.strftime("%Y-%m-%d")
+    tomorrow = (now + td(days=1)).strftime("%Y-%m-%d")
+    month_start = now.strftime("%Y-%m-01")
+    projects = await db.projects.find({"user_id": current_user["_id"]}).to_list(5000)
+
+    def date_str(v): return (v or "")[:10]
+    in_andamento = [p for p in projects if p.get("execution_status") in ("programado", "em_execucao")]
+    concluidas_mes = [p for p in projects if p.get("execution_status") in ("executada", "concluido") and date_str(p.get("execution_finished_at") or p.get("end_date") or "") >= month_start]
+    atrasadas = [p for p in projects if p.get("end_date") and date_str(p["end_date"]) < today and p.get("execution_status") not in ("executada", "concluido", "cancelado")]
+    no_prazo = [p for p in projects if p.get("end_date") and date_str(p["end_date"]) >= today and p.get("execution_status") not in ("cancelado",)]
+    vencendo_amanha = [p for p in projects if p.get("end_date") and date_str(p["end_date"]) == tomorrow and p.get("execution_status") not in ("executada", "concluido", "cancelado")]
+    vencidas = atrasadas
+
+    total = len(projects)
+    concluidas_all = [p for p in projects if p.get("execution_status") in ("executada", "concluido")]
+    perc_conclusao = round(100 * len(concluidas_all) / total, 1) if total else 0
+
+    valor_faturado = sum((p.get("billing_value") or 0) for p in concluidas_all)
+    valor_pendente = sum((p.get("programmed_value") or 0) - (p.get("billing_value") or 0) for p in projects if p.get("execution_status") not in ("cancelado",))
+    receita_prevista_mes = sum((p.get("programmed_value") or 0) for p in projects if date_str(p.get("start_date")) >= month_start)
+    receita_realizada = sum((p.get("actual_value") or 0) for p in concluidas_all)
+    meta_total = sum((p.get("programmed_value") or 0) for p in projects)
+    realizado_total = sum((p.get("actual_value") or 0) for p in projects)
+
+    postes = sum((p.get("postes_qty") or 0) for p in projects)
+    trafos = sum((p.get("transformadores_qty") or 0) for p in projects)
+    km_rede = sum((p.get("km_rede") or 0) for p in projects)
+    ligacoes = sum((p.get("ligacoes_novas") or 0) for p in projects)
+    religacoes = sum((p.get("religacoes") or 0) for p in projects)
+    desligamentos = sum((p.get("desligamentos") or 0) for p in projects)
+
+    # Tempo médio (dias)
+    def days_between(a, b):
+        try:
+            da = datetime.fromisoformat((a or "")[:10])
+            db_ = datetime.fromisoformat((b or "")[:10])
+            return max(0, (db_ - da).days)
+        except Exception:
+            return None
+    diff_recebimento_programacao = [days_between(p.get("received_date"), p.get("start_date")) for p in projects if p.get("received_date") and p.get("start_date")]
+    diff_programacao_execucao = [days_between(p.get("start_date"), p.get("execution_finished_at") or p.get("end_date")) for p in projects if p.get("start_date") and (p.get("execution_finished_at") or p.get("end_date"))]
+    diff_execucao_fechamento = [days_between(p.get("execution_finished_at") or p.get("end_date"), p.get("closed_at")) for p in projects if (p.get("execution_finished_at") or p.get("end_date")) and p.get("closed_at")]
+    diff_fechamento_faturamento = [days_between(p.get("closed_at"), p.get("billed_at")) for p in projects if p.get("closed_at") and p.get("billed_at")]
+    def avg(lst):
+        vs = [v for v in lst if v is not None]
+        return round(sum(vs) / len(vs), 1) if vs else 0
+
+    # Serviços concluídos por dia (últimos 14 dias)
+    from collections import defaultdict
+    by_day = defaultdict(int)
+    cutoff = (now - td(days=14)).strftime("%Y-%m-%d")
+    for p in concluidas_all:
+        d = date_str(p.get("execution_finished_at") or p.get("end_date"))
+        if d and d >= cutoff:
+            by_day[d] += 1
+    servicos_por_dia = sorted([{"date": k, "count": v} for k, v in by_day.items()], key=lambda x: x["date"])
+
+    # Dias adiantados (concluídas antes do end_date)
+    dias_adiantados = 0
+    for p in concluidas_all:
+        end = date_str(p.get("end_date"))
+        fim = date_str(p.get("execution_finished_at"))
+        if end and fim and fim < end:
+            d = days_between(fim, end)
+            if d: dias_adiantados += d
+
+    return {
+        "counts": {
+            "total": total,
+            "em_andamento": len(in_andamento),
+            "concluidas_mes": len(concluidas_mes),
+            "atrasadas": len(atrasadas),
+            "no_prazo": len(no_prazo),
+            "vencidas": len(vencidas),
+            "vencendo_amanha": len(vencendo_amanha),
+        },
+        "financeiro": {
+            "perc_conclusao": perc_conclusao,
+            "valor_faturado": round(valor_faturado, 2),
+            "valor_pendente_faturamento": round(valor_pendente, 2),
+            "receita_prevista_mes": round(receita_prevista_mes, 2),
+            "receita_realizada": round(receita_realizada, 2),
+            "meta_total": round(meta_total, 2),
+            "realizado_total": round(realizado_total, 2),
+        },
+        "operacional": {
+            "postes": postes,
+            "transformadores": trafos,
+            "km_rede": round(km_rede, 2),
+            "ligacoes_novas": ligacoes,
+            "religacoes": religacoes,
+            "desligamentos": desligamentos,
+            "dias_adiantados": dias_adiantados,
+            "obras_executadas": len(concluidas_all),
+        },
+        "tempo_medio": {
+            "recebimento_programacao": avg(diff_recebimento_programacao),
+            "programacao_execucao": avg(diff_programacao_execucao),
+            "execucao_fechamento": avg(diff_execucao_fechamento),
+            "fechamento_faturamento": avg(diff_fechamento_faturamento),
+        },
+        "servicos_por_dia": servicos_por_dia,
+        "vencidas": [build_project_response(p).model_dump() for p in vencidas[:20]],
+        "vencendo_amanha_list": [build_project_response(p).model_dump() for p in vencendo_amanha[:20]],
+    }
 
 # Helper for team response
 def build_team_response(team: dict) -> TeamResponse:
@@ -431,6 +732,14 @@ def build_project_response(project: dict) -> ProjectResponse:
         received_date=project.get("received_date", ""),
         expiry_date=project.get("expiry_date", ""),
         reschedule_history=project.get("reschedule_history", []),
+        additional_team_id=project.get("additional_team_id"),
+        additional_team_name=project.get("additional_team_name"),
+        postes_qty=project.get("postes_qty", 0),
+        transformadores_qty=project.get("transformadores_qty", 0),
+        km_rede=project.get("km_rede", 0.0),
+        ligacoes_novas=project.get("ligacoes_novas", 0),
+        religacoes=project.get("religacoes", 0),
+        desligamentos=project.get("desligamentos", 0),
         created_at=project["created_at"].isoformat() if hasattr(project["created_at"], 'isoformat') else project["created_at"],
     )
 
@@ -1766,11 +2075,22 @@ async def startup_db():
     existing = await db.users.find_one({"email": admin_email})
     if existing is None:
         hashed = hash_password(admin_password)
-        await db.users.insert_one({"email": admin_email, "password_hash": hashed, "name": "Admin", "role": "admin", "created_at": datetime.now(timezone.utc)})
+        await db.users.insert_one({
+            "email": admin_email, "password_hash": hashed, "name": "Admin",
+            "role": "admin", "status": "approved", "permissions": ALL_PERMISSIONS,
+            "created_at": datetime.now(timezone.utc)
+        })
         logger.info(f"Admin user created: {admin_email}")
-    elif not verify_password(admin_password, existing["password_hash"]):
-        await db.users.update_one({"email": admin_email}, {"$set": {"password_hash": hash_password(admin_password)}})
-        logger.info("Admin password updated")
+    else:
+        # Ensure admin has full perms + approved
+        updates = {}
+        if existing.get("status") != "approved": updates["status"] = "approved"
+        if not existing.get("permissions"): updates["permissions"] = ALL_PERMISSIONS
+        if not verify_password(admin_password, existing["password_hash"]):
+            updates["password_hash"] = hash_password(admin_password)
+        if updates:
+            await db.users.update_one({"email": admin_email}, {"$set": updates})
+            logger.info("Admin ensured approved + full permissions")
 
     try:
         from apscheduler.schedulers.asyncio import AsyncIOScheduler

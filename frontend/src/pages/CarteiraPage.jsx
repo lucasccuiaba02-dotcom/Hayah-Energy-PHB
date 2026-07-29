@@ -3,6 +3,7 @@ import { motion } from 'framer-motion';
 import axios from 'axios';
 import { toast } from 'sonner';
 import { Plus, Edit2, Trash2, MapPin, Calendar as CalIcon, Search, Copy } from 'lucide-react';
+import { SearchBar } from '../components/SearchBar';
 import { AppLayout } from '../components/AppLayout';
 import { ProjectDrawer } from '../components/ProjectDrawer';
 import { HScroller } from '../components/HScroller';
@@ -74,14 +75,25 @@ export const CarteiraPage = () => {
   };
 
   const filtered = useMemo(() => {
+    const q = (search || '').toLowerCase();
     return projects.filter((p) => {
-      if (search && !p.name.toLowerCase().includes(search.toLowerCase()) && !p.location.toLowerCase().includes(search.toLowerCase())) {
+      if (q && !(p.name || '').toLowerCase().includes(q) && !(p.location || '').toLowerCase().includes(q) && !(p.project_code || '').toLowerCase().includes(q)) {
         return false;
       }
       if (typeFilter && p.project_type !== typeFilter) return false;
       return true;
     });
   }, [projects, search, typeFilter]);
+
+  const vencidas = useMemo(() => {
+    const today = new Date().toISOString().slice(0, 10);
+    return projects.filter((p) => p.end_date && p.end_date.slice(0, 10) < today && !['executada', 'concluido', 'cancelado'].includes(p.execution_status));
+  }, [projects]);
+
+  const vencendoAmanha = useMemo(() => {
+    const tomorrow = new Date(Date.now() + 86400000).toISOString().slice(0, 10);
+    return projects.filter((p) => (p.end_date || '').slice(0, 10) === tomorrow && !['executada', 'concluido', 'cancelado'].includes(p.execution_status));
+  }, [projects]);
 
   const totalLabor = filtered.reduce((s, p) => s + (p.labor_cost || 0), 0);
   const totalMaterial = filtered.reduce((s, p) => s + (p.material_cost || 0), 0);
@@ -132,13 +144,26 @@ export const CarteiraPage = () => {
         </div>
       </motion.div>
 
+      {(vencidas.length > 0 || vencendoAmanha.length > 0) && (
+        <div data-testid="carteira-alerts" className="grid grid-cols-2 gap-3 mb-4">
+          <div className="glass-panel rounded-xl p-4 border-l-4 border-[#FF003C]">
+            <p className="text-[10px] tracking-[0.2em] uppercase font-bold text-[#FF003C] mb-1">Obras Vencidas</p>
+            <p className="font-mono text-3xl font-black text-white">{vencidas.length}</p>
+          </div>
+          <div className="glass-panel rounded-xl p-4 border-l-4 border-[#FF5E00]">
+            <p className="text-[10px] tracking-[0.2em] uppercase font-bold text-[#FF5E00] mb-1">Vencendo Amanhã</p>
+            <p className="font-mono text-3xl font-black text-white">{vencendoAmanha.length}</p>
+          </div>
+        </div>
+      )}
+
       <div className="glass-panel rounded-xl p-4 mb-6 flex items-center gap-4 flex-wrap">
         <div className="flex items-center gap-2 flex-1 min-w-[200px]">
           <Search className="w-4 h-4 text-zinc-500" />
           <input
             data-testid="carteira-search"
             type="text"
-            placeholder="Buscar por nome ou localidade..."
+            placeholder="Buscar por código, nome ou localidade..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             className="flex-1 bg-transparent text-white placeholder-zinc-600 focus:outline-none text-sm"

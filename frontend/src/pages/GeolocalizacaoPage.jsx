@@ -10,6 +10,7 @@ import 'leaflet.markercluster/dist/MarkerCluster.css';
 import 'leaflet.markercluster/dist/MarkerCluster.Default.css';
 import { Route, RefreshCw, Navigation, LocateFixed, FileDown, Share2, Users, Radio, RadioTower } from 'lucide-react';
 import { AppLayout } from '../components/AppLayout';
+import { SearchBar } from '../components/SearchBar';
 import { utm21sToLatLng, nearestNeighborRoute, osrmRoute, haversineKm } from '../lib/geo';
 import { PROJECT_TYPE_LABEL, EXECUTION_STATUS, formatCurrency } from '../lib/constants';
 
@@ -81,6 +82,7 @@ export const GeolocalizacaoPage = () => {
   const [hoveredStop, setHoveredStop] = useState(null);
   const [liveList, setLiveList] = useState([]);
   const [sharing, setSharing] = useState(false);
+  const [search, setSearch] = useState('');
   const watchIdRef = useRef(null);
   const mapRef = useRef(null);
 
@@ -162,9 +164,11 @@ export const GeolocalizacaoPage = () => {
         if (statusFilter === 'active') { if (['concluido', 'cancelado', 'executada'].includes(p.execution_status)) return false; }
         else if (statusFilter !== 'all') { if (p.execution_status !== statusFilter) return false; }
         if (teamFilter && (p.team_id || 'unassigned') !== teamFilter) return false;
+        const q = (search || '').toLowerCase();
+        if (q && !((p.project_code || '').toLowerCase().includes(q) || (p.name || '').toLowerCase().includes(q))) return false;
         return true;
       });
-  }, [projects, statusFilter, teamFilter]);
+  }, [projects, statusFilter, teamFilter, search]);
 
   const groupedByTeam = useMemo(() => {
     const g = {};
@@ -276,6 +280,8 @@ export const GeolocalizacaoPage = () => {
 
   return (
     <AppLayout title="Geolocalização" subtitle="Mapa de obras e roteirização otimizada por equipe">
+      <div className="mb-4"><SearchBar value={search} onChange={setSearch} testid="geo-search" /></div>
+
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
         <div data-testid="geo-stat-plotted" className="glass-panel rounded-xl p-4">
           <p className="text-[10px] tracking-[0.2em] uppercase font-bold text-zinc-500 mb-1">Obras no mapa</p>

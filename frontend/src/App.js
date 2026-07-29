@@ -14,6 +14,8 @@ import { SolicitacaoMaterialPage } from './pages/SolicitacaoMaterialPage';
 import { CalendarioPage } from './pages/CalendarioPage';
 import { ProjectDetailPage } from './pages/ProjectDetailPage';
 import { GeolocalizacaoPage } from './pages/GeolocalizacaoPage';
+import { AdminUsuariosPage } from './pages/AdminUsuariosPage';
+import { IndisponibilidadePage } from './pages/IndisponibilidadePage';
 import { ProtectedRoute } from './components/ProtectedRoute';
 import '@/App.css';
 
@@ -40,6 +42,8 @@ function AppRoutes() {
       <Route path="/equipes" element={<ProtectedRoute><EquipesPage /></ProtectedRoute>} />
       <Route path="/projeto/:id" element={<ProtectedRoute><ProjectDetailPage /></ProtectedRoute>} />
       <Route path="/geolocalizacao" element={<ProtectedRoute><GeolocalizacaoPage /></ProtectedRoute>} />
+      <Route path="/admin/usuarios" element={<ProtectedRoute><AdminUsuariosPage /></ProtectedRoute>} />
+      <Route path="/indisponibilidade" element={<ProtectedRoute><IndisponibilidadePage /></ProtectedRoute>} />
     </Routes>
   );
 }

@@ -6,6 +6,7 @@ import { AlertTriangle, TrendingUp, Activity, DollarSign, Users, Briefcase, Cale
 import { useNavigate } from 'react-router-dom';
 import { AppLayout } from '../components/AppLayout';
 import { ProjectFilters } from '../components/ProjectFilters';
+import { SearchBar } from '../components/SearchBar';
 import { formatCurrency } from '../lib/constants';
 import { isPushSupported, currentPushStatus, subscribeToPush, unsubscribeFromPush } from '../lib/push';
 
@@ -19,6 +20,8 @@ export const DashboardPage = () => {
   const [anexoAlerts, setAnexoAlerts] = useState([]);
   const [pushStatus, setPushStatus] = useState('unknown');
   const [filters, setFilters] = useState({ startDate: '', endDate: '', teamId: '', minValue: '', maxValue: '' });
+  const [search, setSearch] = useState('');
+  const [kpis, setKpis] = useState(null);
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -28,11 +31,13 @@ export const DashboardPage = () => {
         axios.get(`${API}/teams`),
         axios.get(`${API}/schedule/stats`),
         axios.get(`${API}/alerts/anexo-iv`),
+        axios.get(`${API}/dashboard/kpis`),
       ]);
       if (results[0].status === 'fulfilled') setProjects(results[0].value.data);
       if (results[1].status === 'fulfilled') setTeams(results[1].value.data);
       if (results[2].status === 'fulfilled') setScheduleStats(results[2].value.data);
       if (results[3].status === 'fulfilled') setAnexoAlerts(results[3].value.data || []);
+      if (results[4].status === 'fulfilled') setKpis(results[4].value.data);
       if (await isPushSupported()) setPushStatus(await currentPushStatus());
       else setPushStatus('unsupported');
     })();
@@ -41,6 +46,7 @@ export const DashboardPage = () => {
   const filtered = useMemo(() => {
     const minV = parseFloat(filters.minValue);
     const maxV = parseFloat(filters.maxValue);
+    const q = (search || '').toLowerCase().trim();
     return projects.filter((p) => {
       if (filters.teamId && p.team_id !== filters.teamId) return false;
       const ps = (p.start_date || '').slice(0, 10);
@@ -50,9 +56,10 @@ export const DashboardPage = () => {
       const v = p.programmed_value || 0;
       if (!isNaN(minV) && v < minV) return false;
       if (!isNaN(maxV) && v > maxV) return false;
+      if (q && !((p.project_code || '').toLowerCase().includes(q) || (p.name || '').toLowerCase().includes(q))) return false;
       return true;
     });
-  }, [projects, filters]);
+  }, [projects, filters, search]);
 
   const stats = useMemo(() => ({
     total_projects: filtered.length,
@@ -160,6 +167,8 @@ export const DashboardPage = () => {
         </motion.div>
       )}
 
+      <div className="mb-4"><SearchBar value={search} onChange={setSearch} testid="dashboard-search" /></div>
+
       <ProjectFilters
         filters={filters}
         onChange={setFilters}
@@ -218,7 +227,112 @@ export const DashboardPage = () => {
         </div>
       </motion.div>
 
-      {(hasActiveFilters ? Object.keys(filteredScheduleCounts).length > 0 : scheduleStats) && (
+      {kpis && (
+        <>
+          <div data-testid="kpi-critical-row" className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
+            <button onClick={() => navigate('/carteira?filter=vencidas')} className="glass-panel rounded-xl p-4 text-left border-l-4 border-[#FF003C] hover:border-[#FF003C]">
+              <p className="text-[10px] tracking-[0.2em] uppercase font-bold text-[#FF003C] mb-1">Vencidas</p>
+              <p className="font-mono text-3xl font-black text-white">{kpis.counts.vencidas}</p>
+              <p className="text-[10px] text-zinc-500 mt-1">passaram do prazo</p>
+            </button>
+            <button onClick={() => navigate('/carteira?filter=vencendo')} className="glass-panel rounded-xl p-4 text-left border-l-4 border-[#FF5E00]">
+              <p className="text-[10px] tracking-[0.2em] uppercase font-bold text-[#FF5E00] mb-1">Vencendo Amanhã</p>
+              <p className="font-mono text-3xl font-black text-white">{kpis.counts.vencendo_amanha}</p>
+              <p className="text-[10px] text-zinc-500 mt-1">agenda apertada</p>
+            </button>
+            <div className="glass-panel rounded-xl p-4 border-l-4 border-[#E0FF00]">
+              <p className="text-[10px] tracking-[0.2em] uppercase font-bold text-[#E0FF00] mb-1">Em Andamento</p>
+              <p className="font-mono text-3xl font-black text-white">{kpis.counts.em_andamento}</p>
+              <p className="text-[10px] text-zinc-500 mt-1">programado/em execução</p>
+            </div>
+            <div className="glass-panel rounded-xl p-4 border-l-4 border-[#39FF14]">
+              <p className="text-[10px] tracking-[0.2em] uppercase font-bold text-[#39FF14] mb-1">No Prazo</p>
+              <p className="font-mono text-3xl font-black text-white">{kpis.counts.no_prazo}</p>
+              <p className="text-[10px] text-zinc-500 mt-1">dentro do combinado</p>
+            </div>
+          </div>
+
+          <div data-testid="kpi-financial-row" className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
+            <div className="glass-panel rounded-xl p-4">
+              <p className="text-[10px] tracking-[0.2em] uppercase font-bold text-zinc-500 mb-1">% Conclusão</p>
+              <p className="font-mono text-2xl font-bold text-[#39FF14]">{kpis.financeiro.perc_conclusao}%</p>
+            </div>
+            <div className="glass-panel rounded-xl p-4">
+              <p className="text-[10px] tracking-[0.2em] uppercase font-bold text-zinc-500 mb-1">Valor Faturado</p>
+              <p className="font-mono text-lg font-bold text-white">{formatCurrency(kpis.financeiro.valor_faturado)}</p>
+            </div>
+            <div className="glass-panel rounded-xl p-4">
+              <p className="text-[10px] tracking-[0.2em] uppercase font-bold text-zinc-500 mb-1">Pendente Faturamento</p>
+              <p className="font-mono text-lg font-bold text-[#FF5E00]">{formatCurrency(kpis.financeiro.valor_pendente_faturamento)}</p>
+            </div>
+            <div className="glass-panel rounded-xl p-4">
+              <p className="text-[10px] tracking-[0.2em] uppercase font-bold text-zinc-500 mb-1">Receita Mês (prev./real.)</p>
+              <p className="font-mono text-xs text-zinc-400"><span className="text-white text-sm font-bold">{formatCurrency(kpis.financeiro.receita_realizada)}</span> / {formatCurrency(kpis.financeiro.receita_prevista_mes)}</p>
+              <div className="mt-1 h-1 rounded bg-white/5 overflow-hidden">
+                <div className="h-full bg-[#39FF14]" style={{ width: `${Math.min(100, (kpis.financeiro.receita_realizada / Math.max(1, kpis.financeiro.receita_prevista_mes)) * 100).toFixed(0)}%` }}></div>
+              </div>
+            </div>
+          </div>
+
+          <div data-testid="kpi-operational-row" className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-3 mb-4">
+            {[
+              ['Postes', kpis.operacional.postes],
+              ['Trafos', kpis.operacional.transformadores],
+              ['Km Rede', kpis.operacional.km_rede],
+              ['Ligações', kpis.operacional.ligacoes_novas],
+              ['Religações', kpis.operacional.religacoes],
+              ['Desligamentos', kpis.operacional.desligamentos],
+              ['Concluídas Mês', kpis.counts.concluidas_mes],
+              ['Dias Adiantados', kpis.operacional.dias_adiantados],
+            ].map(([label, value]) => (
+              <div key={label} className="glass-panel rounded-xl p-3">
+                <p className="text-[9px] tracking-[0.15em] uppercase font-bold text-zinc-500 mb-1">{label}</p>
+                <p className="font-mono text-xl font-bold text-white">{value}</p>
+              </div>
+            ))}
+          </div>
+
+          <div data-testid="kpi-tempo-medio" className="glass-panel rounded-2xl p-4 mb-6">
+            <p className="text-[10px] tracking-[0.2em] uppercase font-bold text-zinc-500 mb-3">Tempo Médio (dias)</p>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+              {[
+                ['Recebimento → Programação', kpis.tempo_medio.recebimento_programacao, '#00F0FF'],
+                ['Programação → Execução', kpis.tempo_medio.programacao_execucao, '#E0FF00'],
+                ['Execução → Fechamento', kpis.tempo_medio.execucao_fechamento, '#39FF14'],
+                ['Fechamento → Faturamento', kpis.tempo_medio.fechamento_faturamento, '#FF5E00'],
+              ].map(([label, value, color]) => (
+                <div key={label} className="rounded-lg p-3 bg-white/[0.02] border-l-2" style={{ borderColor: color }}>
+                  <p className="text-[10px] text-zinc-400">{label}</p>
+                  <p className="font-mono text-xl font-bold" style={{ color }}>{value}<span className="text-xs text-zinc-500 ml-1">d</span></p>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {kpis.vencidas.length > 0 && (
+            <div data-testid="kpi-vencidas-list" className="glass-panel rounded-2xl p-4 mb-4">
+              <div className="flex items-center gap-2 mb-3">
+                <AlertTriangle className="w-4 h-4 text-[#FF003C]" />
+                <h3 className="font-heading font-black text-lg tracking-tighter text-white">Obras Vencidas</h3>
+                <span className="text-xs text-zinc-500">({kpis.vencidas.length})</span>
+              </div>
+              <div className="space-y-2 max-h-60 overflow-y-auto">
+                {kpis.vencidas.map((p) => (
+                  <button key={p.id} onClick={() => navigate(`/projeto/${p.id}`)} className="w-full text-left flex items-center gap-3 rounded-lg p-2 bg-[#FF003C]/5 border border-[#FF003C]/20 hover:bg-[#FF003C]/10 transition">
+                    <span className="font-mono text-[10px] text-[#FF003C]">{p.project_code || '—'}</span>
+                    <span className="text-xs text-white flex-1 truncate">{p.name}</span>
+                    <span className="text-[10px] text-zinc-500">venceu {(p.end_date || '').slice(0, 10)}</span>
+                    <span className="px-2 py-0.5 rounded-full text-[9px] font-bold bg-white/5 text-zinc-400">
+                      programada {(p.reschedule_history?.length || 0) + 1}x
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+        </>
+      )}
+
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}

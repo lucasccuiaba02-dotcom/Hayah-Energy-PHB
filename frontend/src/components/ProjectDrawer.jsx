@@ -69,6 +69,14 @@ export const ProjectDrawer = ({ isOpen, onClose, onSave, project, teams, default
         actual_value: project.actual_value || 0,
         team_id: project.team_id || '',
         team_name: project.team_name || '',
+        additional_team_id: project.additional_team_id || '',
+        additional_team_name: project.additional_team_name || '',
+        postes_qty: project.postes_qty || 0,
+        transformadores_qty: project.transformadores_qty || 0,
+        km_rede: project.km_rede || 0,
+        ligacoes_novas: project.ligacoes_novas || 0,
+        religacoes: project.religacoes || 0,
+        desligamentos: project.desligamentos || 0,
         start_date: project.start_date ? project.start_date.split('T')[0] : '',
         end_date: project.end_date ? project.end_date.split('T')[0] : '',
         priority: project.priority || 'medium',
@@ -108,6 +116,12 @@ export const ProjectDrawer = ({ isOpen, onClose, onSave, project, teams, default
       billing_value: parseFloat(formData.billing_value) || 0,
       daily_goal: parseFloat(formData.daily_goal) || 0,
       actual_value: parseFloat(formData.actual_value) || 0,
+      postes_qty: parseInt(formData.postes_qty) || 0,
+      transformadores_qty: parseInt(formData.transformadores_qty) || 0,
+      km_rede: parseFloat(formData.km_rede) || 0,
+      ligacoes_novas: parseInt(formData.ligacoes_novas) || 0,
+      religacoes: parseInt(formData.religacoes) || 0,
+      desligamentos: parseInt(formData.desligamentos) || 0,
     };
     if (!showRescheduleReason) delete payload.reschedule_reason;
     setSaving(true);
@@ -305,6 +319,36 @@ export const ProjectDrawer = ({ isOpen, onClose, onSave, project, teams, default
                   <div>
                     <label className="text-xs tracking-[0.2em] uppercase font-bold text-zinc-500 block mb-2">Material (R$)</label>
                     <input data-testid="project-material-input" type="number" step="0.01" value={formData.material_cost} onChange={(e) => setFormData({ ...formData, material_cost: e.target.value })} className="w-full bg-zinc-950/90 border border-white/10 rounded-lg px-4 py-3 text-white font-mono" />
+                  </div>
+                </div>
+
+                <div className="rounded-xl border border-dashed border-[#39FF14]/30 bg-[#39FF14]/[0.03] p-3 space-y-3">
+                  <p className="text-[10px] tracking-[0.2em] uppercase font-bold text-[#39FF14]">Quantitativos Operacionais</p>
+                  <div className="grid grid-cols-3 gap-3">
+                    <div>
+                      <label className="text-[10px] uppercase text-zinc-500 block mb-1">Postes</label>
+                      <input data-testid="project-postes-input" type="number" value={formData.postes_qty} onChange={(e) => setFormData({ ...formData, postes_qty: e.target.value })} className="w-full bg-zinc-950/90 border border-white/10 rounded-lg px-3 py-2 text-white font-mono text-sm" />
+                    </div>
+                    <div>
+                      <label className="text-[10px] uppercase text-zinc-500 block mb-1">Trafos</label>
+                      <input data-testid="project-trafos-input" type="number" value={formData.transformadores_qty} onChange={(e) => setFormData({ ...formData, transformadores_qty: e.target.value })} className="w-full bg-zinc-950/90 border border-white/10 rounded-lg px-3 py-2 text-white font-mono text-sm" />
+                    </div>
+                    <div>
+                      <label className="text-[10px] uppercase text-zinc-500 block mb-1">Km rede</label>
+                      <input data-testid="project-km-input" type="number" step="0.01" value={formData.km_rede} onChange={(e) => setFormData({ ...formData, km_rede: e.target.value })} className="w-full bg-zinc-950/90 border border-white/10 rounded-lg px-3 py-2 text-white font-mono text-sm" />
+                    </div>
+                    <div>
+                      <label className="text-[10px] uppercase text-zinc-500 block mb-1">Ligações novas</label>
+                      <input data-testid="project-ligacoes-input" type="number" value={formData.ligacoes_novas} onChange={(e) => setFormData({ ...formData, ligacoes_novas: e.target.value })} className="w-full bg-zinc-950/90 border border-white/10 rounded-lg px-3 py-2 text-white font-mono text-sm" />
+                    </div>
+                    <div>
+                      <label className="text-[10px] uppercase text-zinc-500 block mb-1">Religações</label>
+                      <input data-testid="project-religacoes-input" type="number" value={formData.religacoes} onChange={(e) => setFormData({ ...formData, religacoes: e.target.value })} className="w-full bg-zinc-950/90 border border-white/10 rounded-lg px-3 py-2 text-white font-mono text-sm" />
+                    </div>
+                    <div>
+                      <label className="text-[10px] uppercase text-zinc-500 block mb-1">Desligamentos</label>
+                      <input data-testid="project-desligamentos-input" type="number" value={formData.desligamentos} onChange={(e) => setFormData({ ...formData, desligamentos: e.target.value })} className="w-full bg-zinc-950/90 border border-white/10 rounded-lg px-3 py-2 text-white font-mono text-sm" />
+                    </div>
                   </div>
                 </div>
 

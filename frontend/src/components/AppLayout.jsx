@@ -14,19 +14,21 @@ import {
   Package,
   HardHat,
   Map,
+  Shield,
 } from 'lucide-react';
 
 const navItems = [
-  { to: '/dashboard', icon: LayoutGrid, label: 'Dashboard', testid: 'nav-dashboard' },
-  { to: '/operacional', icon: HardHat, label: 'Operacional', testid: 'nav-operacional' },
-  { to: '/carteira', icon: Briefcase, label: 'Carteira', testid: 'nav-carteira' },
-  { to: '/programacao', icon: Calendar, label: 'Programação', testid: 'nav-programacao' },
-  { to: '/calendario', icon: Truck, label: 'Calendário', testid: 'nav-calendario' },
-  { to: '/geolocalizacao', icon: Map, label: 'Geolocalização', testid: 'nav-geolocalizacao' },
-  { to: '/materiais', icon: Package, label: 'Materiais', testid: 'nav-materiais' },
-  { to: '/analise', icon: BarChart3, label: 'Análise', testid: 'nav-analise' },
-  { to: '/relatorios', icon: FileSpreadsheet, label: 'Relatórios', testid: 'nav-relatorios' },
-  { to: '/equipes', icon: Users, label: 'Equipes', testid: 'nav-equipes' },
+  { to: '/dashboard', icon: LayoutGrid, label: 'Dashboard', testid: 'nav-dashboard', perm: 'dashboard' },
+  { to: '/operacional', icon: HardHat, label: 'Operacional', testid: 'nav-operacional', perm: 'operacional' },
+  { to: '/carteira', icon: Briefcase, label: 'Carteira', testid: 'nav-carteira', perm: 'carteira' },
+  { to: '/programacao', icon: Calendar, label: 'Programação', testid: 'nav-programacao', perm: 'programacao' },
+  { to: '/calendario', icon: Truck, label: 'Calendário', testid: 'nav-calendario', perm: 'calendario' },
+  { to: '/geolocalizacao', icon: Map, label: 'Geolocalização', testid: 'nav-geolocalizacao', perm: 'geolocalizacao' },
+  { to: '/materiais', icon: Package, label: 'Materiais', testid: 'nav-materiais', perm: 'materiais' },
+  { to: '/analise', icon: BarChart3, label: 'Análise', testid: 'nav-analise', perm: 'analise' },
+  { to: '/relatorios', icon: FileSpreadsheet, label: 'Relatórios', testid: 'nav-relatorios', perm: 'relatorios' },
+  { to: '/equipes', icon: Users, label: 'Equipes', testid: 'nav-equipes', perm: 'equipes' },
+  { to: '/admin/usuarios', icon: Shield, label: 'Admin', testid: 'nav-admin', perm: 'admin' },
 ];
 
 export const AppLayout = ({ children, title, subtitle, actions }) => {
@@ -47,7 +49,13 @@ export const AppLayout = ({ children, title, subtitle, actions }) => {
           </div>
 
           <nav className="flex-1 flex flex-col gap-3">
-            {navItems.map((item) => (
+            {navItems
+              .filter((item) => {
+                if (!user) return false;
+                if (user.role === 'admin') return true;
+                return (user.permissions || []).includes(item.perm);
+              })
+              .map((item) => (
               <NavLink
                 key={item.to}
                 to={item.to}
