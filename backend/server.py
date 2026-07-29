@@ -204,6 +204,10 @@ class ProjectCreate(BaseModel):
     utm_y: str = ""
     received_date: str = ""
     expiry_date: str = ""
+    # Múltiplas programações (data + equipes)
+    schedule_entries: Optional[List[dict]] = None
+    # Motivo quando status = cancelado ou suspenso
+    cancel_reason: str = ""
     # Quantitativos operacionais (planejado no cadastro)
     postes_qty: int = 0
     transformadores_qty: int = 0
@@ -242,6 +246,8 @@ class ProjectUpdate(BaseModel):
     received_date: Optional[str] = None
     expiry_date: Optional[str] = None
     reschedule_reason: Optional[str] = None
+    schedule_entries: Optional[List[dict]] = None
+    cancel_reason: Optional[str] = None
     postes_qty: Optional[int] = None
     transformadores_qty: Optional[int] = None
     km_rede: Optional[float] = None
@@ -280,6 +286,8 @@ class ProjectResponse(BaseModel):
     received_date: str = ""
     expiry_date: str = ""
     reschedule_history: List[dict] = Field(default_factory=list)
+    schedule_entries: List[dict] = Field(default_factory=list)
+    cancel_reason: str = ""
     postes_qty: int = 0
     transformadores_qty: int = 0
     km_rede: float = 0.0
@@ -730,6 +738,8 @@ def build_project_response(project: dict) -> ProjectResponse:
         received_date=project.get("received_date", ""),
         expiry_date=project.get("expiry_date", ""),
         reschedule_history=project.get("reschedule_history", []),
+        schedule_entries=project.get("schedule_entries", []) or [],
+        cancel_reason=project.get("cancel_reason", ""),
         additional_team_id=project.get("additional_team_id"),
         additional_team_name=project.get("additional_team_name"),
         postes_qty=project.get("postes_qty", 0),
@@ -761,6 +771,27 @@ async def create_project(project_data: ProjectCreate, current_user: dict = Depen
         "created_at": datetime.now(timezone.utc),
         "user_id": current_user["_id"]
     }
+    # Se schedule_entries fornecidas, derivar legacy fields (start_date/end_date/team_id/additional_team_id)
+    entries = project_doc.get("schedule_entries") or []
+    if entries:
+        # ordenar por data ascendente
+        entries = sorted([e for e in entries if e.get("date")], key=lambda e: e["date"])
+        project_doc["schedule_entries"] = entries
+        first = entries[0]
+        last = entries[-1]
+        project_doc["start_date"] = first.get("date", "")
+        project_doc["end_date"] = last.get("date", "")
+        first_teams = first.get("team_ids") or []
+        first_names = first.get("team_names") or []
+        if first_teams:
+            project_doc["team_id"] = first_teams[0]
+            project_doc["team_name"] = first_names[0] if first_names else ""
+            if len(first_teams) > 1:
+                project_doc["additional_team_id"] = first_teams[1]
+                project_doc["additional_team_name"] = first_names[1] if len(first_names) > 1 else ""
+            else:
+                project_doc["additional_team_id"] = None
+                project_doc["additional_team_name"] = None
     # Auto-set execution_status when scheduling
     if project_doc.get("is_scheduled") and project_doc.get("execution_status") == "aguardando_programacao":
         project_doc["execution_status"] = "programado"
@@ -826,6 +857,28 @@ async def update_project(project_id: str, project_data: ProjectUpdate, current_u
     update_data = {k: v for k, v in payload.items() if v is not None}
     if not update_data:
         raise HTTPException(status_code=400, detail="No fields to update")
+    
+    # Se schedule_entries foram enviadas, derivar legacy fields
+    entries = update_data.get("schedule_entries")
+    if entries is not None:
+        entries = sorted([e for e in entries if e.get("date")], key=lambda e: e["date"])
+        update_data["schedule_entries"] = entries
+        if entries:
+            first = entries[0]
+            last = entries[-1]
+            update_data["start_date"] = first.get("date", "")
+            update_data["end_date"] = last.get("date", "")
+            first_teams = first.get("team_ids") or []
+            first_names = first.get("team_names") or []
+            if first_teams:
+                update_data["team_id"] = first_teams[0]
+                update_data["team_name"] = first_names[0] if first_names else ""
+                if len(first_teams) > 1:
+                    update_data["additional_team_id"] = first_teams[1]
+                    update_data["additional_team_name"] = first_names[1] if len(first_names) > 1 else ""
+                else:
+                    update_data["additional_team_id"] = None
+                    update_data["additional_team_name"] = None
     
     # Check for duplicate project_code if being changed
     new_code = update_data.get("project_code", "").strip() if update_data.get("project_code") is not None else None

@@ -8,7 +8,7 @@ import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import 'leaflet.markercluster/dist/MarkerCluster.css';
 import 'leaflet.markercluster/dist/MarkerCluster.Default.css';
-import { Route, RefreshCw, Navigation, LocateFixed, FileDown, Share2, Users, Radio, RadioTower } from 'lucide-react';
+import { Route, RefreshCw, Navigation, LocateFixed, FileDown, Share2, Users, Radio, RadioTower, Maximize, MessageCircle, Ruler, X } from 'lucide-react';
 import { AppLayout } from '../components/AppLayout';
 import { SearchBar } from '../components/SearchBar';
 import { utm21sToLatLng, nearestNeighborRoute, osrmRoute, haversineKm } from '../lib/geo';
@@ -49,13 +49,16 @@ const hoverHighlightIcon = () => L.divIcon({
   iconSize: [60, 60], iconAnchor: [30, 30],
 });
 
-const FitBounds = ({ points }) => {
+const FitBounds = ({ points, signal }) => {
   const map = useMap();
+  const lastSignal = useRef(-1);
   useEffect(() => {
+    if (lastSignal.current === signal) return; // não refita quando dependências mudam mas signal é o mesmo
     if (!points || points.length === 0) return;
     const bounds = L.latLngBounds(points.map((p) => [p.lat, p.lng]));
     map.fitBounds(bounds, { padding: [50, 50], maxZoom: 12 });
-  }, [points, map]);
+    lastSignal.current = signal;
+  }, [points, map, signal]);
   return null;
 };
 
@@ -83,6 +86,8 @@ export const GeolocalizacaoPage = () => {
   const [liveList, setLiveList] = useState([]);
   const [sharing, setSharing] = useState(false);
   const [search, setSearch] = useState('');
+  const [fitSignal, setFitSignal] = useState(0);
+  const [focusedProject, setFocusedProject] = useState(null);
   const watchIdRef = useRef(null);
   const mapRef = useRef(null);
 
@@ -278,9 +283,48 @@ export const GeolocalizacaoPage = () => {
     dash: r.mode === 'osrm' ? null : '8 6',
   }));
 
+  const focusedRoute = useMemo(() => {
+    if (!focusedProject) return null;
+    const d = haversineKm(origin, focusedProject);
+    return {
+      distance_km: d,
+      positions: [[origin.lat, origin.lng], [focusedProject.lat, focusedProject.lng]],
+    };
+  }, [focusedProject, origin]);
+
+  const copyToWhatsApp = (p) => {
+    const link = `https://maps.google.com/?q=${p.lat},${p.lng}`;
+    const parts = [
+      `📍 *${p.name}*`,
+      p.project_code ? `Código: ${p.project_code}` : '',
+      p.location ? `Local: ${p.location}` : '',
+      p.team_name ? `Equipe: ${p.team_name}` : '',
+      `Mapa: ${link}`,
+    ].filter(Boolean);
+    const msg = parts.join('\n');
+    if (navigator.clipboard) {
+      navigator.clipboard.writeText(msg).then(
+        () => toast.success('Localização copiada! Cole no WhatsApp.'),
+        () => window.open(`https://wa.me/?text=${encodeURIComponent(msg)}`, '_blank'),
+      );
+    } else {
+      window.open(`https://wa.me/?text=${encodeURIComponent(msg)}`, '_blank');
+    }
+  };
+
   return (
     <AppLayout title="Geolocalização" subtitle="Mapa de obras e roteirização otimizada por equipe">
-      <div className="mb-4"><SearchBar value={search} onChange={setSearch} testid="geo-search" /></div>
+      <div className="mb-4 flex items-center gap-2 flex-wrap">
+        <div className="flex-1 min-w-[240px]"><SearchBar value={search} onChange={setSearch} testid="geo-search" placeholder="Buscar por número da obra, nome ou local..." /></div>
+        <button
+          data-testid="geo-fit-bounds"
+          onClick={() => setFitSignal((s) => s + 1)}
+          className="flex items-center gap-2 bg-white/5 border border-white/10 hover:bg-white/10 text-white text-xs font-bold px-3 py-2 rounded-full transition-all"
+          title="Ajustar zoom para mostrar todas as obras"
+        >
+          <Maximize className="w-3 h-3" /> Ajustar vista
+        </button>
+      </div>
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
         <div data-testid="geo-stat-plotted" className="glass-panel rounded-xl p-4">
@@ -396,8 +440,8 @@ export const GeolocalizacaoPage = () => {
               attribution='&copy; <a href="https://openstreetmap.org">OpenStreetMap</a>'
               url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
             />
-            <FitBounds points={[origin, ...points]} />
-            <FlyTo target={hoveredStop} />
+            <FitBounds points={[origin, ...points]} signal={fitSignal} />
+            <FlyTo target={hoveredStop || focusedProject} />
             <Marker position={[origin.lat, origin.lng]} icon={originIcon}>
               <Popup><b>Origem</b><br />{origin.label || 'Ponto de partida'}</Popup>
             </Marker>
@@ -447,9 +491,52 @@ export const GeolocalizacaoPage = () => {
             {allPolylines.map((pl) => (
               <Polyline key={pl.key} positions={pl.positions} pathOptions={{ color: pl.color, weight: 4, opacity: 0.85, dashArray: pl.dash }} />
             ))}
+            {focusedRoute && (
+              <Polyline positions={focusedRoute.positions} pathOptions={{ color: '#00F0FF', weight: 5, opacity: 0.9, dashArray: '10 6' }} />
+            )}
           </MapContainer>
         )}
       </motion.div>
+
+      {focusedProject && focusedRoute && (
+        <div data-testid="focused-distance-panel" className="glass-panel rounded-2xl p-4 mb-4 border-l-4 border-[#00F0FF] flex items-center gap-4 flex-wrap">
+          <Ruler className="w-6 h-6 text-[#00F0FF] flex-shrink-0" />
+          <div className="flex-1 min-w-[200px]">
+            <p className="text-[10px] tracking-[0.2em] uppercase font-bold text-zinc-500">Distância até esta obra</p>
+            <p className="font-mono text-xl font-bold text-white">
+              {focusedRoute.distance_km.toFixed(2)} <span className="text-sm text-zinc-500">km</span>
+            </p>
+            <p className="text-xs text-zinc-400">{focusedProject.project_code || '—'} · {focusedProject.name}</p>
+          </div>
+          <button
+            data-testid="focused-osrm"
+            onClick={async () => {
+              const r = await osrmRoute([origin, focusedProject]);
+              if (r) {
+                toast.success(`Rota real: ${r.distance_km.toFixed(1)} km · ${Math.round(r.duration_min)} min`);
+                setFocusedProject({ ...focusedProject, _real: r });
+              } else toast.error('OSRM indisponível');
+            }}
+            className="bg-[#E0FF00] hover:bg-[#C8E600] text-black text-xs font-bold px-4 py-2 rounded-full"
+          >
+            Rota real (OSRM)
+          </button>
+          <button
+            data-testid="focused-wa"
+            onClick={() => copyToWhatsApp(focusedProject)}
+            className="bg-[#25D366] hover:bg-[#1DA851] text-white text-xs font-bold px-4 py-2 rounded-full inline-flex items-center gap-1"
+          >
+            <MessageCircle className="w-3 h-3" /> Enviar WhatsApp
+          </button>
+          <button
+            data-testid="focused-clear"
+            onClick={() => setFocusedProject(null)}
+            className="bg-white/5 border border-white/10 hover:bg-white/10 text-white text-xs font-bold px-3 py-2 rounded-full inline-flex items-center gap-1"
+          >
+            <X className="w-3 h-3" /> Fechar
+          </button>
+        </div>
+      )}
 
       {teamRoutesList.length > 0 && (
         <div data-testid="geo-team-routes" className="space-y-3">

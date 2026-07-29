@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, Zap, MapPin } from 'lucide-react';
+import { X, Zap, MapPin, Plus, Trash2, Calendar } from 'lucide-react';
 import {
   PROJECT_TYPES,
   TIPO_SERVICO,
@@ -33,6 +33,8 @@ export const ProjectDrawer = ({ isOpen, onClose, onSave, project, teams, default
     team_name: '',
     additional_team_id: '',
     additional_team_name: '',
+    schedule_entries: [], // [{ date, team_ids: [], team_names: [] }]
+    cancel_reason: '',
     postes_qty: 0,
     transformadores_qty: 0,
     km_rede: 0,
@@ -79,6 +81,20 @@ export const ProjectDrawer = ({ isOpen, onClose, onSave, project, teams, default
         team_name: project.team_name || '',
         additional_team_id: project.additional_team_id || '',
         additional_team_name: project.additional_team_name || '',
+        schedule_entries: project.schedule_entries && project.schedule_entries.length
+          ? project.schedule_entries.map((e) => ({
+              date: (e.date || '').slice(0, 10),
+              team_ids: e.team_ids || [],
+              team_names: e.team_names || [],
+            }))
+          : (project.start_date
+            ? [{
+                date: project.start_date.split('T')[0],
+                team_ids: [project.team_id, project.additional_team_id].filter(Boolean),
+                team_names: [project.team_name, project.additional_team_name].filter(Boolean),
+              }]
+            : []),
+        cancel_reason: project.cancel_reason || '',
         postes_qty: project.postes_qty || 0,
         transformadores_qty: project.transformadores_qty || 0,
         km_rede: project.km_rede || 0,
@@ -319,6 +335,24 @@ export const ProjectDrawer = ({ isOpen, onClose, onSave, project, teams, default
                   </select>
                 </div>
 
+                {(formData.execution_status === 'cancelado' || formData.execution_status === 'suspenso') && (
+                  <div className="rounded-xl border border-dashed border-[#FF003C]/40 bg-[#FF003C]/[0.05] p-3">
+                    <label className="text-[10px] tracking-[0.2em] uppercase font-bold text-[#FF003C] block mb-2">
+                      Motivo — {formData.execution_status === 'cancelado' ? 'Cancelamento' : 'Suspensão'} (obrigatório)
+                    </label>
+                    <textarea
+                      data-testid="project-cancel-reason-input"
+                      value={formData.cancel_reason}
+                      onChange={(e) => setFormData({ ...formData, cancel_reason: e.target.value })}
+                      required
+                      rows={3}
+                      placeholder={formData.execution_status === 'cancelado' ? 'Ex: Cliente cancelou o pedido...' : 'Ex: Aguardando liberação de material...'}
+                      className="w-full bg-zinc-950/90 border border-white/10 rounded-lg px-3 py-2 text-white text-sm focus:border-[#FF003C] focus:outline-none"
+                    />
+                    <p className="text-[10px] text-zinc-500 mt-1">Este texto aparecerá no histórico e nas listagens.</p>
+                  </div>
+                )}
+
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <label className="text-xs tracking-[0.2em] uppercase font-bold text-zinc-500 block mb-2">Mão de Obra (R$)</label>
@@ -411,41 +445,79 @@ export const ProjectDrawer = ({ isOpen, onClose, onSave, project, teams, default
                       </select>
                     </div>
 
-                    <div>
-                      <label className="text-xs tracking-[0.2em] uppercase font-bold text-zinc-500 block mb-2">Equipe</label>
-                      <select data-testid="project-team-select" value={formData.team_id} onChange={(e) => handleTeamChange(e.target.value)} className="w-full bg-zinc-950/90 border border-white/10 rounded-lg px-4 py-3 text-white focus:border-[#E0FF00] focus:outline-none">
-                        <option value="">Selecione uma equipe</option>
-                        {teams.map((team) => (<option key={team.id} value={team.id}>{team.name} {team.supervisor && `(${team.supervisor})`}</option>))}
-                      </select>
-                    </div>
-
-                    <div>
-                      <label className="text-xs tracking-[0.2em] uppercase font-bold text-zinc-500 block mb-2">Equipe adicional <span className="text-[10px] text-zinc-600 normal-case tracking-normal">(opcional — duas equipes na mesma obra/dia)</span></label>
-                      <select
-                        data-testid="project-additional-team-select"
-                        value={formData.additional_team_id}
-                        onChange={(e) => {
-                          const t = teams.find((x) => x.id === e.target.value);
-                          setFormData({ ...formData, additional_team_id: e.target.value, additional_team_name: t ? t.name : '' });
-                        }}
-                        className="w-full bg-zinc-950/90 border border-white/10 rounded-lg px-4 py-3 text-white focus:border-[#00F0FF] focus:outline-none"
-                      >
-                        <option value="">— Nenhuma —</option>
-                        {teams.filter((t) => t.id !== formData.team_id).map((team) => (
-                          <option key={team.id} value={team.id}>{team.name} {team.supervisor && `(${team.supervisor})`}</option>
-                        ))}
-                      </select>
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-4">
-                      <div>
-                        <label className="text-xs tracking-[0.2em] uppercase font-bold text-zinc-500 block mb-2">Data Início</label>
-                        <input data-testid="project-start-date" type="date" value={formData.start_date} onChange={(e) => handleDateChange('start_date', e.target.value)} className="w-full bg-zinc-950/90 border border-white/10 rounded-lg px-4 py-3 text-white focus:border-[#E0FF00] focus:outline-none font-mono" />
+                    <div className="rounded-xl border border-dashed border-[#E0FF00]/40 bg-[#E0FF00]/[0.03] p-3 space-y-3">
+                      <div className="flex items-center justify-between">
+                        <p className="text-[10px] tracking-[0.2em] uppercase font-bold text-[#E0FF00] inline-flex items-center gap-1"><Calendar className="w-3 h-3" /> Programações (datas + equipes)</p>
+                        <button
+                          type="button"
+                          data-testid="add-schedule-entry"
+                          onClick={() => setFormData((f) => ({ ...f, schedule_entries: [...(f.schedule_entries || []), { date: '', team_ids: [], team_names: [] }] }))}
+                          className="text-[11px] text-[#E0FF00] hover:underline inline-flex items-center gap-1"
+                        >
+                          <Plus className="w-3 h-3" /> Adicionar data
+                        </button>
                       </div>
-                      <div>
-                        <label className="text-xs tracking-[0.2em] uppercase font-bold text-zinc-500 block mb-2">Data Fim</label>
-                        <input data-testid="project-end-date" type="date" value={formData.end_date} onChange={(e) => handleDateChange('end_date', e.target.value)} className="w-full bg-zinc-950/90 border border-white/10 rounded-lg px-4 py-3 text-white focus:border-[#E0FF00] focus:outline-none font-mono" />
-                      </div>
+                      {(formData.schedule_entries || []).length === 0 && (
+                        <p className="text-[11px] text-zinc-500 italic">Clique em "Adicionar data" para programar esta obra em uma ou mais datas com equipes distintas.</p>
+                      )}
+                      {(formData.schedule_entries || []).map((entry, idx) => (
+                        <div key={idx} data-testid={`schedule-entry-${idx}`} className="rounded-lg bg-zinc-950/60 border border-white/10 p-2 space-y-2">
+                          <div className="flex items-center gap-2">
+                            <input
+                              type="date"
+                              data-testid={`schedule-entry-date-${idx}`}
+                              value={entry.date}
+                              onChange={(e) => {
+                                const next = [...formData.schedule_entries];
+                                next[idx] = { ...next[idx], date: e.target.value };
+                                setFormData({ ...formData, schedule_entries: next });
+                              }}
+                              className="flex-1 bg-zinc-900 border border-white/10 rounded-md px-2 py-1.5 text-white text-sm font-mono focus:border-[#E0FF00] focus:outline-none"
+                            />
+                            <button
+                              type="button"
+                              data-testid={`schedule-entry-remove-${idx}`}
+                              onClick={() => setFormData({ ...formData, schedule_entries: formData.schedule_entries.filter((_, i) => i !== idx) })}
+                              className="w-7 h-7 rounded-md bg-white/5 border border-white/10 flex items-center justify-center text-zinc-400 hover:text-[#FF003C]"
+                            >
+                              <Trash2 className="w-3 h-3" />
+                            </button>
+                          </div>
+                          <div className="flex flex-wrap gap-1.5">
+                            {teams.map((t) => {
+                              const active = (entry.team_ids || []).includes(t.id);
+                              return (
+                                <button
+                                  key={t.id}
+                                  type="button"
+                                  data-testid={`schedule-entry-${idx}-team-${t.id}`}
+                                  onClick={() => {
+                                    const next = [...formData.schedule_entries];
+                                    const curr = next[idx];
+                                    const has = (curr.team_ids || []).includes(t.id);
+                                    const newIds = has ? curr.team_ids.filter((x) => x !== t.id) : [...(curr.team_ids || []), t.id];
+                                    const newNames = newIds.map((id) => teams.find((tt) => tt.id === id)?.name || '');
+                                    next[idx] = { ...curr, team_ids: newIds, team_names: newNames };
+                                    setFormData({ ...formData, schedule_entries: next });
+                                  }}
+                                  className="px-2 py-1 rounded-full text-[10px] font-bold border transition-all"
+                                  style={{
+                                    backgroundColor: active ? 'rgba(224,255,0,0.2)' : 'rgba(255,255,255,0.03)',
+                                    borderColor: active ? '#E0FF00' : 'rgba(255,255,255,0.15)',
+                                    color: active ? '#E0FF00' : '#a1a1aa',
+                                  }}
+                                >
+                                  {t.name}
+                                </button>
+                              );
+                            })}
+                          </div>
+                          {(entry.team_ids || []).length > 1 && (
+                            <p className="text-[10px] text-[#00F0FF]">{entry.team_ids.length} equipes juntas neste dia</p>
+                          )}
+                        </div>
+                      ))}
+                      <p className="text-[10px] text-zinc-600">Ex.: dia 29/07 — equipe A · dia 12/08 — equipes A + B. A obra aparecerá em cada equipe/data na matriz.</p>
                     </div>
 
                     {showRescheduleReason && (

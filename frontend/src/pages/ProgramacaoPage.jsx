@@ -110,22 +110,40 @@ export const ProgramacaoPage = () => {
     });
   }, [projects, filters, specificDate, minProd, maxProd]);
 
-  // Expand projects: duplicate row per team when additional_team_id is set
+  // Expand projects using schedule_entries when present, else fall back to legacy single-date + additional_team
   const expanded = useMemo(() => {
     const out = [];
     filtered.forEach((p) => {
-      out.push({ ...p, _teamColId: p.team_id, _teamColName: p.team_name, _isAdditional: false });
-      if (p.additional_team_id) {
-        out.push({ ...p, _teamColId: p.additional_team_id, _teamColName: p.additional_team_name, _isAdditional: true });
-      }
+      const entries = (p.schedule_entries && p.schedule_entries.length)
+        ? p.schedule_entries
+        : (p.start_date
+          ? [{
+              date: p.start_date.slice(0, 10),
+              team_ids: [p.team_id, p.additional_team_id].filter(Boolean),
+              team_names: [p.team_name, p.additional_team_name].filter(Boolean),
+            }]
+          : []);
+      entries.forEach((entry) => {
+        const teamIds = entry.team_ids && entry.team_ids.length ? entry.team_ids : [null];
+        teamIds.forEach((tid, i) => {
+          const teamName = (entry.team_names && entry.team_names[i]) || teams.find((t) => t.id === tid)?.name || '';
+          out.push({
+            ...p,
+            _entryDate: (entry.date || '').slice(0, 10),
+            _teamColId: tid || '__none__',
+            _teamColName: teamName,
+            _isAdditional: i > 0,
+          });
+        });
+      });
     });
     return out;
-  }, [filtered]);
+  }, [filtered, teams]);
 
   const grouped = useMemo(() => {
     const map = {};
     expanded.forEach((p) => {
-      const date = (p.start_date || '').slice(0, 10) || 'Sem data';
+      const date = p._entryDate || 'Sem data';
       if (!map[date]) map[date] = [];
       map[date].push(p);
     });
@@ -138,7 +156,7 @@ export const ProgramacaoPage = () => {
     const teamSet = new Set();
     const map = {}; // map[date][teamId] = [projects]
     expanded.forEach((p) => {
-      const date = (p.start_date || '').slice(0, 10) || 'Sem data';
+      const date = p._entryDate || 'Sem data';
       const tid = p._teamColId || '__none__';
       dateSet.add(date);
       teamSet.add(tid);

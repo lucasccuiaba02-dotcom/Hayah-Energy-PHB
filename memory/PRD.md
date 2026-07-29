@@ -6,51 +6,52 @@ Matriz de programação de projetos com equipes, datas, valores programados, met
 ## Stack
 - Frontend: React 18 + Tailwind + Shadcn + Framer Motion + Leaflet/react-leaflet + proj4 (PWA)
 - Backend: FastAPI + Motor (MongoDB) + APScheduler + pywebpush + ReportLab + httpx
-- Integrações: Resend (email), Web Push VAPID, OSRM público, Photon (geocoding), Emergent LLM key (pronto p/ uso)
+- Integrações: Resend (email), Web Push VAPID, OSRM público, Photon (geocoding), Emergent LLM key
 - CRS: SIRGAS 2000 / UTM Zone 21 South (Cuiabá/MT)
 
-## Módulos (abas na sidebar)
-- Dashboard, **Buscar Obras (novo)**, Operacional, Carteira, Programação, Calendário, Geolocalização, Materiais, Análise, Relatórios, Equipes, Indisponibilidade, Admin
+## Módulos (abas no sidebar)
+Dashboard, **Buscar Obras**, Operacional, Carteira, Programação, Calendário, Geolocalização, Materiais, Análise, Relatórios, Equipes, Indisponibilidade, Admin
 
 ## Regras chave
-- `project_code` único (409); reschedule com motivo (histórico); fotos com marca d'água canvas
-- Duplicar: clone limpa código/programação/histórico/fotos, sufixa " (cópia)"
-- **Permissões open-by-default**: se `permissions=[]` → libera TODAS as abas. Admin restringe em /admin/usuarios
-- Programação: 2ª equipe opcional → mesmo projeto renderiza em 2 colunas na Matriz
-- Retorno de Programação: executed=true → 'executada'; executed=false + motivo → 'a_reprogramar'
+- `project_code` único (409)
+- Duplicar obra limpa código/programação/histórico/fotos, sufixa " (cópia)"
+- **Permissões open-by-default**: se `permissions=[]` → libera TODAS as abas
+- **`schedule_entries`**: multi-data + multi-equipe por obra. Backend deriva start/end/team_id/additional do primeiro entry
+- **Retorno de Programação**: executed=true → 'executada'; executed=false + motivo → 'a_reprogramar'
+- Status `cancelado` ou `suspenso` exige `cancel_reason`
 
 ## Endpoints principais
-- Auth: POST /api/auth/{register,login}, GET /api/auth/me (agora fallback ALL_PERMISSIONS quando vazio)
-- Admin: /api/admin/users (GET, PUT /permissions, POST /approve|reject)
-- Projects: CRUD /api/projects | POST /api/projects/{id}/duplicate
+- Auth: POST /api/auth/{register,login}, GET /api/auth/me
+- Admin: /api/admin/users, PUT /permissions
+- Projects: CRUD /api/projects (aceita `schedule_entries` + `cancel_reason`)
 - Dashboard: GET /api/dashboard/kpis
 - Programação: POST /api/programacao/return, GET /api/programacao/pending-returns
-- Indisponibilidade: /api/team-unavailability (GET/POST/DELETE)
+- Indisponibilidade: /api/team-unavailability
 - Geo: /api/geo/projects, /api/geo/geocode, /api/geo/route-pdf
 - Tracking, Analytics, Operacional, Push (mantidos)
 
-## Feito em Fev/2026 (iter 14 + hotfix pós-msg 208)
-- Métricas físicas no projeto: postes, transformadores, km_rede, ligacoes_novas, religacoes, desligamentos
-- 2ª equipe no drawer + Matriz Programação (agora DATAS=colunas, EQUIPES=linhas — transposição solicitada)
-- Botão "Hoje" na Programação (modal com obras do dia, edit inline, totais + postes/trafos)
-- Retorno de Programação (modal em /programacao)
-- Página Indisponibilidade de equipes (CRUD)
-- Admin de usuários com checkboxes por aba
-- **Nova aba "Buscar Obras" (/buscar)**: pesquisa em código/nome/local/equipe/desligamento + filtros status/equipe + editar/duplicar/excluir inline
-- Dashboard: KPIs financeiro, operacional, tempo médio, vencidas, vencendo amanhã, produção agregada
-- Sidebar filtra por permission mas **libera tudo se vazio** (destrava usuários recém-registrados)
-- Fix: field duplicado ProjectResponse, stray `)}` no DashboardPage
-- Conta `lucasc.cuiaba02@gmail.com` promovida para admin com todas as permissões
-
-## Testes (14 iterações)
-- iter14: backend 6/6 pytest + frontend E2E — 0 bugs
-- hotfix pós-msg 208: smoke-test verificou sidebar/matriz-transposta/hoje/buscar/geo-mapa OK
+## Feito em Fev/2026 (últimas iterações)
+- Métricas físicas: postes, transformadores, km_rede, ligacoes_novas, religacoes, desligamentos
+- Matriz Programação com **datas nas COLUNAS, equipes nas LINHAS**
+- Botão "Hoje" (modal com obras do dia)
+- Retorno de Programação (modal)
+- Página Indisponibilidade de equipes
+- Admin de usuários com checkboxes de permissão
+- **Nova aba "Buscar Obras"** (`/buscar`) — search inline com edit/duplicate/delete
+- Dashboard: KPIs financeiro/operacional/tempo médio/vencidas/vencendo/produção
+- **Multi-data schedule_entries**: obra pode ser programada em várias datas com equipes distintas por dia. Aparece em cada célula (data × equipe) na matriz
+- **cancel_reason obrigatório** quando status=cancelado/suspenso
+- **Geolocalização — 4 melhorias**:
+  * FitBounds só na primeira carga (usa `signal` + `useRef`). Botão "Ajustar vista" para refit manual → **não volta mais ao zoom-out sozinho**
+  * Popup dos markers: 3 botões — 📱 WhatsApp (copia msg formatada), 📏 Distância (foca só nesta obra), 🗺️ Rota (google maps)
+  * "Distância só desta" desenha polyline única + painel flutuante com km + botão "Rota real (OSRM)" para tempo/distância real
+  * Search bar com placeholder "número da obra, nome ou local"
 
 ## Backlog (P1/P2)
 - Lead Time Indicators (Rec→Prog→Exec→Fech→Fatur)
 - Split de server.py em routers
 - Fotos em GridFS; Cache OSRM; TSP 2-opt
-- Limpar 22 usuários TEST_/dup_/bearer_ da tabela admin
+- Limpar usuários TEST_/dup_/bearer_ do admin
 - WhatsApp Business API oficial
 
 ## Credenciais
