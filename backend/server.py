@@ -9,7 +9,7 @@ from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
 from pydantic import BaseModel, Field, ConfigDict, EmailStr
 from bson import ObjectId
-from typing import List, Optional
+from typing import List, Optional, Tuple
 from datetime import datetime, timezone, timedelta
 import os
 import logging
@@ -18,6 +18,9 @@ import jwt
 import secrets
 import asyncio
 import base64
+import uuid
+import io
+import httpx
 
 from push_notifications import ensure_vapid_keys, broadcast_push
 from daily_log_pdf import build_daily_log_pdf
@@ -35,6 +38,59 @@ app = FastAPI()
 api_router = APIRouter(prefix="/api")
 
 JWT_ALGORITHM = "HS256"
+
+# --- Emergent Object Storage ---
+STORAGE_URL = "https://integrations.emergentagent.com/objstore/api/v1/storage"
+APP_NAME = "hayah-energy"
+_storage_key: Optional[str] = None
+
+async def init_storage() -> Optional[str]:
+    global _storage_key
+    if _storage_key:
+        return _storage_key
+    emergent_key = os.environ.get("EMERGENT_LLM_KEY", "").strip()
+    if not emergent_key:
+        return None
+    try:
+        async with httpx.AsyncClient(timeout=30) as client_http:
+            resp = await client_http.post(f"{STORAGE_URL}/init", json={"emergent_key": emergent_key})
+            resp.raise_for_status()
+            _storage_key = resp.json()["storage_key"]
+            return _storage_key
+    except Exception as e:
+        logging.getLogger(__name__).error(f"Storage init failed: {e}")
+        return None
+
+async def storage_put(path: str, data: bytes, content_type: str) -> dict:
+    global _storage_key
+    key = await init_storage()
+    if not key:
+        raise HTTPException(status_code=503, detail="Armazenamento indisponível — verifique EMERGENT_LLM_KEY")
+    async with httpx.AsyncClient(timeout=120) as client_http:
+        resp = await client_http.put(
+            f"{STORAGE_URL}/objects/{path}",
+            headers={"X-Storage-Key": key, "Content-Type": content_type},
+            content=data,
+        )
+        if resp.status_code == 403:
+            _storage_key = None
+            raise HTTPException(status_code=503, detail="Sessão de armazenamento expirada — tente de novo")
+        resp.raise_for_status()
+        return resp.json()
+
+async def storage_get(path: str) -> Tuple[bytes, str]:
+    key = await init_storage()
+    if not key:
+        raise HTTPException(status_code=503, detail="Armazenamento indisponível")
+    async with httpx.AsyncClient(timeout=60) as client_http:
+        resp = await client_http.get(
+            f"{STORAGE_URL}/objects/{path}",
+            headers={"X-Storage-Key": key},
+        )
+        if resp.status_code == 404:
+            raise HTTPException(status_code=404, detail="Arquivo não encontrado")
+        resp.raise_for_status()
+        return resp.content, resp.headers.get("Content-Type", "application/octet-stream")
 
 # Project type labels (Hayah Energy specific) - Iteração 8
 PROJECT_TYPE_LABELS = {
@@ -288,6 +344,8 @@ class ProjectResponse(BaseModel):
     reschedule_history: List[dict] = Field(default_factory=list)
     schedule_entries: List[dict] = Field(default_factory=list)
     cancel_reason: str = ""
+    attachments: List[dict] = Field(default_factory=list)
+    materials_list: List[dict] = Field(default_factory=list)
     postes_qty: int = 0
     transformadores_qty: int = 0
     km_rede: float = 0.0
@@ -740,6 +798,8 @@ def build_project_response(project: dict) -> ProjectResponse:
         reschedule_history=project.get("reschedule_history", []),
         schedule_entries=project.get("schedule_entries", []) or [],
         cancel_reason=project.get("cancel_reason", ""),
+        attachments=project.get("attachments", []) or [],
+        materials_list=project.get("materials_list", []) or [],
         additional_team_id=project.get("additional_team_id"),
         additional_team_name=project.get("additional_team_name"),
         postes_qty=project.get("postes_qty", 0),
@@ -1152,7 +1212,6 @@ async def get_advanced_analytics(current_user: dict = Depends(get_current_user))
 
 # Excel export
 from fastapi.responses import StreamingResponse
-import io
 
 @api_router.get("/reports/excel")
 async def export_excel(
@@ -1702,7 +1761,6 @@ async def geo_geocode(q: str = "", limit: int = 5, current_user: dict = Depends(
     hit = _geocode_cache.get(cache_key)
     if hit:
         return hit["data"]
-    import httpx
     headers = {
         "User-Agent": "HayahEnergy/1.0 (matriz-programacao; contato@hayahenergy.com.br)",
         "Accept-Language": "pt-BR",
@@ -2010,6 +2068,185 @@ async def get_today_operations(current_user: dict = Depends(get_current_user)):
 
 # Material request with PDF attachments
 
+@api_router.post("/projects/{project_id}/attachments")
+async def upload_project_attachment(
+    project_id: str,
+    kind: str = Form("project_pdf"),  # project_pdf | material_pdf | other
+    file: UploadFile = File(...),
+    current_user: dict = Depends(get_current_user),
+):
+    project = await db.projects.find_one({"_id": safe_object_id(project_id), "user_id": current_user["_id"]})
+    if not project:
+        raise HTTPException(status_code=404, detail="Obra não encontrada")
+    content = await file.read()
+    if len(content) > 25 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="Arquivo maior que 25MB")
+    fname = file.filename or "arquivo"
+    ext = (fname.rsplit(".", 1)[-1] or "bin").lower() if "." in fname else "bin"
+    path = f"{APP_NAME}/projects/{current_user['_id']}/{uuid.uuid4()}.{ext}"
+    result = await storage_put(path, content, file.content_type or "application/octet-stream")
+    att = {
+        "id": secrets.token_urlsafe(10),
+        "kind": kind,
+        "filename": fname,
+        "size": result.get("size", len(content)),
+        "content_type": file.content_type or "application/octet-stream",
+        "storage_path": result["path"],
+        "uploaded_at": datetime.now(timezone.utc).isoformat(),
+        "uploaded_by": current_user.get("name", ""),
+        "is_deleted": False,
+    }
+    await db.projects.update_one(
+        {"_id": safe_object_id(project_id)},
+        {"$push": {"attachments": att}}
+    )
+    return att
+
+
+@api_router.get("/projects/{project_id}/attachments/{att_id}")
+async def download_project_attachment(
+    project_id: str,
+    att_id: str,
+    auth: Optional[str] = None,
+    current_user: dict = Depends(get_current_user),
+):
+    project = await db.projects.find_one({"_id": safe_object_id(project_id), "user_id": current_user["_id"]})
+    if not project:
+        raise HTTPException(status_code=404, detail="Obra não encontrada")
+    atts = project.get("attachments", []) or []
+    att = next((a for a in atts if a.get("id") == att_id and not a.get("is_deleted")), None)
+    if not att:
+        raise HTTPException(status_code=404, detail="Anexo não encontrado")
+    data, ct = await storage_get(att["storage_path"])
+    return Response(
+        content=data,
+        media_type=att.get("content_type") or ct,
+        headers={"Content-Disposition": f'inline; filename="{att.get("filename","arquivo.pdf")}"'},
+    )
+
+
+@api_router.delete("/projects/{project_id}/attachments/{att_id}")
+async def delete_project_attachment(
+    project_id: str,
+    att_id: str,
+    current_user: dict = Depends(get_current_user),
+):
+    result = await db.projects.update_one(
+        {"_id": safe_object_id(project_id), "user_id": current_user["_id"], "attachments.id": att_id},
+        {"$set": {"attachments.$.is_deleted": True, "attachments.$.deleted_at": datetime.now(timezone.utc).isoformat()}}
+    )
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Anexo não encontrado")
+    return {"status": "deleted", "id": att_id}
+
+
+@api_router.post("/projects/{project_id}/materials-import")
+async def import_materials_list(
+    project_id: str,
+    file: UploadFile = File(...),
+    replace: bool = Form(False),
+    current_user: dict = Depends(get_current_user),
+):
+    """Import material list from Excel (.xlsx) or CSV (.csv). 
+    Expected columns (flexible names): item/descricao/material, quantidade/qtd, unidade/un, preco/valor/custo."""
+    project = await db.projects.find_one({"_id": safe_object_id(project_id), "user_id": current_user["_id"]})
+    if not project:
+        raise HTTPException(status_code=404, detail="Obra não encontrada")
+    content = await file.read()
+    if len(content) > 10 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="Arquivo maior que 10MB")
+    fname = (file.filename or "").lower()
+    rows: List[dict] = []
+    try:
+        if fname.endswith(".csv") or (file.content_type or "").startswith("text/csv"):
+            import csv as _csv
+            text = content.decode("utf-8-sig", errors="ignore")
+            reader = _csv.DictReader(io.StringIO(text), delimiter=";" if text.count(";") > text.count(",") else ",")
+            rows = [{(k or "").strip().lower(): (v or "").strip() for k, v in r.items()} for r in reader]
+        else:
+            from openpyxl import load_workbook
+            wb = load_workbook(io.BytesIO(content), data_only=True)
+            ws = wb.active
+            headers = [str(c.value or "").strip().lower() for c in next(ws.iter_rows(min_row=1, max_row=1))]
+            for r in ws.iter_rows(min_row=2, values_only=True):
+                if not any(v not in (None, "") for v in r):
+                    continue
+                d = {}
+                for i, v in enumerate(r):
+                    if i < len(headers) and headers[i]:
+                        d[headers[i]] = str(v).strip() if v is not None else ""
+                rows.append(d)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Erro ao ler planilha: {e}")
+
+    def pick(d: dict, *keys):
+        for k in keys:
+            for actual, val in d.items():
+                if actual and (actual == k or k in actual):
+                    return val
+        return ""
+
+    def to_float(v) -> float:
+        s = str(v or "").strip()
+        if not s:
+            return 0.0
+        # Handle both BR (1.234,56) and US (1,234.56) formats intelligently
+        if "," in s and "." in s:
+            if s.rfind(",") > s.rfind("."):
+                s = s.replace(".", "").replace(",", ".")  # BR
+            else:
+                s = s.replace(",", "")  # US
+        elif "," in s:
+            s = s.replace(",", ".")
+        try:
+            return float(s)
+        except Exception:
+            return 0.0
+
+    def to_int(v) -> int:
+        f = to_float(v)
+        return int(f)
+
+    normalized = []
+    for r in rows:
+        item = pick(r, "item", "descricao", "material", "descrição", "produto")
+        if not item:
+            continue
+        qty = to_float(pick(r, "quantidade", "qtd", "quant"))
+        qty_out = int(qty) if qty == int(qty) else qty
+        unit = pick(r, "unidade", "un", "unid")
+        cost = to_float(pick(r, "preco", "valor", "custo", "preço", "vlr"))
+        normalized.append({
+            "id": secrets.token_urlsafe(8),
+            "item": str(item),
+            "quantity": qty_out,
+            "unit": str(unit) or "un",
+            "unit_cost": cost,
+            "total_cost": round(cost * qty, 2),
+        })
+
+    if not normalized:
+        raise HTTPException(status_code=400, detail="Nenhum item válido encontrado. Verifique colunas: item/descricao, quantidade, unidade, preco.")
+
+    if replace:
+        await db.projects.update_one(
+            {"_id": safe_object_id(project_id)},
+            {"$set": {"materials_list": normalized}}
+        )
+        final = normalized
+    else:
+        await db.projects.update_one(
+            {"_id": safe_object_id(project_id)},
+            {"$push": {"materials_list": {"$each": normalized}}}
+        )
+        proj2 = await db.projects.find_one({"_id": safe_object_id(project_id)})
+        final = proj2.get("materials_list", [])
+    total = sum((it.get("total_cost") or 0.0) for it in final)
+    return {"imported": len(normalized), "total_items": len(final), "estimated_cost": total, "items": final}
+
+
+# Material request with PDF attachments
+
 @api_router.post("/materials/request")
 async def request_materials(
     current_user: dict = Depends(get_current_user),
@@ -2115,6 +2352,8 @@ async def startup_db():
     await db.users.create_index("email", unique=True)
     await db.teams.create_index("user_id")
     await db.projects.create_index("user_id")
+    # Object storage init
+    await init_storage()
     # TTL index for live tracking positions — auto-expire after 10 minutes
     try:
         await db.tracking_positions.create_index("updated_at", expireAfterSeconds=600)

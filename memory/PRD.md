@@ -46,7 +46,13 @@ Dashboard, **Buscar Obras**, Operacional, Carteira, Programação, Calendário, 
   * Popup dos markers: 3 botões — 📱 WhatsApp, 📏 Distância (foca só nesta), 🗺️ Rota
   * "Distância só desta" desenha polyline única + painel flutuante com km + OSRM
   * Search bar com placeholder "número da obra, nome ou local"
-  * **NOVO: Localizar obra no mapa** — barra de endereço/CEP no topo + **clique em qualquer ponto** do mapa: mostra coordenadas UTM 21S + toast, pin ciano aparece com popup para "+ Criar obra aqui" (abre drawer pré-preenchido), 📱 WhatsApp e ✕ Remover
+  * **Localizar obra no mapa** — barra de endereço/CEP + **clique em qualquer ponto** dropa pin ciano com UTM 21S + popup "+ Criar obra aqui"
+- **Anexos PDF + Import de Materiais (Emergent Object Storage)**:
+  * POST /api/projects/{id}/attachments (multipart, PDF/imagem, ≤ 25MB) → armazena em `hayah-energy/projects/{user}/{uuid}.pdf`
+  * GET /api/projects/{id}/attachments/{aid} → serve via blob autenticado
+  * DELETE /api/projects/{id}/attachments/{aid} → soft-delete (`is_deleted:true`)
+  * POST /api/projects/{id}/materials-import → parseia Excel (openpyxl) ou CSV (auto-detecta `;` vs `,`), aceita colunas item/descricao/material · quantidade/qtd · unidade/un · preco/valor/custo. Parser decimal inteligente (BR `1.234,56` e US `1,234.56`)
+  * UI no ProjectDrawer: seções "Projeto em PDF" e "Lista de Materiais" com upload/download/delete + tabela com total estimado
 
 ## Backlog (P1/P2)
 - Lead Time Indicators (Rec→Prog→Exec→Fech→Fatur)

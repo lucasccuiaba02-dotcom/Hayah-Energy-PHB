@@ -1,6 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
+import axios from 'axios';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, Zap, MapPin, Plus, Trash2, Calendar } from 'lucide-react';
+import { X, Zap, MapPin, Plus, Trash2, Calendar, FileText, Package, Upload, Download } from 'lucide-react';
 import {
   PROJECT_TYPES,
   TIPO_SERVICO,
@@ -11,6 +12,7 @@ import {
   todayISO,
 } from '../lib/constants';
 import { AddressSearchInput } from './AddressSearchInput';
+import { ProjectAttachmentsSection } from './ProjectAttachmentsSection';
 
 export const ProjectDrawer = ({ isOpen, onClose, onSave, project, teams, defaultScheduled = false }) => {
   const initialState = () => ({
@@ -573,6 +575,8 @@ export const ProjectDrawer = ({ isOpen, onClose, onSave, project, teams, default
                     </div>
                   </>
                 )}
+
+                <ProjectAttachmentsSection project={project} />
 
                 <div className="pt-4 flex gap-3">
                   <button type="button" onClick={onClose} className="flex-1 bg-white/5 border border-white/10 hover:bg-white/10 text-white font-bold py-3 rounded-full transition-all">Cancelar</button>
