@@ -2247,15 +2247,43 @@ async def import_materials_list(
 
 # Material request with PDF attachments
 
+@api_router.patch("/projects/{project_id}/materials/{item_id}")
+async def update_material_item(
+    project_id: str,
+    item_id: str,
+    body: dict,
+    current_user: dict = Depends(get_current_user),
+):
+    """Update quantity fields on a material item: qty_requested, qty_separated, qty_written_off, qty_delivered"""
+    allowed = {"qty_requested", "qty_separated", "qty_written_off", "qty_delivered", "notes"}
+    updates = {}
+    for k, v in body.items():
+        if k in allowed:
+            try:
+                updates[f"materials_list.$.{k}"] = float(v) if k != "notes" else str(v)
+            except Exception:
+                updates[f"materials_list.$.{k}"] = 0
+    if not updates:
+        raise HTTPException(status_code=400, detail="Nenhum campo válido")
+    result = await db.projects.update_one(
+        {"_id": safe_object_id(project_id), "user_id": current_user["_id"], "materials_list.id": item_id},
+        {"$set": updates}
+    )
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Item não encontrado")
+    return {"status": "updated", "id": item_id, "updates": updates}
+
+
 @api_router.post("/materials/request")
 async def request_materials(
     current_user: dict = Depends(get_current_user),
     project_id: str = Form(...),
     notes: str = Form(""),
+    signature_name: str = Form(""),
     material_pdf: Optional[UploadFile] = File(None),
     project_pdf: Optional[UploadFile] = File(None),
 ):
-    """Send material request email to warehouse with PDF attachments"""
+    """Send material request email to warehouse with PDF attachments + material list table."""
     project = await db.projects.find_one({"_id": safe_object_id(project_id), "user_id": current_user["_id"]})
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
@@ -2263,14 +2291,14 @@ async def request_materials(
     warehouse_email = os.environ.get("WAREHOUSE_EMAIL", "").strip()
     fallback_emails = os.environ.get("NOTIFICATION_EMAILS", "")
     if warehouse_email:
-        recipients = [warehouse_email]
+        recipients = [e.strip() for e in warehouse_email.replace(";", ",").split(",") if e.strip()]
     else:
-        recipients = [e.strip() for e in fallback_emails.split(",") if e.strip()]
+        recipients = [e.strip() for e in fallback_emails.replace(";", ",").split(",") if e.strip()]
     
     if not recipients:
         raise HTTPException(status_code=400, detail="Nenhum destinatário configurado")
     
-    # Read attachments
+    # Read attachments from upload
     attachments = []
     if material_pdf:
         content = await material_pdf.read()
@@ -2285,26 +2313,102 @@ async def request_materials(
             "content": list(content),
         })
     
+    # Include stored project PDF attachments as email attachments
+    stored_atts = [a for a in (project.get("attachments") or []) if not a.get("is_deleted")]
+    for a in stored_atts[:5]:  # limit 5
+        try:
+            data, _ = await storage_get(a["storage_path"])
+            attachments.append({
+                "filename": a.get("filename") or "anexo.pdf",
+                "content": list(data),
+            })
+        except Exception:
+            pass
+    
+    # Build material list HTML from project.materials_list
+    materials = project.get("materials_list", []) or []
+    materials_rows = ""
+    total_solicitado = 0
+    total_separado = 0
+    total_baixado = 0
+    total_entregue = 0
+    for m in materials:
+        qs = m.get("qty_requested", m.get("quantity", 0)) or 0
+        qsep = m.get("qty_separated", 0) or 0
+        qbx = m.get("qty_written_off", 0) or 0
+        qent = m.get("qty_delivered", 0) or 0
+        total_solicitado += qs
+        total_separado += qsep
+        total_baixado += qbx
+        total_entregue += qent
+        materials_rows += f"""
+        <tr>
+          <td style="padding: 6px 8px; border-bottom: 1px solid #eee;">{m.get('item','')}</td>
+          <td style="padding: 6px 8px; border-bottom: 1px solid #eee; text-align:center;">{m.get('unit','un')}</td>
+          <td style="padding: 6px 8px; border-bottom: 1px solid #eee; text-align:right;font-weight:bold;">{qs}</td>
+          <td style="padding: 6px 8px; border-bottom: 1px solid #eee; text-align:right;color:#00A050;">{qsep}</td>
+          <td style="padding: 6px 8px; border-bottom: 1px solid #eee; text-align:right;color:#FF5E00;">{qbx}</td>
+          <td style="padding: 6px 8px; border-bottom: 1px solid #eee; text-align:right;color:#005EE0;font-weight:bold;">{qent}</td>
+        </tr>"""
+
+    materials_table = f"""
+    <h3 style="color:#00F0FF;margin-top:24px;margin-bottom:8px;">Lista de Materiais ({len(materials)} itens)</h3>
+    <table width="100%" style="border-collapse:collapse;background:#fff;color:#050505;font-size:12px;border:1px solid #ddd;">
+      <thead>
+        <tr style="background:#050505;color:#E0FF00;">
+          <th style="padding:6px 8px;text-align:left;">Item</th>
+          <th style="padding:6px 8px;">Un</th>
+          <th style="padding:6px 8px;text-align:right;">Solicitado</th>
+          <th style="padding:6px 8px;text-align:right;">Separado</th>
+          <th style="padding:6px 8px;text-align:right;">Baixado</th>
+          <th style="padding:6px 8px;text-align:right;">Entregue</th>
+        </tr>
+      </thead>
+      <tbody>{materials_rows}</tbody>
+      <tfoot>
+        <tr style="background:#f5f5f5;font-weight:bold;">
+          <td colspan="2" style="padding:6px 8px;text-align:right;">TOTAIS</td>
+          <td style="padding:6px 8px;text-align:right;">{total_solicitado}</td>
+          <td style="padding:6px 8px;text-align:right;color:#00A050;">{total_separado}</td>
+          <td style="padding:6px 8px;text-align:right;color:#FF5E00;">{total_baixado}</td>
+          <td style="padding:6px 8px;text-align:right;color:#005EE0;">{total_entregue}</td>
+        </tr>
+      </tfoot>
+    </table>
+    """ if materials else ""
+
+    signature_block = ""
+    if signature_name:
+        signature_block = f"""
+        <div style="margin-top:28px;padding:16px;border-top:2px dashed #333;">
+          <p style="font-size:11px;color:#a1a1aa;margin:0;">Solicitado e assinado por:</p>
+          <p style="font-size:16px;color:#fff;margin:6px 0 0 0;font-weight:bold;">{signature_name}</p>
+        </div>
+        """
+
     html = f"""
-    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 24px;">
+    <div style="font-family: Arial, sans-serif; max-width: 720px; margin: 0 auto; padding: 24px;">
       <h1 style="color: #E0FF00; background: #050505; padding: 16px; margin: 0;">HAYAH ENERGY</h1>
       <div style="background: #050505; color: #fff; padding: 24px;">
         <h2 style="color: #00F0FF; margin-top: 0;">Solicitação de Material</h2>
         <table width="100%" style="border-collapse: collapse;">
           <tr><td style="padding: 6px 0; color: #a1a1aa; width: 40%;">Projeto:</td><td style="color: #fff; font-weight: bold;">{project.get('name','')}</td></tr>
-          <tr><td style="padding: 6px 0; color: #a1a1aa;">Código:</td><td style="color: #fff;">{project.get('project_code','') or '-'}</td></tr>
+          <tr><td style="padding: 6px 0; color: #a1a1aa;">Nº Obra:</td><td style="color: #fff;">{project.get('project_code','') or '-'}</td></tr>
           <tr><td style="padding: 6px 0; color: #a1a1aa;">Tipo:</td><td style="color: #fff;">{PROJECT_TYPE_LABELS.get(project.get('project_type'), '')}</td></tr>
           <tr><td style="padding: 6px 0; color: #a1a1aa;">Localidade:</td><td style="color: #fff;">{project.get('location','') or '-'}</td></tr>
-          <tr><td style="padding: 6px 0; color: #a1a1aa;">Equipe:</td><td style="color: #fff;">{project.get('team_name','') or '-'}</td></tr>
+          <tr><td style="padding: 6px 0; color: #a1a1aa;">Equipe:</td><td style="color: #fff;">{project.get('team_name','') or '-'}{(' + ' + (project.get('additional_team_name') or '')) if project.get('additional_team_name') else ''}</td></tr>
           <tr><td style="padding: 6px 0; color: #a1a1aa;">Período:</td><td style="color: #fff;">{(project.get('start_date') or '')[:10]} → {(project.get('end_date') or '')[:10]}</td></tr>
           <tr><td style="padding: 6px 0; color: #a1a1aa;">Solicitado por:</td><td style="color: #fff;">{current_user.get('name','')}</td></tr>
+          <tr><td style="padding: 6px 0; color: #a1a1aa;">Data solicitação:</td><td style="color: #fff;">{datetime.now(timezone.utc).astimezone().strftime('%d/%m/%Y %H:%M')}</td></tr>
         </table>
         {'<div style="margin-top: 20px; padding: 12px; background: rgba(255,255,255,0.05); border-left: 3px solid #E0FF00;"><p style="margin: 0; color: #fff;">' + notes + '</p></div>' if notes else ''}
+        {materials_table}
+        {signature_block}
         <p style="color: #71717a; font-size: 11px; margin-top: 24px;">Anexos: {len(attachments)} arquivo(s)</p>
       </div>
     </div>
     """
-    subject = f"[HAYAH] Solicitação de Material: {project.get('name','')}"
+    subject = f"[HAYAH] Solicitação de Material · {project.get('project_code','') or ''} · {project.get('name','')}"
     
     # Send via Resend with attachments
     api_key = os.environ.get("RESEND_API_KEY", "").strip()

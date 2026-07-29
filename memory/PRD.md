@@ -42,17 +42,19 @@ Dashboard, **Buscar Obras**, Operacional, Carteira, Programação, Calendário, 
 - **Multi-data schedule_entries**: obra pode ser programada em várias datas com equipes distintas
 - **cancel_reason obrigatório** quando status=cancelado/suspenso
 - **Geolocalização — melhorias**:
-  * FitBounds só na primeira carga + botão "Ajustar vista" → não volta mais ao zoom-out sozinho
-  * Popup dos markers: 3 botões — 📱 WhatsApp, 📏 Distância (foca só nesta), 🗺️ Rota
-  * "Distância só desta" desenha polyline única + painel flutuante com km + OSRM
-  * Search bar com placeholder "número da obra, nome ou local"
-  * **Localizar obra no mapa** — barra de endereço/CEP + **clique em qualquer ponto** dropa pin ciano com UTM 21S + popup "+ Criar obra aqui"
+  * FitBounds só na primeira carga + botão "Ajustar vista"
+  * Popup dos markers com 📱 WhatsApp, 📏 Distância, 🗺️ Rota
+  * Search + endereço/CEP + clique no mapa dropa pin com UTM
 - **Anexos PDF + Import de Materiais (Emergent Object Storage)**:
-  * POST /api/projects/{id}/attachments (multipart, PDF/imagem, ≤ 25MB) → armazena em `hayah-energy/projects/{user}/{uuid}.pdf`
-  * GET /api/projects/{id}/attachments/{aid} → serve via blob autenticado
-  * DELETE /api/projects/{id}/attachments/{aid} → soft-delete (`is_deleted:true`)
-  * POST /api/projects/{id}/materials-import → parseia Excel (openpyxl) ou CSV (auto-detecta `;` vs `,`), aceita colunas item/descricao/material · quantidade/qtd · unidade/un · preco/valor/custo. Parser decimal inteligente (BR `1.234,56` e US `1,234.56`)
-  * UI no ProjectDrawer: seções "Projeto em PDF" e "Lista de Materiais" com upload/download/delete + tabela com total estimado
+  * `/api/projects/{id}/attachments` GET/POST/DELETE (soft-delete)
+  * `/api/projects/{id}/materials-import` (Excel/CSV, parser BR/US)
+  * UI com upload/download/delete + tabela materiais
+- **Almoxarifado (aba Materiais) redesenhado**:
+  * Header: número da obra, data, equipe, localidade, campo de assinatura
+  * Tabela com 4 colunas editáveis: Solicitado · Separado · Baixado · Entregue (com totais)
+  * PATCH `/api/projects/{id}/materials/{item_id}` para atualizar qty por item
+  * Botão "Enviar Almoxarifado" dispara email para 5 destinatários (joenir, tadeu, eurismar, reinaldo, lucas @grupoatualmt.com.br) com tabela HTML + assinatura + anexos PDF do projeto (WAREHOUSE_EMAIL configurado no .env, aceita `;` e `,`)
+  * ⚠️ Emails dependem de RESEND_API_KEY — atualmente mocked
 
 ## Backlog (P1/P2)
 - Lead Time Indicators (Rec→Prog→Exec→Fech→Fatur)
