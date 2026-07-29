@@ -25,6 +25,7 @@ import httpx
 from push_notifications import ensure_vapid_keys, broadcast_push
 from daily_log_pdf import build_daily_log_pdf
 from route_pdf import build_route_pdf
+from material_requisition_pdf import build_requisition_pdf
 
 # Module-level cache for geocoding (TTL 60s handled per request)
 _geocode_cache: dict = {}
