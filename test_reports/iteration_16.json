@@ -1,0 +1,29 @@
+{
+  "summary": "Iteration 16 (Smart Excel parser + Lead Time + Radar de Backlog + Resend real) fully validated. Backend pytest: 7/7 green (test_faturamento_lead_times 2/2, test_satelite_real_file 2/2, test_materials_smart_parser 3/3) + new test_resend_active 2/2 = 9/9. Resend is ACTIVE — send_email_via_resend to delivered@resend.dev returned status='sent' with id (no more 'skipped'). Frontend E2E on /faturamento: seeded a stuck project (billing_stage=ajuste_material, entered 22d ago, R$ 42.500) via motor; verified (a) 4 LeadCards render (lead-rec-fech showed '9 dias' after transitions in billing_history, others '—'), (b) 4 KPIs (Total no ciclo, Backlog=R$42.500,00, Notas emitidas, Pago), (c) preset filter 7d/15d/30d/60d/90d/Todos + fat-start/fat-end date inputs, (d) 8 kanban stages (recebimento_tecnico → pago), (e) kanban card fat-card-{id} shows red badge fat-stuck-{id}='22d parado', (f) fat-stuck-radar section renders below the kanban listing the seeded project with 'sem equipe · Ajuste de Material · R$ 42.500,00 · 22 dias parada' (data-testid=fat-stuck-item-{id}), (g) clicking fat-stuck-item-{id} opens fat-detail-modal successfully. GET /api/faturamento/pipeline schema confirmed: lead_times (dict), lead_buckets (4 keys), stuck_projects (list of {id,project_code,name,billing_stage,team_name,days_in_stage,programmed_value,entered_stage_at}), stuck_threshold_days=15. Regression: kanban + KPIs + preset filter + login all OK.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_faturamento_lead_times.py",
+    "/app/backend/tests/test_satelite_real_file.py",
+    "/app/backend/tests/test_materials_smart_parser.py",
+    "/app/backend/tests/test_resend_active.py",
+    "/app/test_reports/pytest/iter16_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "FaturamentoPage.jsx: preset 'Todos' generates data-testid=fat-range-Todos (capital T) — inconsistent with other lowercase ones (fat-range-7d etc). Consider normalizing to fat-range-todos for predictability, though not a bug.",
+    "server.py still 3229 lines — split into routers/faturamento.py + routers/materiais.py + services/email.py for maintainability (carried over from iter15).",
+    "PUT /projects/{id}/billing-stage still accepts arbitrary stage transitions (can go backward). Document if intentional (correction) or add order enforcement (carried over from iter15).",
+    "send_email_via_resend uses SENDER_EMAIL default 'onboarding@resend.dev' — in Resend test/free mode this only delivers to verified addresses or delivered@resend.dev. Once user verifies their domain (hayahenergy.com or similar), update SENDER_EMAIL in .env. Not a bug, but a deployment task."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_resend_active.py",
+    "/app/backend/tests/_seed_stuck_ui.py"
+  ],
+  "success_rate": {"backend": "100% (9/9 pytest)", "frontend": "100% (LeadCards + Radar de Backlog + kanban badge + modal open + regressão)"},
+  "test_credentials": "admin@projectmatrix.com / Admin@123",
+  "seed_data_creation": "TEST_UI_STUCK_RADAR project seeded via motor with billing_history backdated 40/30/22d ago (billing_stage=ajuste_material, programmed_value=R$42.500); cleaned up after test with helper script /app/backend/tests/_seed_stuck_ui.py cleanup.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Iter16 completo. Novos endpoints /api/faturamento/pipeline agora expõem lead_times/lead_buckets/stuck_projects/stuck_threshold_days=15. UI /faturamento tem: 4 LeadCards (data-testid fat-lead-times + lead-rec-fech/lead-fech-fisc/lead-fisc-aprv/lead-aprv-pago), badge 'Xd parado' (data-testid fat-stuck-{id}) nos cards do kanban, e seção fat-stuck-radar com itens fat-stuck-item-{id} clicáveis que abrem fat-detail-modal. Resend ATIVO via .env RESEND_API_KEY — envio real confirmado a delivered@resend.dev. Test seed helper: python /app/backend/tests/_seed_stuck_ui.py seed|cleanup. Nota: preset 'Todos' usa data-testid=fat-range-Todos (T maiúsculo) — outros são minúsculos."
+}
