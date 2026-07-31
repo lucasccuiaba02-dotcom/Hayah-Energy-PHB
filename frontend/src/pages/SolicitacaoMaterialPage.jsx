@@ -5,7 +5,7 @@ import { toast } from 'sonner';
 import { AppLayout } from '../components/AppLayout';
 import {
   Package, Send, FileText, MapPin, Users, Calendar, Hash, PenLine,
-  CheckCircle2, History, FileDown, Camera, Truck, AlertCircle, Loader, RefreshCw,
+  CheckCircle2, History, FileDown, Camera, Truck, AlertCircle, Loader, RefreshCw, Eye, X,
 } from 'lucide-react';
 import { PROJECT_TYPE_LABEL, formatCurrency, todayISO } from '../lib/constants';
 
@@ -22,6 +22,8 @@ export const SolicitacaoMaterialPage = () => {
   const [confirmingId, setConfirmingId] = useState(null);
   const [resendingId, setResendingId] = useState(null);
   const [me, setMe] = useState(null);
+  const [previewUrl, setPreviewUrl] = useState(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
 
   useEffect(() => {
     axios.get(`${API}/projects`).then(({ data }) => setProjects(data));
@@ -57,6 +59,32 @@ export const SolicitacaoMaterialPage = () => {
     } catch (err) {
       toast.error(err?.response?.data?.detail || 'Erro ao salvar');
     } finally { setSavingRow(null); }
+  };
+
+  const handlePreview = async () => {
+    if (!selectedProject) { toast.error('Selecione uma obra'); return; }
+    if (materials.length === 0) { toast.error('Importe a lista de materiais antes de gerar prévia'); return; }
+    if (!signatureName) { toast.error('Preencha a assinatura'); return; }
+    setPreviewLoading(true);
+    try {
+      const fd = new FormData();
+      fd.append('project_id', selectedProject);
+      fd.append('notes', notes);
+      fd.append('signature_name', signatureName);
+      const res = await axios.post(`${API}/materials/preview`, fd, {
+        responseType: 'blob',
+        headers: { 'Content-Type': 'multipart/form-data' },
+      });
+      const url = URL.createObjectURL(new Blob([res.data], { type: 'application/pdf' }));
+      setPreviewUrl(url);
+    } catch (err) {
+      toast.error(err.response?.data?.detail || 'Erro ao gerar prévia');
+    } finally { setPreviewLoading(false); }
+  };
+
+  const closePreview = () => {
+    if (previewUrl) URL.revokeObjectURL(previewUrl);
+    setPreviewUrl(null);
   };
 
   const handleSend = async () => {
@@ -153,6 +181,14 @@ export const SolicitacaoMaterialPage = () => {
               <h2 className="font-heading font-black text-2xl tracking-tighter text-white">Requisição de Almoxarifado</h2>
               <p className="text-xs text-zinc-500">PDF gerado automático com QR + assinatura · envio por email para 5 destinatários</p>
             </div>
+            <button
+              data-testid="preview-material-request"
+              onClick={handlePreview}
+              disabled={previewLoading || !selectedProject}
+              className="bg-white/5 border border-[#00F0FF]/40 hover:bg-[#00F0FF]/10 text-[#00F0FF] font-bold px-5 py-3 rounded-full transition-all disabled:opacity-40 inline-flex items-center gap-2"
+            >
+              <Eye className="w-4 h-4" /> {previewLoading ? 'Gerando…' : 'Prévia PDF'}
+            </button>
             <button
               data-testid="send-material-request"
               onClick={handleSend}
@@ -296,6 +332,62 @@ export const SolicitacaoMaterialPage = () => {
           </motion.div>
         )}
       </div>
+
+      {previewUrl && (
+        <div
+          data-testid="material-preview-modal"
+          className="fixed inset-0 z-[60] flex items-center justify-center bg-black/85 backdrop-blur-sm p-4"
+          onClick={closePreview}
+        >
+          <motion.div
+            initial={{ scale: 0.96, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            onClick={(e) => e.stopPropagation()}
+            className="glass-panel rounded-2xl border border-[#00F0FF]/40 w-full max-w-4xl h-[85vh] flex flex-col overflow-hidden"
+          >
+            <div className="px-4 py-3 border-b border-white/10 flex items-center gap-3">
+              <div className="w-9 h-9 rounded-lg bg-[#00F0FF]/15 border border-[#00F0FF]/40 flex items-center justify-center">
+                <Eye className="w-4 h-4 text-[#00F0FF]" />
+              </div>
+              <div className="flex-1">
+                <p className="text-[10px] tracking-[0.25em] uppercase font-bold text-[#00F0FF]">Prévia da requisição</p>
+                <h3 className="text-white font-bold text-sm">
+                  {selected?.project_code ? `[${selected.project_code}] ` : ''}{selected?.name}
+                </h3>
+              </div>
+              <a
+                data-testid="material-preview-download"
+                href={previewUrl}
+                download={`previa_${selected?.project_code || 'obra'}.pdf`}
+                className="text-[11px] bg-white/5 border border-white/10 hover:bg-white/10 text-[#00F0FF] px-3 py-1.5 rounded-full inline-flex items-center gap-1"
+              >
+                <FileDown className="w-3 h-3" /> Baixar
+              </a>
+              <button
+                data-testid="material-preview-send"
+                onClick={() => { closePreview(); handleSend(); }}
+                disabled={sending}
+                className="text-[11px] bg-[#FF5E00] hover:bg-[#E55400] text-black font-bold px-4 py-1.5 rounded-full inline-flex items-center gap-1 disabled:opacity-40"
+              >
+                <Send className="w-3 h-3" /> Enviar para o Almoxarifado
+              </button>
+              <button
+                data-testid="material-preview-close"
+                onClick={closePreview}
+                className="w-8 h-8 rounded-full flex items-center justify-center text-zinc-500 hover:text-white hover:bg-white/5"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <iframe
+              data-testid="material-preview-iframe"
+              src={previewUrl}
+              title="Prévia da requisição"
+              className="flex-1 w-full bg-white"
+            />
+          </motion.div>
+        </div>
+      )}
     </AppLayout>
   );
 };

@@ -2674,6 +2674,38 @@ async def update_material_item(
     return {"status": "updated", "id": item_id, "updates": updates}
 
 
+@api_router.post("/materials/preview")
+async def preview_material_requisition(
+    current_user: dict = Depends(get_current_user),
+    project_id: str = Form(...),
+    notes: str = Form(""),
+    signature_name: str = Form(""),
+):
+    """Generate the requisition PDF WITHOUT sending it. Returns application/pdf inline so the frontend
+    can render it in an iframe/preview modal. No history entry is created, no email is sent."""
+    project = await db.projects.find_one({"_id": safe_object_id(project_id), "user_id": current_user["_id"]})
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    preview_id = "PREVIEW-" + secrets.token_urlsafe(6)
+    try:
+        pdf_bytes = await asyncio.to_thread(
+            build_requisition_pdf,
+            project,
+            signature_name,
+            notes,
+            preview_id,
+            current_user.get("name", ""),
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erro ao gerar PDF: {e}")
+    filename = f"previa_requisicao_{project.get('project_code','') or 'obra'}.pdf"
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'inline; filename="{filename}"'},
+    )
+
+
 @api_router.post("/materials/request")
 async def request_materials(
     current_user: dict = Depends(get_current_user),
@@ -2683,7 +2715,6 @@ async def request_materials(
     material_pdf: Optional[UploadFile] = File(None),
     project_pdf: Optional[UploadFile] = File(None),
 ):
-    """Send material request email to warehouse with PDF attachments + material list table."""
     project = await db.projects.find_one({"_id": safe_object_id(project_id), "user_id": current_user["_id"]})
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")

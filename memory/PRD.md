@@ -55,9 +55,14 @@ Dashboard, **Buscar Obras**, Operacional, Carteira, Programação, Calendário, 
   * Seção "Radar de Backlog" abaixo do kanban lista obras paradas com valor total, ordenadas por dias parados (mais crítico primeiro), clique abre o modal de detalhe
 - **Resend ATIVO** (Fev/2026):
   * `RESEND_API_KEY` configurada no `.env`
-  * Sender: `Hayah Energy <onboarding@resend.dev>` (modo teste — só entrega para emails verificados na conta Resend, ou `delivered@resend.dev`)
-  * **Próxima etapa**: verificar domínio próprio (ex.: `grupoatualmt.com.br`) em https://resend.com/domains para entregar aos destinatários reais em `NOTIFICATION_EMAILS`/`WAREHOUSE_EMAIL`
+  * Sender: `Hayah Energy <noreply@hayahenergy.com.br>` (Fev/2026 — usuário forneceu o domínio hayahenergy.com.br)
+  * **PENDENTE**: verificar o domínio `hayahenergy.com.br` em https://resend.com/domains adicionando os DNS records (TXT/DKIM/SPF). Enquanto não verificar, envios reais retornam 403 e `email_status=error`. Como fallback pode-se voltar para `onboarding@resend.dev` (sempre entrega para `delivered@resend.dev`)
   * Endpoints já usam `send_email_via_resend()` em: material requests, requisition resend, anexo IV D-2, checklist alerts, tomorrow schedule
+- **Prévia PDF de Requisição** (Fev/2026):
+  * `POST /api/materials/preview` — gera o PDF via `build_requisition_pdf()` e devolve `application/pdf` inline SEM criar histórico nem enviar email
+  * Botão ciano "Prévia PDF" (data-testid=preview-material-request) ao lado de "Enviar Almoxarifado"
+  * Modal (data-testid=material-preview-modal) com iframe embutido (data-testid=material-preview-iframe) + botões "Baixar" e "Enviar para o Almoxarifado" (fecha o modal e chama handleSend)
+  * Testes: `/app/backend/tests/test_materials_preview.py` (2/2 verdes)
 
 ## Backlog (P1/P2)
 - Verificação de domínio Resend (deixar de usar `onboarding@resend.dev`)
