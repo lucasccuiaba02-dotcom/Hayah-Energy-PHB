@@ -348,6 +348,11 @@ class ProjectResponse(BaseModel):
     attachments: List[dict] = Field(default_factory=list)
     materials_list: List[dict] = Field(default_factory=list)
     material_requisitions: List[dict] = Field(default_factory=list)
+    billing_stage: str = ""
+    billing_history: List[dict] = Field(default_factory=list)
+    invoice_number: str = ""
+    invoice_date: str = ""
+    invoice_value: float = 0.0
     postes_qty: int = 0
     transformadores_qty: int = 0
     km_rede: float = 0.0
@@ -803,6 +808,11 @@ def build_project_response(project: dict) -> ProjectResponse:
         attachments=project.get("attachments", []) or [],
         materials_list=project.get("materials_list", []) or [],
         material_requisitions=project.get("material_requisitions", []) or [],
+        billing_stage=project.get("billing_stage", ""),
+        billing_history=project.get("billing_history", []) or [],
+        invoice_number=project.get("invoice_number", ""),
+        invoice_date=project.get("invoice_date", ""),
+        invoice_value=project.get("invoice_value", 0.0),
         additional_team_id=project.get("additional_team_id"),
         additional_team_name=project.get("additional_team_name"),
         postes_qty=project.get("postes_qty", 0),
@@ -980,9 +990,171 @@ async def update_project(project_id: str, project_data: ProjectUpdate, current_u
     )
     if result.matched_count == 0:
         raise HTTPException(status_code=404, detail="Project not found")
+
+    # Auto-move to billing pipeline when execution status becomes "concluido"
+    new_exec = update_data.get("execution_status")
+    old_exec = existing.get("execution_status")
+    if new_exec == "concluido" and old_exec != "concluido" and not existing.get("billing_stage"):
+        billing_entry = {
+            "stage": "recebimento_tecnico",
+            "changed_at": datetime.now(timezone.utc).isoformat(),
+            "changed_by": current_user.get("name", ""),
+            "notes": "Auto-transição por conclusão da obra",
+        }
+        await db.projects.update_one(
+            {"_id": safe_object_id(project_id)},
+            {"$set": {"billing_stage": "recebimento_tecnico"}, "$push": {"billing_history": billing_entry}},
+        )
     
     project = await db.projects.find_one({"_id": safe_object_id(project_id)})
     return build_project_response(project)
+
+
+# ============= FATURAMENTO / BILLING PIPELINE =============
+BILLING_STAGES = [
+    "recebimento_tecnico",
+    "em_fechamento",
+    "ajuste_material",
+    "pendencia_construtiva",
+    "aguardando_fiscalizacao",
+    "aprovada",
+    "digitada",
+    "pago",
+]
+
+BILLING_STAGE_LABELS = {
+    "recebimento_tecnico": "Recebimento Técnico",
+    "em_fechamento": "Em Fechamento",
+    "ajuste_material": "Ajuste de Material",
+    "pendencia_construtiva": "Pendência Construtiva",
+    "aguardando_fiscalizacao": "Aguardando Fiscalização",
+    "aprovada": "Aprovada",
+    "digitada": "Digitada",
+    "pago": "Pago",
+}
+
+
+class BillingStageUpdate(BaseModel):
+    stage: str
+    notes: Optional[str] = ""
+    invoice_number: Optional[str] = None
+    invoice_date: Optional[str] = None
+    invoice_value: Optional[float] = None
+
+
+@api_router.put("/projects/{project_id}/billing-stage")
+async def update_billing_stage(
+    project_id: str,
+    body: BillingStageUpdate,
+    current_user: dict = Depends(get_current_user),
+):
+    if body.stage not in BILLING_STAGES:
+        raise HTTPException(status_code=400, detail=f"Estágio inválido. Válidos: {BILLING_STAGES}")
+    existing = await db.projects.find_one({"_id": safe_object_id(project_id), "user_id": current_user["_id"]})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Obra não encontrada")
+
+    updates = {"billing_stage": body.stage}
+    if body.invoice_number is not None:
+        updates["invoice_number"] = body.invoice_number
+    if body.invoice_date is not None:
+        updates["invoice_date"] = body.invoice_date
+    if body.invoice_value is not None:
+        updates["invoice_value"] = body.invoice_value
+
+    entry = {
+        "stage": body.stage,
+        "changed_at": datetime.now(timezone.utc).isoformat(),
+        "changed_by": current_user.get("name", ""),
+        "notes": body.notes or "",
+    }
+    await db.projects.update_one(
+        {"_id": safe_object_id(project_id)},
+        {"$set": updates, "$push": {"billing_history": entry}},
+    )
+    project = await db.projects.find_one({"_id": safe_object_id(project_id)})
+    return build_project_response(project)
+
+
+@api_router.get("/faturamento/pipeline")
+async def billing_pipeline(
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    current_user: dict = Depends(get_current_user),
+):
+    """Pipeline (esteira) grouped by billing_stage. Filter by billing_stage-change date (from billing_history)."""
+    query: dict = {"user_id": current_user["_id"], "billing_stage": {"$ne": ""}}
+    projects = await db.projects.find(query).to_list(2000)
+
+    def entered_stage_at(p: dict) -> str:
+        # Look at the last billing_history entry for the current stage
+        hist = p.get("billing_history") or []
+        stage = p.get("billing_stage") or ""
+        for h in reversed(hist):
+            if h.get("stage") == stage:
+                return (h.get("changed_at") or "")[:10]
+        return (p.get("start_date") or "")[:10]
+
+    def in_range(iso_date: str) -> bool:
+        if not iso_date:
+            return True
+        if start_date and iso_date < start_date:
+            return False
+        if end_date and iso_date > end_date:
+            return False
+        return True
+
+    pipeline: dict = {s: [] for s in BILLING_STAGES}
+    totals = {"count": 0, "value": 0.0, "invoiced": 0.0}
+    per_stage_totals = {s: {"count": 0, "value": 0.0} for s in BILLING_STAGES}
+
+    for p in projects:
+        entered = entered_stage_at(p)
+        if not in_range(entered):
+            continue
+        stage = p.get("billing_stage")
+        if stage not in pipeline:
+            continue
+        val = float(p.get("programmed_value") or 0)
+        inv_val = float(p.get("invoice_value") or 0)
+        item = {
+            "id": str(p["_id"]),
+            "project_code": p.get("project_code", ""),
+            "name": p.get("name", ""),
+            "team_name": p.get("team_name", ""),
+            "location": p.get("location", ""),
+            "programmed_value": val,
+            "invoice_value": inv_val,
+            "invoice_number": p.get("invoice_number", ""),
+            "invoice_date": p.get("invoice_date", ""),
+            "billing_stage": stage,
+            "entered_stage_at": entered,
+            "requires_hot_line": p.get("requires_hot_line", False),
+        }
+        pipeline[stage].append(item)
+        totals["count"] += 1
+        totals["value"] += val
+        totals["invoiced"] += inv_val
+        per_stage_totals[stage]["count"] += 1
+        per_stage_totals[stage]["value"] += val
+
+    # Sort each stage by entered_at ascending (oldest = most stuck)
+    for s in pipeline:
+        pipeline[s].sort(key=lambda x: x.get("entered_stage_at") or "")
+
+    # Backlog = anything not in "pago"
+    backlog_value = sum(per_stage_totals[s]["value"] for s in BILLING_STAGES if s != "pago")
+    paid_value = per_stage_totals["pago"]["value"]
+
+    return {
+        "pipeline": pipeline,
+        "stages": [{"key": k, "label": v} for k, v in BILLING_STAGE_LABELS.items()],
+        "totals": totals,
+        "per_stage": per_stage_totals,
+        "backlog_value": backlog_value,
+        "paid_value": paid_value,
+    }
+
 
 @api_router.delete("/projects/{project_id}")
 async def delete_project(project_id: str, current_user: dict = Depends(get_current_user)):
@@ -1992,32 +2164,61 @@ async def get_calendar_view(
         grid[tm["id"] or "unassigned"] = {d: [] for d in dates}
     
     for p in projects:
-        ps = (p.get("start_date") or "")[:10]
-        pe = (p.get("end_date") or "")[:10]
-        if not ps:
-            continue
-        tid = p.get("team_id") or "unassigned"
-        # For each date in project span that falls within range
-        try:
-            p_start = dt.fromisoformat(ps).date()
-            p_end = dt.fromisoformat(pe).date() if pe else p_start
-        except Exception:
-            continue
-        cursor = max(p_start, start_dt)
-        finish = min(p_end, end_dt)
-        while cursor <= finish:
-            date_iso = cursor.isoformat()
-            if tid in grid and date_iso in grid[tid]:
-                grid[tid][date_iso].append({
-                    "id": str(p["_id"]),
-                    "code": p.get("project_code") or p.get("name", ""),
-                    "name": p.get("name", ""),
-                    "execution_status": p.get("execution_status", "aguardando_inicio"),
-                    "requires_hot_line": p.get("requires_hot_line", False),
-                    "shutdown_info": p.get("shutdown_info", ""),
-                    "location": p.get("location", ""),
-                })
-            cursor += td(days=1)
+        # Build (date, team_id) pairs from schedule_entries if present, else fallback
+        entries = p.get("schedule_entries") or []
+        pairs = []  # list of (date_iso, team_id)
+        if entries:
+            for e in entries:
+                d_str = (e.get("date") or "")[:10]
+                if not d_str:
+                    continue
+                team_ids_list = e.get("team_ids") or []
+                if not team_ids_list:
+                    pairs.append((d_str, None))
+                else:
+                    for tid in team_ids_list:
+                        pairs.append((d_str, tid))
+        else:
+            ps = (p.get("start_date") or "")[:10]
+            pe = (p.get("end_date") or "")[:10]
+            if not ps:
+                continue
+            try:
+                p_start = dt.fromisoformat(ps).date()
+                p_end = dt.fromisoformat(pe).date() if pe else p_start
+            except Exception:
+                continue
+            legacy_teams = [t for t in [p.get("team_id"), p.get("additional_team_id")] if t]
+            if not legacy_teams:
+                legacy_teams = [None]
+            cursor = p_start
+            while cursor <= p_end:
+                for tid in legacy_teams:
+                    pairs.append((cursor.isoformat(), tid))
+                cursor += td(days=1)
+
+        # Filter pairs to visible date range and push to grid
+        for date_iso, tid in pairs:
+            try:
+                d_date = dt.fromisoformat(date_iso).date()
+            except Exception:
+                continue
+            if d_date < start_dt or d_date > end_dt:
+                continue
+            key = tid or "unassigned"
+            if key not in grid:
+                grid[key] = {d: [] for d in dates}
+            if date_iso not in grid[key]:
+                grid[key][date_iso] = []
+            grid[key][date_iso].append({
+                "id": str(p["_id"]),
+                "code": p.get("project_code") or p.get("name", ""),
+                "name": p.get("name", ""),
+                "execution_status": p.get("execution_status", "aguardando_inicio"),
+                "requires_hot_line": p.get("requires_hot_line", False),
+                "shutdown_info": p.get("shutdown_info", ""),
+                "location": p.get("location", ""),
+            })
     
     return {
         "dates": dates,

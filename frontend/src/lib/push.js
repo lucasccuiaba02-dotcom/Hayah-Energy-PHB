@@ -26,9 +26,23 @@ export async function currentPushStatus() {
 }
 
 export async function subscribeToPush() {
-  if (!(await isPushSupported())) throw new Error('Push não suportado neste navegador');
+  if (!(await isPushSupported())) {
+    throw new Error('Este navegador não suporta notificações push. Use Chrome/Edge no Android ou desktop.');
+  }
+  // If previously denied, guide the user
+  if (Notification.permission === 'denied') {
+    throw new Error(
+      'Notificações estão BLOQUEADAS neste site. Para ativar:\n\n' +
+      '1. Clique no cadeado 🔒 (ou "i") na barra de endereço\n' +
+      '2. Encontre "Notificações" → mude para "Permitir"\n' +
+      '3. Recarregue a página e clique em Ativar de novo\n\n' +
+      'Em iOS Safari: adicione o app à Tela de Início antes de ativar.'
+    );
+  }
   const permission = await Notification.requestPermission();
-  if (permission !== 'granted') throw new Error('Permissão negada');
+  if (permission !== 'granted') {
+    throw new Error('Permissão negada. Clique no cadeado 🔒 da barra de endereço, mude Notificações para "Permitir" e recarregue.');
+  }
   let reg = await navigator.serviceWorker.getRegistration();
   if (!reg) reg = await navigator.serviceWorker.register('/sw.js');
   const { data } = await axios.get(`${API}/push/vapid-key`);
