@@ -117,7 +117,7 @@ export const FaturamentoPage = () => {
           ].map((r) => (
             <button
               key={r.l}
-              data-testid={`fat-range-${r.l}`}
+              data-testid={`fat-range-${r.l.toLowerCase()}`}
               onClick={() => applyRangePreset(r.d)}
               className={`text-[11px] font-bold px-3 py-1.5 rounded-full ${range === String(r.d) ? 'bg-[#E0FF00] text-black' : 'bg-white/5 border border-white/10 text-zinc-400 hover:text-white'}`}
             >
