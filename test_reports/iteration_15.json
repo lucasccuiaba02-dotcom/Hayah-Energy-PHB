@@ -1,0 +1,37 @@
+{
+  "summary": "Iteration 15 (Faturamento pipeline + Smart Excel parser + PushBlockedHelpModal) fully validated end-to-end. Backend: 6/6 pytest verdes em test_iteration15.py — auto-transição execution_status='concluido' → billing_stage='recebimento_tecnico' com billing_history entry OK; PUT /api/projects/{id}/billing-stage percorre os 8 estágios (recebimento_tecnico → em_fechamento → ajuste_material → pendencia_construtiva → aguardando_fiscalizacao → aprovada → digitada → pago); campos invoice_number/invoice_date/invoice_value persistem no PUT; stage inválido retorna 400; GET /api/faturamento/pipeline retorna shape completo (pipeline/stages/totals/backlog_value/paid_value/per_stage), agrupa por billing_stage, calcula backlog (tudo != 'pago') e paid corretamente, e o filtro start_date/end_date funciona (janela 2099 → zero). Smart parser 3/3 verdes em test_materials_smart_parser.py — escolhe a aba com mais itens (LISTA MATERIAIS > CAPA > RESUMO), detecta header abaixo de logo (row 5), filtra TOTAL/SUBTOTAL, mantém retrocompatibilidade com header na row 1. Frontend: LOGIN admin@projectmatrix.com OK, sidebar mostra nav-faturamento entre nav-calendario e nav-geolocalizacao (índices 5,6,7). Dashboard: banner de notificações mostra 'Bloqueado · Como desbloquear?' (push-blocked-help-btn) quando Notification.permission='denied' (após aguardar ~4s para currentPushStatus async); clique abre push-blocked-modal com push-blocked-reload + push-blocked-ok + push-blocked-close, X fecha o modal corretamente. stat-card-projects renderiza após 2s (KPIs async). Faturamento: /faturamento renderiza os 8 cards de coluna (recebimento_tecnico até pago) + 4 KPIs (Total no ciclo, Backlog, Notas emitidas, Pago) + filtro CICLO com 7d/15d/30d/60d/90d/Todos + inputs fat-start/fat-end. E2E crítico validado: criei obra via API → PUT execution_status='concluido' → obra apareceu AUTOMATICAMENTE em fat-card-{pid} na coluna Recebimento Técnico → cliquei fat-next-{pid} → obra moveu para próximo estágio → cliquei fat-card-{pid} → fat-detail-modal abriu com todos os campos (fat-detail-invoice-number, fat-detail-invoice-date, fat-detail-invoice-value, fat-detail-stage, fat-detail-notes, fat-detail-save) → preenchi NF=NF-UI-2026-15, data=2026-02-01, valor=4500.50, mudei stage='aprovada' via SELECT nativo → save → toast 'Etapa atualizada' → GET /api/projects/{pid} confirmou stage='aprovada' + invoice_number/date/value persistidos + KPI 'Notas emitidas' subiu para R$ 4.500,50. Regressão: view-mode-matrix presente em /programacao.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration15.py",
+    "/app/backend/tests/test_materials_smart_parser.py",
+    "/app/test_reports/pytest/iter15_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "FaturamentoPage: as colunas kanban (fat-column-{stage}) NÃO estão sendo detectadas pelo card.closest('[data-testid^=fat-column-]') no DOM — o card fat-card-{id} não está aninhado dentro do wrapper com data-testid=fat-column-{stage}, ou o data-testid=fat-column está em elemento irmão. Não é bloqueante (funciona visualmente, card foi para Aprovada na screenshot), mas selectors para 'em qual coluna está X' devem usar containment por posição no grid ou adicionar o card como descendente da coluna com o mesmo testid.",
+    "DashboardPage: pushStatus inicia como 'unknown' e só é atualizado após useEffect assíncrono (isPushSupported + currentPushStatus). Testes que checam push-blocked-help-btn imediatamente após navigate falham. Considerar renderizar um esqueleto/estado 'checando…' ou expor um data-testid=push-banner-loaded para testes determinísticos.",
+    "PUT /projects/{id}/billing-stage aceita voltar para estágio anterior sem restrição (ordem BILLING_STAGES não é enforçada). Se for regra de negócio permitir apenas avançar, adicionar validação; se retrocesso é desejado (correção de erro), documentar.",
+    "GET /api/faturamento/pipeline filtra por entered_stage_at derivado de billing_history — se um projeto tem billing_stage setado por auto-transição no update_project (linha 998-1007) mas NÃO tem entry correspondente no billing_history (edge case de dados legacy), cai no fallback start_date, o que pode distorcer o filtro por data. Auto-transição JÁ grava a entry (OK), mas dados pré-existentes na coleção podem não ter — considerar migration.",
+    "server.py atingiu 3128 linhas — modularização recomendada (routers/faturamento.py, routers/materiais.py) para manutenibilidade."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iteration15.py"
+  ],
+  "success_rate": {
+    "backend": "100% (6/6 iter15 + 3/3 smart_parser = 9/9)",
+    "frontend": "100% (Faturamento pipeline E2E + PushBlockedHelpModal + regressão sidebar/dashboard/programação)"
+  },
+  "test_credentials": "admin@projectmatrix.com / Admin@123",
+  "seed_data_creation": "Test projects/teams (TEST_iter15_billing, TEST_iter15_split_0/1, TEST_iter15_team, TEST_iter15_ui, TEST_iter15_ui_obra) foram criados e deletados durante os testes; fixtures pytest têm teardown, o teste UI também deleta via fetch antes de finalizar.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Iter15 (Faturamento + Smart Parser + PushBlockedHelpModal) todas features verdes. Backend em /app/backend/tests/test_iteration15.py (6 testes). FLUXO E2E confirmado: criar obra → PUT execution_status=concluido → auto-move para billing_stage=recebimento_tecnico com history entry → aparece em fat-card-{id} na página /faturamento → fat-next-{id} avança stage → click no card abre fat-detail-modal com fat-detail-invoice-number/date/value/stage(SELECT nativo)/notes/save. Persistência confirmada via GET /api/projects/{id}. IMPORTANTE: banner de push só mostra push-blocked-help-btn após ~3-4s (pushStatus async determinado em useEffect); tests devem aguardar. Nota: card fat-card-{id} não é descendant do wrapper fat-column-{stage}, então card.closest('[data-testid^=fat-column-]') retorna null (não bug, mas selector de containment falha)."
+}

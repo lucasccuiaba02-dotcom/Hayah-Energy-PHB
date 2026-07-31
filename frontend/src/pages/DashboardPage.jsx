@@ -9,6 +9,7 @@ import { ProjectFilters } from '../components/ProjectFilters';
 import { SearchBar } from '../components/SearchBar';
 import { formatCurrency } from '../lib/constants';
 import { isPushSupported, currentPushStatus, subscribeToPush, unsubscribeFromPush } from '../lib/push';
+import { PushBlockedHelpModal } from '../components/PushBlockedHelpModal';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -19,6 +20,7 @@ export const DashboardPage = () => {
   const [scheduleStats, setScheduleStats] = useState(null);
   const [anexoAlerts, setAnexoAlerts] = useState([]);
   const [pushStatus, setPushStatus] = useState('unknown');
+  const [pushHelpOpen, setPushHelpOpen] = useState(false);
   const [filters, setFilters] = useState({ startDate: '', endDate: '', teamId: '', minValue: '', maxValue: '' });
   const [search, setSearch] = useState('');
   const [kpis, setKpis] = useState(null);
@@ -81,12 +83,20 @@ export const DashboardPage = () => {
   const hasActiveFilters = filters.startDate || filters.endDate || filters.teamId || filters.minValue || filters.maxValue;
 
   const handleEnablePush = async () => {
+    if (Notification.permission === 'denied') {
+      setPushHelpOpen(true);
+      return;
+    }
     try {
       await subscribeToPush();
       setPushStatus('subscribed');
       toast.success('Notificações ativadas neste dispositivo!');
     } catch (err) {
-      toast.error(err.message || 'Não foi possível ativar push');
+      if (err?.message && err.message.toLowerCase().includes('bloquead')) {
+        setPushHelpOpen(true);
+      } else {
+        toast.error(err.message || 'Não foi possível ativar push');
+      }
     }
   };
 
@@ -160,12 +170,20 @@ export const DashboardPage = () => {
           {pushStatus === 'subscribed' ? (
             <button data-testid="push-disable-btn" onClick={handleDisablePush} className="text-[11px] font-bold text-zinc-400 hover:text-white underline flex-shrink-0">Desativar</button>
           ) : pushStatus === 'denied' ? (
-            <span className="text-[11px] text-[#FF003C] flex-shrink-0">Bloqueado no navegador</span>
+            <button
+              data-testid="push-blocked-help-btn"
+              onClick={() => setPushHelpOpen(true)}
+              className="text-[11px] font-bold bg-[#FF003C]/15 border border-[#FF003C]/40 text-[#FF003C] px-3 py-1.5 rounded-full hover:bg-[#FF003C]/25 transition-all flex-shrink-0"
+            >
+              Bloqueado · Como desbloquear?
+            </button>
           ) : (
             <button data-testid="push-enable-btn" onClick={handleEnablePush} className="text-[11px] font-bold bg-[#E0FF00] text-black px-3 py-1.5 rounded-full hover:scale-105 transition-all flex-shrink-0">Ativar</button>
           )}
         </motion.div>
       )}
+
+      <PushBlockedHelpModal open={pushHelpOpen} onClose={() => setPushHelpOpen(false)} />
 
       <div className="mb-4"><SearchBar value={search} onChange={setSearch} testid="dashboard-search" /></div>
 

@@ -2351,8 +2351,10 @@ async def import_materials_list(
     replace: bool = Form(False),
     current_user: dict = Depends(get_current_user),
 ):
-    """Import material list from Excel (.xlsx) or CSV (.csv). 
-    Expected columns (flexible names): item/descricao/material, quantidade/qtd, unidade/un, preco/valor/custo."""
+    """Import material list from Excel (.xlsx) or CSV (.csv).
+    Smart parser: varre TODAS as abas, detecta a linha do cabeçalho procurando por
+    keywords (item/descricao/quantidade/codigo) e extrai a lista mesmo quando há
+    logo/cabeçalho acima. Ideal para o template Satelite.xlsx."""
     project = await db.projects.find_one({"_id": safe_object_id(project_id), "user_id": current_user["_id"]})
     if not project:
         raise HTTPException(status_code=404, detail="Obra não encontrada")
@@ -2360,30 +2362,123 @@ async def import_materials_list(
     if len(content) > 10 * 1024 * 1024:
         raise HTTPException(status_code=400, detail="Arquivo maior que 10MB")
     fname = (file.filename or "").lower()
+
+    HEADER_KEYWORDS = {
+        "item": ["item", "descricao", "descrição", "material", "produto", "nome", "designacao", "designação"],
+        "quantity": ["quantidade", "quant.", "quant", "qtd", "qtde", "qte"],
+        "unit": ["unidade", "unid.", "unid", "un", "um"],
+        "code": ["codigo", "código", "cod.", "cod", "sap", "item mat", "id"],
+        "cost": ["preco", "preço", "valor", "custo", "vlr", "unit price", "unit cost"],
+    }
+
+    def norm(s):
+        return str(s or "").strip().lower()
+
+    def match_field(header_cell: str):
+        h = norm(header_cell)
+        if not h:
+            return None
+        for field, keys in HEADER_KEYWORDS.items():
+            for k in keys:
+                if k == h or (len(k) >= 3 and k in h):
+                    return field
+        return None
+
+    def find_header_row(rows_preview):
+        """Find the first row that has at least an 'item/descricao' col AND a 'quantidade' col."""
+        for idx, row in enumerate(rows_preview):
+            fields = [match_field(c) for c in row]
+            if "item" in fields and "quantity" in fields:
+                return idx, fields
+        return -1, []
+
     rows: List[dict] = []
+    debug = {"sheets_scanned": [], "chosen_sheet": None, "header_row": None}
     try:
         if fname.endswith(".csv") or (file.content_type or "").startswith("text/csv"):
             import csv as _csv
             text = content.decode("utf-8-sig", errors="ignore")
-            reader = _csv.DictReader(io.StringIO(text), delimiter=";" if text.count(";") > text.count(",") else ",")
-            rows = [{(k or "").strip().lower(): (v or "").strip() for k, v in r.items()} for r in reader]
-        else:
-            from openpyxl import load_workbook
-            wb = load_workbook(io.BytesIO(content), data_only=True)
-            ws = wb.active
-            headers = [str(c.value or "").strip().lower() for c in next(ws.iter_rows(min_row=1, max_row=1))]
-            for r in ws.iter_rows(min_row=2, values_only=True):
-                if not any(v not in (None, "") for v in r):
+            delim = ";" if text.count(";") > text.count(",") else ","
+            all_rows = list(_csv.reader(io.StringIO(text), delimiter=delim))
+            hdr_idx, fields = find_header_row(all_rows[:30])
+            if hdr_idx < 0:
+                # fallback: row 0 is header
+                hdr_idx, fields = 0, [match_field(c) for c in (all_rows[0] if all_rows else [])]
+            for r in all_rows[hdr_idx + 1:]:
+                if not any((c or "").strip() for c in r):
                     continue
                 d = {}
                 for i, v in enumerate(r):
-                    if i < len(headers) and headers[i]:
-                        d[headers[i]] = str(v).strip() if v is not None else ""
-                rows.append(d)
+                    f = fields[i] if i < len(fields) else None
+                    if f:
+                        d[f] = (v or "").strip()
+                if d.get("item"):
+                    rows.append(d)
+            debug["chosen_sheet"] = "csv"
+            debug["header_row"] = hdr_idx + 1
+        else:
+            from openpyxl import load_workbook
+            wb = load_workbook(io.BytesIO(content), data_only=True)
+            best_sheet = None
+            best_rows = []
+            best_hdr = -1
+            best_fields = []
+            for ws in wb.worksheets:
+                debug["sheets_scanned"].append(ws.title)
+                # Read first 30 rows to detect header
+                preview = []
+                for r in ws.iter_rows(min_row=1, max_row=30, values_only=True):
+                    preview.append([str(v) if v is not None else "" for v in r])
+                hdr_idx, fields = find_header_row(preview)
+                if hdr_idx < 0:
+                    continue
+                # Extract rows below header
+                sheet_rows: List[dict] = []
+                for r in ws.iter_rows(min_row=hdr_idx + 2, values_only=True):
+                    if not any(v not in (None, "") for v in r):
+                        continue
+                    d = {}
+                    for i, v in enumerate(r):
+                        f = fields[i] if i < len(fields) else None
+                        if f:
+                            d[f] = "" if v is None else str(v).strip()
+                    # Skip TOTAL/SUBTOTAL/blank descrição rows
+                    it = norm(d.get("item"))
+                    if not it or it.startswith(("total", "subtotal", "soma")):
+                        continue
+                    sheet_rows.append(d)
+                if len(sheet_rows) > len(best_rows):
+                    best_rows = sheet_rows
+                    best_sheet = ws.title
+                    best_hdr = hdr_idx
+                    best_fields = fields
+            if not best_rows:
+                # Fallback to old behavior: active sheet, row 1 as header
+                ws = wb.active
+                headers = [norm(c.value) for c in next(ws.iter_rows(min_row=1, max_row=1))]
+                for r in ws.iter_rows(min_row=2, values_only=True):
+                    if not any(v not in (None, "") for v in r):
+                        continue
+                    d = {}
+                    for i, v in enumerate(r):
+                        if i < len(headers) and headers[i]:
+                            d[headers[i]] = str(v).strip() if v is not None else ""
+                    rows.append(d)
+                debug["chosen_sheet"] = ws.title
+                debug["header_row"] = 1
+            else:
+                rows = best_rows
+                debug["chosen_sheet"] = best_sheet
+                debug["header_row"] = best_hdr + 1
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Erro ao ler planilha: {e}")
 
     def pick(d: dict, *keys):
+        # Direct mapped fields (from smart parser)
+        for k in keys:
+            if k in d and d[k] not in (None, ""):
+                return d[k]
+        # Fallback: partial-match against raw keys (legacy parser)
         for k in keys:
             for actual, val in d.items():
                 if actual and (actual == k or k in actual):
@@ -2416,10 +2511,10 @@ async def import_materials_list(
         item = pick(r, "item", "descricao", "material", "descrição", "produto")
         if not item:
             continue
-        qty = to_float(pick(r, "quantidade", "qtd", "quant"))
+        qty = to_float(pick(r, "quantity", "quantidade", "qtd", "quant"))
         qty_out = int(qty) if qty == int(qty) else qty
-        unit = pick(r, "unidade", "un", "unid")
-        cost = to_float(pick(r, "preco", "valor", "custo", "preço", "vlr"))
+        unit = pick(r, "unit", "unidade", "un", "unid")
+        cost = to_float(pick(r, "cost", "preco", "valor", "custo", "preço", "vlr"))
         normalized.append({
             "id": secrets.token_urlsafe(8),
             "item": str(item),

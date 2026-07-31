@@ -192,7 +192,7 @@ export const ProjectAttachmentsSection = ({ project }) => {
         </div>
         {materials.length === 0 ? (
           <p className="text-[11px] text-zinc-500 italic">
-            Aceita colunas <b>item · quantidade · unidade · preco</b>. Excel (.xlsx) ou CSV.
+            Aceita colunas <b>item · quantidade · unidade · preco</b> ou o template <b>Satelite.xlsx</b> (detecta aba e cabeçalho automaticamente, ignora TOTAL/SUBTOTAL). Excel (.xlsx) ou CSV.
           </p>
         ) : (
           <div className="max-h-56 overflow-y-auto rounded-lg bg-zinc-950/60 border border-white/10">
