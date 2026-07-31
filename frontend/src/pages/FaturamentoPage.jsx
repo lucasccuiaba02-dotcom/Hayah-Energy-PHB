@@ -5,7 +5,7 @@ import { toast } from 'sonner';
 import { AppLayout } from '../components/AppLayout';
 import {
   DollarSign, TrendingUp, Clock, Package, CheckCircle2, Truck, FileCheck2,
-  Send, ChevronRight, Filter, Calendar, ArrowRight, Zap,
+  Send, ChevronRight, Filter, Calendar, ArrowRight, Zap, AlertTriangle, Timer,
 } from 'lucide-react';
 import { formatCurrency, todayISO } from '../lib/constants';
 
@@ -131,6 +131,14 @@ export const FaturamentoPage = () => {
             <input data-testid="fat-end" type="date" value={endDate} onChange={(e) => { setEndDate(e.target.value); setRange('custom'); }} className="bg-zinc-950/90 border border-white/10 rounded-lg px-2 py-1 text-xs text-white font-mono" />
           </div>
         </div>
+
+        {/* Lead Time indicators (avg days by transition bucket) */}
+        <div data-testid="fat-lead-times" className="grid grid-cols-2 md:grid-cols-4 gap-2 mt-3">
+          <LeadCard testid="lead-rec-fech" label="Recebimento → Fechamento" days={data?.lead_buckets?.recebimento_to_fechamento} />
+          <LeadCard testid="lead-fech-fisc" label="Fechamento → Fiscalização" days={data?.lead_buckets?.fechamento_to_fiscalizacao} />
+          <LeadCard testid="lead-fisc-aprv" label="Fiscalização → Aprovada" days={data?.lead_buckets?.fiscalizacao_to_aprovada} />
+          <LeadCard testid="lead-aprv-pago" label="Aprovada → Pago" days={data?.lead_buckets?.aprovada_to_pago} />
+        </div>
       </motion.div>
 
       {loading ? (
@@ -178,6 +186,19 @@ export const FaturamentoPage = () => {
                             <p className="font-mono text-[11px] text-white font-bold">{formatCurrency(p.programmed_value)}</p>
                             <p className="text-[9px] text-zinc-600 font-mono">{p.entered_stage_at || '—'}</p>
                           </div>
+                          {typeof p.days_in_stage === 'number' && (
+                            <div className="mt-1 flex items-center gap-1">
+                              {p.is_stuck ? (
+                                <span data-testid={`fat-stuck-${p.id}`} className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-[#FF003C]/15 text-[#FF003C] border border-[#FF003C]/40 inline-flex items-center gap-1">
+                                  <AlertTriangle className="w-2.5 h-2.5" /> {p.days_in_stage}d parado
+                                </span>
+                              ) : (
+                                <span className="text-[9px] text-zinc-500 font-mono inline-flex items-center gap-1">
+                                  <Timer className="w-2.5 h-2.5" /> {p.days_in_stage}d
+                                </span>
+                              )}
+                            </div>
+                          )}
                           {next && (
                             <button
                               data-testid={`fat-next-${p.id}`}
@@ -201,9 +222,75 @@ export const FaturamentoPage = () => {
       )}
 
       {detail && <BillingDetailModal item={detail} stages={stages} onClose={() => setDetail(null)} onSaved={() => { setDetail(null); load(); }} />}
+
+      {/* Radar de Backlog: obras paradas > 15 dias */}
+      {!loading && (data?.stuck_projects?.length || 0) > 0 && (
+        <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} data-testid="fat-stuck-radar" className="mt-6 glass-panel rounded-2xl overflow-hidden border border-[#FF003C]/40">
+          <div className="px-4 py-3 border-b border-[#FF003C]/20 bg-[#FF003C]/5 flex items-center gap-2">
+            <AlertTriangle className="w-4 h-4 text-[#FF003C]" />
+            <div className="flex-1">
+              <p className="text-[10px] tracking-[0.25em] uppercase font-bold text-[#FF003C]">Radar de Backlog</p>
+              <p className="text-xs text-zinc-400">
+                {data.stuck_projects.length} obra(s) parada(s) há mais de {data.stuck_threshold_days || 15} dias — total{' '}
+                <span className="font-mono font-bold text-white">
+                  {formatCurrency(data.stuck_projects.reduce((s, p) => s + (p.programmed_value || 0), 0))}
+                </span>
+              </p>
+            </div>
+          </div>
+          <div className="divide-y divide-white/5 max-h-[45vh] overflow-y-auto">
+            {data.stuck_projects.map((p) => {
+              const color = STAGE_COLORS[p.billing_stage] || '#FF003C';
+              const stageLabel = stages.find((s) => s.key === p.billing_stage)?.label || p.billing_stage;
+              return (
+                <div
+                  key={p.id}
+                  data-testid={`fat-stuck-item-${p.id}`}
+                  onClick={() => {
+                    // find the full pipeline item so the modal opens with all fields
+                    const full = (pipeline[p.billing_stage] || []).find((x) => x.id === p.id) || p;
+                    setDetail(full);
+                  }}
+                  className="px-4 py-2.5 hover:bg-white/5 cursor-pointer flex items-center gap-3 transition"
+                >
+                  <div className="w-1 h-8 rounded-full" style={{ background: color }} />
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-baseline gap-2">
+                      {p.project_code && <span className="font-mono text-[10px] text-[#E0FF00] font-bold">{p.project_code}</span>}
+                      <p className="text-white text-sm font-bold truncate">{p.name}</p>
+                    </div>
+                    <p className="text-[10px] text-zinc-500 truncate">
+                      {p.team_name || 'sem equipe'} · <span style={{ color }}>{stageLabel}</span>
+                    </p>
+                  </div>
+                  <div className="text-right flex-shrink-0">
+                    <p className="font-mono text-sm font-bold text-white">{formatCurrency(p.programmed_value)}</p>
+                    <p className="text-[10px] font-bold text-[#FF003C] inline-flex items-center gap-1 justify-end">
+                      <AlertTriangle className="w-2.5 h-2.5" /> {p.days_in_stage} dias parada
+                    </p>
+                  </div>
+                  <ChevronRight className="w-4 h-4 text-zinc-600 flex-shrink-0" />
+                </div>
+              );
+            })}
+          </div>
+        </motion.div>
+      )}
     </AppLayout>
   );
 };
+
+const LeadCard = ({ label, days, testid }) => (
+  <div data-testid={testid} className="rounded-lg bg-white/[0.02] border border-white/10 p-2 flex items-center gap-2">
+    <Timer className="w-3.5 h-3.5 text-[#00F0FF] flex-shrink-0" />
+    <div className="min-w-0 flex-1">
+      <p className="text-[9px] tracking-[0.15em] uppercase font-bold text-zinc-500 truncate">{label}</p>
+      <p className="font-mono text-sm font-bold text-white">
+        {days > 0 ? <>{days}<span className="text-[10px] text-zinc-500 ml-1">dias</span></> : <span className="text-zinc-600">—</span>}
+      </p>
+    </div>
+  </div>
+);
 
 const KpiCard = ({ label, value, sub, color, icon: Icon, testid }) => (
   <div data-testid={testid} className="glass-panel rounded-2xl p-4" style={{ borderLeft: `3px solid ${color}` }}>

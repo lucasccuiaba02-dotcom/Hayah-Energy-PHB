@@ -1146,6 +1146,75 @@ async def billing_pipeline(
     backlog_value = sum(per_stage_totals[s]["value"] for s in BILLING_STAGES if s != "pago")
     paid_value = per_stage_totals["pago"]["value"]
 
+    # === Lead-time indicators + stuck project detection (Fev/2026) ===
+    from datetime import datetime as _dt, timezone as _tz
+    today = _dt.now(_tz.utc).date()
+
+    def _iso_to_date(s: str):
+        try:
+            return _dt.fromisoformat((s or "")[:10]).date()
+        except Exception:
+            return None
+
+    # For every project, compute days in current stage + walk billing_history to compute per-transition durations
+    STUCK_THRESHOLD_DAYS = 15
+    transition_days: dict = {}  # key = "from→to" → list of days
+    stuck_projects: list = []
+    for p in projects:
+        stage = p.get("billing_stage") or ""
+        if stage not in pipeline:
+            continue
+        entered_iso = entered_stage_at(p)
+        entered_d = _iso_to_date(entered_iso)
+        days_in_stage = (today - entered_d).days if entered_d else 0
+        # attach days_in_stage to pipeline item
+        for it in pipeline.get(stage, []):
+            if it["id"] == str(p["_id"]):
+                it["days_in_stage"] = max(0, days_in_stage)
+                it["is_stuck"] = days_in_stage >= STUCK_THRESHOLD_DAYS and stage != "pago"
+                break
+        # Walk history to compute lead-times between transitions
+        hist = sorted(p.get("billing_history") or [], key=lambda h: h.get("changed_at") or "")
+        for prev, curr in zip(hist, hist[1:]):
+            d_prev = _iso_to_date(prev.get("changed_at"))
+            d_curr = _iso_to_date(curr.get("changed_at"))
+            if d_prev and d_curr:
+                key = f"{prev.get('stage','')}→{curr.get('stage','')}"
+                transition_days.setdefault(key, []).append((d_curr - d_prev).days)
+        # Collect stuck projects for the radar list
+        if days_in_stage >= STUCK_THRESHOLD_DAYS and stage != "pago":
+            stuck_projects.append({
+                "id": str(p["_id"]),
+                "project_code": p.get("project_code", ""),
+                "name": p.get("name", ""),
+                "billing_stage": stage,
+                "team_name": p.get("team_name", ""),
+                "days_in_stage": days_in_stage,
+                "programmed_value": float(p.get("programmed_value") or 0),
+                "entered_stage_at": entered_iso,
+            })
+
+    def _avg(lst):
+        vs = [v for v in lst if v is not None]
+        return round(sum(vs) / len(vs), 1) if vs else 0
+
+    lead_times = {k: {"avg_days": _avg(v), "samples": len(v)} for k, v in transition_days.items()}
+
+    # Aggregate to the 4 "big buckets" the dashboard shows
+    def _sum_range(from_key, to_key):
+        """Sum all transition_days entries that walk from from_key to to_key (may span intermediates)."""
+        # Simplest: consider direct transitions matching from→to
+        return transition_days.get(f"{from_key}→{to_key}", [])
+
+    lead_buckets = {
+        "recebimento_to_fechamento": _avg(_sum_range("recebimento_tecnico", "em_fechamento") + _sum_range("em_fechamento", "ajuste_material")),
+        "fechamento_to_fiscalizacao": _avg(_sum_range("ajuste_material", "pendencia_construtiva") + _sum_range("pendencia_construtiva", "aguardando_fiscalizacao")),
+        "fiscalizacao_to_aprovada": _avg(_sum_range("aguardando_fiscalizacao", "aprovada")),
+        "aprovada_to_pago": _avg(_sum_range("aprovada", "digitada") + _sum_range("digitada", "pago")),
+    }
+
+    stuck_projects.sort(key=lambda x: -x["days_in_stage"])
+
     return {
         "pipeline": pipeline,
         "stages": [{"key": k, "label": v} for k, v in BILLING_STAGE_LABELS.items()],
@@ -1153,6 +1222,10 @@ async def billing_pipeline(
         "per_stage": per_stage_totals,
         "backlog_value": backlog_value,
         "paid_value": paid_value,
+        "lead_times": lead_times,
+        "lead_buckets": lead_buckets,
+        "stuck_projects": stuck_projects,
+        "stuck_threshold_days": STUCK_THRESHOLD_DAYS,
     }
 
 
@@ -2364,30 +2437,54 @@ async def import_materials_list(
     fname = (file.filename or "").lower()
 
     HEADER_KEYWORDS = {
-        "item": ["item", "descricao", "descrição", "material", "produto", "nome", "designacao", "designação"],
-        "quantity": ["quantidade", "quant.", "quant", "qtd", "qtde", "qte"],
+        "item": ["item", "descricao", "descrição", "material", "produto", "designacao", "designação"],
+        "quantity": ["quantidade", "quant.", "quant", "qtd", "qtde", "qte", "qntd", "quant orçada", "quant orcada", "qntd orçada", "qntd orcada"],
         "unit": ["unidade", "unid.", "unid", "un", "um"],
-        "code": ["codigo", "código", "cod.", "cod", "sap", "item mat", "id"],
+        "code": ["codigo", "código", "cod.", "sap", "item mat"],
         "cost": ["preco", "preço", "valor", "custo", "vlr", "unit price", "unit cost"],
     }
+
+    # Sheet name priority: prefer sheets that look like a requisition/material list
+    def sheet_priority(name: str) -> int:
+        n = str(name or "").strip().lower()
+        if any(k in n for k in ["req. de material", "req material", "requisic", "requisiç", "solicitac", "solicitaç", "lista materia", "materiais"]):
+            return 1000
+        if "material" in n or "mrp" in n:
+            return 200
+        if "diario" in n or "diário" in n:
+            return 50  # keep it low — usually not the primary material list
+        return 0
 
     def norm(s):
         return str(s or "").strip().lower()
 
     def match_field(header_cell: str):
         h = norm(header_cell)
-        if not h:
+        if not h or h.startswith("#") or h in {"n/a", "#n/a"}:
             return None
+        # Prefer specific "orçad/solicit" quantity headers first
+        if any(k in h for k in ["orçad", "orcad", "solicit", "requis"]) and any(k in h for k in ["qtd", "quant", "qntd"]):
+            return "quantity"
         for field, keys in HEADER_KEYWORDS.items():
             for k in keys:
                 if k == h or (len(k) >= 3 and k in h):
                     return field
         return None
 
+    def compute_field_map(header_row):
+        """Map columns → fields. First column with a given field wins."""
+        fields = [None] * len(header_row)
+        used = set()
+        for i, cell in enumerate(header_row):
+            f = match_field(cell)
+            if f and f not in used:
+                fields[i] = f
+                used.add(f)
+        return fields
+
     def find_header_row(rows_preview):
-        """Find the first row that has at least an 'item/descricao' col AND a 'quantidade' col."""
         for idx, row in enumerate(rows_preview):
-            fields = [match_field(c) for c in row]
+            fields = compute_field_map(row)
             if "item" in fields and "quantity" in fields:
                 return idx, fields
         return -1, []
@@ -2423,6 +2520,7 @@ async def import_materials_list(
             best_rows = []
             best_hdr = -1
             best_fields = []
+            best_score = -1
             for ws in wb.worksheets:
                 debug["sheets_scanned"].append(ws.title)
                 # Read first 30 rows to detect header
@@ -2442,16 +2540,19 @@ async def import_materials_list(
                         f = fields[i] if i < len(fields) else None
                         if f:
                             d[f] = "" if v is None else str(v).strip()
-                    # Skip TOTAL/SUBTOTAL/blank descrição rows
+                    # Skip TOTAL/SUBTOTAL/#N/A/blank descrição rows
                     it = norm(d.get("item"))
-                    if not it or it.startswith(("total", "subtotal", "soma")):
+                    if not it or it.startswith(("total", "subtotal", "soma", "#n/a", "#ref", "#value")):
                         continue
                     sheet_rows.append(d)
-                if len(sheet_rows) > len(best_rows):
+                # Score: sheet-name priority + item count
+                score = sheet_priority(ws.title) + len(sheet_rows)
+                if score > best_score and sheet_rows:
                     best_rows = sheet_rows
                     best_sheet = ws.title
                     best_hdr = hdr_idx
                     best_fields = fields
+                    best_score = score
             if not best_rows:
                 # Fallback to old behavior: active sheet, row 1 as header
                 ws = wb.active
