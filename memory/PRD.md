@@ -53,11 +53,12 @@ Dashboard, **Buscar Obras**, Operacional, Carteira, Programação, Calendário, 
   * `stuck_threshold_days`: 15 (não incluí `pago` na verificação)
   * Cada card do kanban recebe `days_in_stage` + `is_stuck` — badge vermelho "Xd parado" quando aplicável
   * Seção "Radar de Backlog" abaixo do kanban lista obras paradas com valor total, ordenadas por dias parados (mais crítico primeiro), clique abre o modal de detalhe
-- **Resend ATIVO** (Fev/2026):
-  * `RESEND_API_KEY` configurada no `.env`
-  * Sender: `Hayah Energy <noreply@hayahenergy.com.br>` (Fev/2026 — usuário forneceu o domínio hayahenergy.com.br)
-  * **PENDENTE**: verificar o domínio `hayahenergy.com.br` em https://resend.com/domains adicionando os DNS records (TXT/DKIM/SPF). Enquanto não verificar, envios reais retornam 403 e `email_status=error`. Como fallback pode-se voltar para `onboarding@resend.dev` (sempre entrega para `delivered@resend.dev`)
-  * Endpoints já usam `send_email_via_resend()` em: material requests, requisition resend, anexo IV D-2, checklist alerts, tomorrow schedule
+- **Resend DESATIVADO** (Fev/2026 — a pedido do usuário até verificação do domínio):
+  * `RESEND_API_KEY=""` (vazio) no `.env` — envio real desligado
+  * Sender configurado: `Hayah Energy <noreply@hayahenergy.com.br>` (pronto para reativar quando o domínio for verificado)
+  * Comportamento: PDF gerado + histórico com `email_status=skipped_no_key`, sem envio
+  * Para reativar: preencher RESEND_API_KEY após verificar domínio em https://resend.com/domains
+  * Endpoints que dependem: material requests, requisition resend, anexo IV D-2, checklist alerts, tomorrow schedule (todos retornam skipped)
 - **Prévia PDF de Requisição** (Fev/2026):
   * `POST /api/materials/preview` — gera o PDF via `build_requisition_pdf()` e devolve `application/pdf` inline SEM criar histórico nem enviar email
   * Botão ciano "Prévia PDF" (data-testid=preview-material-request) ao lado de "Enviar Almoxarifado"
