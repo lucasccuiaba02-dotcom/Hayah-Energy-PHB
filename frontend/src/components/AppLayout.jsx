@@ -1,6 +1,7 @@
 import React from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
+import { useTheme } from '../contexts/ThemeContext';
 import { HayahLogo } from './HayahLogo';
 import {
   LayoutGrid,
@@ -18,6 +19,9 @@ import {
   CalendarX,
   Search,
   DollarSign,
+  Sun,
+  Moon,
+  TrendingDown,
 } from 'lucide-react';
 
 const navItems = [
@@ -34,6 +38,7 @@ const navItems = [
   { to: '/relatorios', icon: FileSpreadsheet, label: 'Relatórios', testid: 'nav-relatorios', perm: 'relatorios' },
   { to: '/equipes', icon: Users, label: 'Equipes', testid: 'nav-equipes', perm: 'equipes' },
   { to: '/indisponibilidade', icon: CalendarX, label: 'Indisponibilidade', testid: 'nav-indisponibilidade', perm: 'programacao' },
+  { to: '/improdutividade', icon: TrendingDown, label: 'Improdutividade', testid: 'nav-improdutividade', perm: 'programacao' },
   { to: '/admin/usuarios', icon: Shield, label: 'Admin', testid: 'nav-admin', perm: 'admin' },
 ];
 
@@ -108,7 +113,10 @@ export const AppLayout = ({ children, title, subtitle, actions }) => {
                   <p className="text-xs text-zinc-500">{subtitle || `Olá, ${user?.name}`}</p>
                 </div>
               </div>
-              <div className="flex items-center gap-3 flex-wrap">{actions}</div>
+              <div className="flex items-center gap-3 flex-wrap">
+                {actions}
+                <ThemeToggleButton />
+              </div>
             </div>
           </div>
 
@@ -116,5 +124,20 @@ export const AppLayout = ({ children, title, subtitle, actions }) => {
         </main>
       </div>
     </div>
+  );
+};
+
+const ThemeToggleButton = () => {
+  const { theme, toggle } = useTheme();
+  const isDark = theme === 'dark';
+  return (
+    <button
+      data-testid="theme-toggle"
+      onClick={toggle}
+      title={isDark ? 'Mudar para tema claro' : 'Mudar para tema escuro'}
+      className="w-9 h-9 rounded-full bg-white/5 border border-white/10 flex items-center justify-center text-zinc-400 hover:text-white hover:bg-white/10 transition-all"
+    >
+      {isDark ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
+    </button>
   );
 };

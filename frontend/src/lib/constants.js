@@ -70,6 +70,31 @@ export const UNAVAILABILITY_REASONS = [
   { value: 'outro', label: 'Outro' },
 ];
 
+export const IMPRODUTIVIDADE_REASONS = [
+  { value: 'chuva', label: 'Chuva / Clima ruim' },
+  { value: 'falta_material', label: 'Falta de material' },
+  { value: 'falta_equipe', label: 'Falta de equipe' },
+  { value: 'quebra_equipamento', label: 'Quebra de equipamento/veículo' },
+  { value: 'espera_desligamento', label: 'Espera por desligamento' },
+  { value: 'acesso_bloqueado', label: 'Acesso bloqueado / cliente' },
+  { value: 'acidente', label: 'Acidente / incidente' },
+  { value: 'retrabalho', label: 'Retrabalho' },
+  { value: 'outro', label: 'Outro' },
+];
+export const IMPRODUTIVIDADE_REASON_LABEL = IMPRODUTIVIDADE_REASONS.reduce((acc, r) => { acc[r.value] = r.label; return acc; }, {});
+
+export const WAREHOUSE_RESPONSE_STATUS = [
+  { value: 'separado', label: 'Separado (completo)', color: '#39FF14' },
+  { value: 'baixado', label: 'Baixado no sistema', color: '#00F0FF' },
+  { value: 'separado_parcial', label: 'Separado parcialmente', color: '#FF5E00' },
+  { value: 'na_doca', label: 'Está na doca', color: '#E0FF00' },
+  { value: 'faltam_materiais', label: 'Faltam materiais específicos', color: '#FF003C' },
+  { value: 'devolvido', label: 'Devolvido', color: '#A855F7' },
+  { value: 'aguardando_fornecedor', label: 'Aguardando fornecedor', color: '#94A3B8' },
+  { value: 'outro', label: 'Outro', color: '#94A3B8' },
+];
+export const WAREHOUSE_RESPONSE_LABEL = WAREHOUSE_RESPONSE_STATUS.reduce((acc, s) => { acc[s.value] = s; return acc; }, {});
+
 export const PERMISSION_TABS = [
   { value: 'dashboard', label: 'Dashboard' },
   { value: 'carteira', label: 'Carteira' },
@@ -81,6 +106,7 @@ export const PERMISSION_TABS = [
   { value: 'analise', label: 'Análise' },
   { value: 'relatorios', label: 'Relatórios' },
   { value: 'equipes', label: 'Equipes' },
+  { value: 'improdutividade', label: 'Improdutividade' },
   { value: 'admin', label: 'Admin' },
 ];
 

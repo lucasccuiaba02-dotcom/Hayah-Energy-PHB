@@ -2,6 +2,7 @@ import React from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { Toaster } from 'sonner';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
+import { ThemeProvider } from './contexts/ThemeContext';
 import { LoginPage } from './pages/LoginPage';
 import { DashboardPage } from './pages/DashboardPage';
 import { CarteiraPage } from './pages/CarteiraPage';
@@ -18,6 +19,7 @@ import { AdminUsuariosPage } from './pages/AdminUsuariosPage';
 import { IndisponibilidadePage } from './pages/IndisponibilidadePage';
 import { BuscarObrasPage } from './pages/BuscarObrasPage';
 import { FaturamentoPage } from './pages/FaturamentoPage';
+import { ImprodutividadePage } from './pages/ImprodutividadePage';
 import { ProtectedRoute } from './components/ProtectedRoute';
 import '@/App.css';
 
@@ -48,28 +50,31 @@ function AppRoutes() {
       <Route path="/indisponibilidade" element={<ProtectedRoute><IndisponibilidadePage /></ProtectedRoute>} />
       <Route path="/buscar" element={<ProtectedRoute><BuscarObrasPage /></ProtectedRoute>} />
       <Route path="/faturamento" element={<ProtectedRoute><FaturamentoPage /></ProtectedRoute>} />
+      <Route path="/improdutividade" element={<ProtectedRoute><ImprodutividadePage /></ProtectedRoute>} />
     </Routes>
   );
 }
 
 function App() {
   return (
-    <AuthProvider>
-      <BrowserRouter>
-        <AppRoutes />
-        <Toaster
-          position="top-right"
-          theme="dark"
-          toastOptions={{
-            style: {
-              background: '#09090b',
-              border: '1px solid rgba(255, 255, 255, 0.1)',
-              color: '#ffffff',
-            },
-          }}
-        />
-      </BrowserRouter>
-    </AuthProvider>
+    <ThemeProvider>
+      <AuthProvider>
+        <BrowserRouter>
+          <AppRoutes />
+          <Toaster
+            position="top-right"
+            theme="dark"
+            toastOptions={{
+              style: {
+                background: '#09090b',
+                border: '1px solid rgba(255, 255, 255, 0.1)',
+                color: '#ffffff',
+              },
+            }}
+          />
+        </BrowserRouter>
+      </AuthProvider>
+    </ThemeProvider>
   );
 }
 

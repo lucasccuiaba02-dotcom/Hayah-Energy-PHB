@@ -36,6 +36,7 @@ export const ProjectDrawer = ({ isOpen, onClose, onSave, project, teams, default
     additional_team_id: '',
     additional_team_name: '',
     schedule_entries: [], // [{ date, team_ids: [], team_names: [] }]
+    shutdown_dates: [], // Fev/2026 — subset of schedule_entries dates that have desligamento
     cancel_reason: '',
     postes_qty: 0,
     transformadores_qty: 0,
@@ -517,6 +518,24 @@ export const ProjectDrawer = ({ isOpen, onClose, onSave, project, teams, default
                           {(entry.team_ids || []).length > 1 && (
                             <p className="text-[10px] text-[#00F0FF]">{entry.team_ids.length} equipes juntas neste dia</p>
                           )}
+                          <label className="flex items-center gap-2 pt-1 border-t border-white/5 cursor-pointer">
+                            <input
+                              type="checkbox"
+                              data-testid={`schedule-entry-shutdown-${idx}`}
+                              checked={(formData.shutdown_dates || []).includes(entry.date)}
+                              onChange={(e) => {
+                                const curr = formData.shutdown_dates || [];
+                                const next = e.target.checked
+                                  ? Array.from(new Set([...curr, entry.date])).filter(Boolean)
+                                  : curr.filter((d) => d !== entry.date);
+                                setFormData({ ...formData, shutdown_dates: next });
+                              }}
+                              className="rounded border-white/20"
+                            />
+                            <span className="text-[11px] text-[#E0FF00] font-bold inline-flex items-center gap-1">
+                              <Zap className="w-3 h-3" /> Com desligamento neste dia
+                            </span>
+                          </label>
                         </div>
                       ))}
                       <p className="text-[10px] text-zinc-600">Ex.: dia 29/07 — equipe A · dia 12/08 — equipes A + B. A obra aparecerá em cada equipe/data na matriz.</p>

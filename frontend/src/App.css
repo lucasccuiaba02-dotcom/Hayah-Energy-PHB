@@ -5,3 +5,67 @@
 .App-link {
   color: #00F0FF;
 }
+
+/* =================== THEME (Fev/2026) =================== */
+:root { color-scheme: dark; }
+[data-theme="light"] { color-scheme: light; }
+
+/* Body/main background */
+[data-theme="light"] body,
+[data-theme="light"] .App {
+  background: #f5f5f4 !important;
+}
+
+/* Header/sidebar backgrounds */
+[data-theme="light"] aside,
+[data-theme="light"] .bg-\[\#09090b\]\/50,
+[data-theme="light"] .bg-\[\#09090b\] {
+  background-color: #ffffff !important;
+  border-color: rgba(0,0,0,0.06) !important;
+}
+
+/* Glass panels turn into light cards */
+[data-theme="light"] .glass-panel {
+  background: rgba(255,255,255,0.92) !important;
+  border-color: rgba(0,0,0,0.08) !important;
+  color: #111 !important;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+}
+
+/* Text color inversions — narrow, safe */
+[data-theme="light"] .glass-panel .text-white,
+[data-theme="light"] main .text-white {
+  color: #111 !important;
+}
+[data-theme="light"] .glass-panel .text-zinc-400,
+[data-theme="light"] main .text-zinc-400 { color: #52525b !important; }
+[data-theme="light"] .glass-panel .text-zinc-500,
+[data-theme="light"] main .text-zinc-500 { color: #71717a !important; }
+[data-theme="light"] .glass-panel .text-zinc-600,
+[data-theme="light"] main .text-zinc-600 { color: #a1a1aa !important; }
+[data-theme="light"] .glass-panel .text-zinc-300,
+[data-theme="light"] main .text-zinc-300 { color: #3f3f46 !important; }
+
+/* Header title in light mode */
+[data-theme="light"] main .border-b .text-white { color: #111 !important; }
+
+/* Inputs/selects — keep light variant readable */
+[data-theme="light"] .bg-zinc-950\/90,
+[data-theme="light"] input.bg-zinc-950\/90,
+[data-theme="light"] select.bg-zinc-950\/90,
+[data-theme="light"] .bg-transparent input {
+  background: #ffffff !important;
+  color: #111 !important;
+  border-color: rgba(0,0,0,0.1) !important;
+}
+
+/* Sidebar item color in light */
+[data-theme="light"] aside a { color: #52525b; }
+[data-theme="light"] aside a.text-white { color: #111 !important; }
+
+/* Divider lines */
+[data-theme="light"] .border-white\/5,
+[data-theme="light"] .border-white\/8,
+[data-theme="light"] .border-white\/10 { border-color: rgba(0,0,0,0.08) !important; }
+
+/* Keep highlighted CTAs (yellow/cyan/red badges) UNCHANGED in light mode */

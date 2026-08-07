@@ -5,8 +5,9 @@ import { toast } from 'sonner';
 import { AppLayout } from '../components/AppLayout';
 import {
   Package, Send, FileText, MapPin, Users, Calendar, Hash, PenLine,
-  CheckCircle2, History, FileDown, Camera, Truck, AlertCircle, Loader, RefreshCw, Eye, X,
+  CheckCircle2, History, FileDown, Camera, Truck, AlertCircle, Loader, RefreshCw, Eye, X, ClipboardList,
 } from 'lucide-react';
+import { WAREHOUSE_RESPONSE_STATUS, WAREHOUSE_RESPONSE_LABEL } from '../lib/constants';
 import { PROJECT_TYPE_LABEL, formatCurrency, todayISO } from '../lib/constants';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
@@ -318,11 +319,13 @@ export const SolicitacaoMaterialPage = () => {
               {[...history].reverse().map((r) => (
                 <RequisitionRow
                   key={r.id}
+                  projectId={selectedProject}
                   req={r}
                   onOpenPdf={() => openReqPdf(r.id)}
                   onOpenPhoto={() => openReceiptPhoto(r.id)}
                   onConfirm={(receiver, notes, photo) => confirmReceipt(r.id, receiver, notes, photo)}
                   onResend={() => resendReq(r.id)}
+                  onWarehouseResponseSaved={fetchHistory}
                   confirming={confirmingId === r.id}
                   resending={resendingId === r.id}
                   defaultReceiver={me?.name || ''}
@@ -411,12 +414,38 @@ const QtyInput = ({ value, onCommit, saving, color, testid }) => {
   );
 };
 
-const RequisitionRow = ({ req, onOpenPdf, onOpenPhoto, onConfirm, onResend, confirming, resending, defaultReceiver }) => {
+const RequisitionRow = ({ req, projectId, onOpenPdf, onOpenPhoto, onConfirm, onResend, onWarehouseResponseSaved, confirming, resending, defaultReceiver }) => {
   const [expand, setExpand] = useState(false);
   const [receiver, setReceiver] = useState(defaultReceiver || '');
   const [rNotes, setRNotes] = useState('');
   const photoRef = useRef(null);
   const [photo, setPhoto] = useState(null);
+  // Warehouse response state
+  const wr = req.warehouse_response || null;
+  const [wrStatus, setWrStatus] = useState(wr?.status || 'separado');
+  const [wrResponsible, setWrResponsible] = useState(wr?.responsible || '');
+  const [wrNotes, setWrNotes] = useState(wr?.notes || '');
+  const [wrMissing, setWrMissing] = useState(wr?.missing_items || '');
+  const [wrSaving, setWrSaving] = useState(false);
+  const wrChip = wr ? WAREHOUSE_RESPONSE_LABEL[wr.status] : null;
+
+  const saveWarehouseResponse = async () => {
+    setWrSaving(true);
+    try {
+      await axios.post(`${API}/projects/${projectId}/materials/${req.id}/response`, {
+        status: wrStatus,
+        responsible: wrResponsible,
+        notes: wrNotes,
+        missing_items: wrMissing,
+      });
+      toast.success('Resposta do almoxarifado registrada');
+      onWarehouseResponseSaved && onWarehouseResponseSaved();
+    } catch (e) {
+      toast.error(e.response?.data?.detail || 'Erro ao registrar resposta');
+    } finally {
+      setWrSaving(false);
+    }
+  };
 
   const status = req.email_status || 'pending';
   const statusChip =
@@ -447,6 +476,15 @@ const RequisitionRow = ({ req, onOpenPdf, onOpenPhoto, onConfirm, onResend, conf
         {received && (
           <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-[#005EE0]/15 border border-[#005EE0]/50 text-[#00A0FF] inline-flex items-center gap-1">
             <Truck className="w-3 h-3" /> Recebido
+          </span>
+        )}
+        {wrChip && (
+          <span
+            data-testid={`req-warehouse-chip-${req.id}`}
+            className="px-2 py-0.5 rounded-full text-[10px] font-bold border inline-flex items-center gap-1"
+            style={{ backgroundColor: `${wrChip.color}15`, borderColor: `${wrChip.color}50`, color: wrChip.color }}
+          >
+            <ClipboardList className="w-3 h-3" /> {wrChip.label}
           </span>
         )}
         <button
@@ -482,7 +520,66 @@ const RequisitionRow = ({ req, onOpenPdf, onOpenPhoto, onConfirm, onResend, conf
       </div>
 
       {expand && (
-        <div className="mt-3 rounded-xl bg-zinc-950/60 border border-white/10 p-3">
+        <div className="mt-3 rounded-xl bg-zinc-950/60 border border-white/10 p-3 space-y-4">
+          {/* Warehouse response block */}
+          <div data-testid={`req-warehouse-block-${req.id}`} className="space-y-2 pb-3 border-b border-white/5">
+            <p className="text-[10px] tracking-[0.2em] uppercase font-bold text-[#E0FF00] inline-flex items-center gap-1">
+              <ClipboardList className="w-3 h-3" /> Resposta do Almoxarifado
+            </p>
+            {wr && (
+              <p className="text-[10px] text-zinc-500">
+                Última atualização: {new Date(wr.answered_at).toLocaleString('pt-BR')} · por {wr.answered_by || wr.responsible || '—'}
+              </p>
+            )}
+            <div className="grid md:grid-cols-2 gap-2">
+              <select
+                data-testid={`req-warehouse-status-${req.id}`}
+                value={wrStatus}
+                onChange={(e) => setWrStatus(e.target.value)}
+                className="bg-zinc-900 border border-white/10 rounded-lg px-3 py-2 text-white text-sm focus:border-[#E0FF00] focus:outline-none"
+              >
+                {WAREHOUSE_RESPONSE_STATUS.map((s) => (
+                  <option key={s.value} value={s.value}>{s.label}</option>
+                ))}
+              </select>
+              <input
+                data-testid={`req-warehouse-responsible-${req.id}`}
+                type="text"
+                value={wrResponsible}
+                onChange={(e) => setWrResponsible(e.target.value)}
+                placeholder="Nome do responsável do almoxarifado"
+                className="bg-zinc-900 border border-white/10 rounded-lg px-3 py-2 text-white text-sm focus:border-[#E0FF00] focus:outline-none"
+              />
+            </div>
+            {wrStatus === 'faltam_materiais' && (
+              <textarea
+                data-testid={`req-warehouse-missing-${req.id}`}
+                value={wrMissing}
+                onChange={(e) => setWrMissing(e.target.value)}
+                placeholder="Especifique quais materiais estão faltando..."
+                rows={2}
+                className="w-full bg-zinc-900 border border-[#FF003C]/40 rounded-lg px-3 py-2 text-white text-sm focus:border-[#FF003C] focus:outline-none"
+              />
+            )}
+            <textarea
+              data-testid={`req-warehouse-notes-${req.id}`}
+              value={wrNotes}
+              onChange={(e) => setWrNotes(e.target.value)}
+              placeholder="Observações do almoxarifado (opcional)"
+              rows={2}
+              className="w-full bg-zinc-900 border border-white/10 rounded-lg px-3 py-2 text-white text-sm focus:border-[#E0FF00] focus:outline-none"
+            />
+            <button
+              data-testid={`req-warehouse-save-${req.id}`}
+              onClick={saveWarehouseResponse}
+              disabled={wrSaving}
+              className="inline-flex items-center gap-1 text-[11px] bg-[#E0FF00] hover:bg-[#C8E600] text-black font-bold px-4 py-1.5 rounded-full disabled:opacity-60"
+            >
+              {wrSaving ? <Loader className="w-3 h-3 animate-spin" /> : <CheckCircle2 className="w-3 h-3" />}
+              {wrSaving ? 'Salvando…' : 'Registrar resposta'}
+            </button>
+          </div>
+
           {received ? (
             <div data-testid={`req-receipt-${req.id}`} className="space-y-2">
               <p className="text-[10px] tracking-[0.2em] uppercase font-bold text-[#00A0FF] inline-flex items-center gap-1">

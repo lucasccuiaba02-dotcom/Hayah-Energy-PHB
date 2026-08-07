@@ -247,7 +247,7 @@ export const DashboardPage = () => {
 
       {kpis && (
         <>
-          <div data-testid="kpi-critical-row" className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
+          <div data-testid="kpi-critical-row" className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-4">
             <button onClick={() => navigate('/carteira?filter=vencidas')} className="glass-panel rounded-xl p-4 text-left border-l-4 border-[#FF003C] hover:border-[#FF003C]">
               <p className="text-[10px] tracking-[0.2em] uppercase font-bold text-[#FF003C] mb-1">Vencidas</p>
               <p className="font-mono text-3xl font-black text-white">{kpis.counts.vencidas}</p>
@@ -267,6 +267,18 @@ export const DashboardPage = () => {
               <p className="text-[10px] tracking-[0.2em] uppercase font-bold text-[#39FF14] mb-1">No Prazo</p>
               <p className="font-mono text-3xl font-black text-white">{kpis.counts.no_prazo}</p>
               <p className="text-[10px] text-zinc-500 mt-1">dentro do combinado</p>
+            </div>
+            <div data-testid="kpi-on-time-pct" className="glass-panel rounded-xl p-4 border-l-4 border-[#00F0FF]">
+              <p className="text-[10px] tracking-[0.2em] uppercase font-bold text-[#00F0FF] mb-1">% No Prazo</p>
+              <p className="font-mono text-3xl font-black text-white">
+                {(() => {
+                  const noP = kpis.counts.no_prazo || 0;
+                  const venc = kpis.counts.vencidas || 0;
+                  const denom = noP + venc;
+                  return denom > 0 ? Math.round((noP / denom) * 100) : 100;
+                })()}<span className="text-lg text-zinc-500">%</span>
+              </p>
+              <p className="text-[10px] text-zinc-500 mt-1">obras programadas no prazo</p>
             </div>
           </div>
 

@@ -27,10 +27,19 @@ export const ProgramacaoPage = () => {
   const [retornoOpen, setRetornoOpen] = useState(false);
   const [hojeOpen, setHojeOpen] = useState(false);
   const [viewMode, setViewMode] = useState('matrix'); // 'date' | 'matrix'
+  const [pendingReturnsCount, setPendingReturnsCount] = useState(0);
 
   useEffect(() => {
     fetchData();
+    fetchPendingReturns();
   }, []);
+
+  const fetchPendingReturns = async () => {
+    try {
+      const { data } = await axios.get(`${API}/programacao/pending-returns`);
+      setPendingReturnsCount(Array.isArray(data) ? data.length : (data?.count || 0));
+    } catch { /* ignore */ }
+  };
 
   useEffect(() => {
     fetchStats();
@@ -186,10 +195,15 @@ export const ProgramacaoPage = () => {
           <button
             data-testid="open-retorno-button"
             onClick={() => setRetornoOpen(true)}
-            className="bg-white/5 hover:bg-white/10 border border-[#E0FF00]/40 text-[#E0FF00] font-bold px-4 py-2 rounded-full transition-all flex items-center gap-2"
+            className="relative bg-[#E0FF00]/15 hover:bg-[#E0FF00]/25 border border-[#E0FF00]/50 text-[#E0FF00] font-bold px-4 py-2 rounded-full transition-all flex items-center gap-2"
           >
             <ClipboardCheck className="w-4 h-4" />
             Retorno de Programação
+            {pendingReturnsCount > 0 && (
+              <span data-testid="pending-returns-badge" className="ml-1 inline-flex items-center justify-center min-w-[22px] h-[22px] px-1.5 rounded-full bg-[#FF003C] text-white text-[10px] font-black">
+                {pendingReturnsCount}
+              </span>
+            )}
           </button>
           <div className="flex items-center bg-white/5 border border-white/10 rounded-full p-1">
             <button

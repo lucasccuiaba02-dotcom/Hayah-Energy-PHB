@@ -3,7 +3,7 @@ import { motion } from 'framer-motion';
 import axios from 'axios';
 import { AppLayout } from '../components/AppLayout';
 import { HScroller } from '../components/HScroller';
-import { ChevronLeft, ChevronRight, Zap, AlertTriangle } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Zap, AlertTriangle, CalendarDays } from 'lucide-react';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -67,7 +67,18 @@ export const CalendarioPage = () => {
       title="Calendário por Equipe"
       subtitle="Matriz de programação — cores por status"
       actions={
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
+          <div className="flex items-center gap-1 bg-white/5 border border-white/10 rounded-full px-2 py-1">
+            <CalendarDays className="w-3.5 h-3.5 text-[#00F0FF]" />
+            <input
+              data-testid="cal-jump-date"
+              type="date"
+              value={startDate}
+              onChange={(e) => e.target.value && setStartDate(e.target.value)}
+              className="bg-transparent border-none text-xs text-white font-mono focus:outline-none"
+              title="Ir para essa data"
+            />
+          </div>
           <button
             data-testid="cal-prev"
             onClick={goPrev}
@@ -153,17 +164,20 @@ export const CalendarioPage = () => {
                             <div className="flex flex-col gap-1">
                               {cell.map((p) => {
                                 const c = getStatusColor(p.execution_status);
+                                const hasShutdownToday = Array.isArray(p.shutdown_dates)
+                                  ? p.shutdown_dates.includes(d)
+                                  : !!p.shutdown_info; // legacy fallback
                                 return (
                                   <div
                                     key={p.id}
                                     data-testid={`cal-cell-${teamKey}-${d}-${p.id}`}
-                                    title={`${p.name}${p.location ? ' — ' + p.location : ''}`}
+                                    title={`${p.name}${p.location ? ' — ' + p.location : ''}${hasShutdownToday ? ' · com desligamento neste dia' : ''}`}
                                     className="px-2 py-1 rounded font-mono text-xs font-bold flex items-center gap-1 leading-tight"
                                     style={{ backgroundColor: c.bg, color: c.text }}
                                   >
                                     <span className="flex-1 truncate">{p.code}</span>
                                     {p.requires_hot_line && <Zap className="w-3 h-3 flex-shrink-0" style={{ color: '#8B0000' }} />}
-                                    {p.shutdown_info && <AlertTriangle className="w-3 h-3 flex-shrink-0" style={{ color: '#7F5A00' }} />}
+                                    {hasShutdownToday && <AlertTriangle data-testid={`cal-shutdown-${teamKey}-${d}-${p.id}`} className="w-3 h-3 flex-shrink-0" style={{ color: '#7F5A00' }} />}
                                   </div>
                                 );
                               })}

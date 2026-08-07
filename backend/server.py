@@ -272,6 +272,8 @@ class ProjectCreate(BaseModel):
     ligacoes_novas: int = 0
     religacoes: int = 0
     desligamentos: int = 0
+    # Fev/2026 — datas com desligamento (subconjunto de schedule_entries dates)
+    shutdown_dates: Optional[List[str]] = None
 
 class ProjectUpdate(BaseModel):
     name: Optional[str] = None
@@ -311,6 +313,7 @@ class ProjectUpdate(BaseModel):
     ligacoes_novas: Optional[int] = None
     religacoes: Optional[int] = None
     desligamentos: Optional[int] = None
+    shutdown_dates: Optional[List[str]] = None
 
 class ProjectResponse(BaseModel):
     id: str
@@ -359,6 +362,7 @@ class ProjectResponse(BaseModel):
     ligacoes_novas: int = 0
     religacoes: int = 0
     desligamentos: int = 0
+    shutdown_dates: List[str] = Field(default_factory=list)
     created_at: str
 
 class DashboardStats(BaseModel):
@@ -552,6 +556,90 @@ async def create_team_unavailability(body: TeamUnavailabilityBody, current_user:
 async def delete_team_unavailability(unavailability_id: str, current_user: dict = Depends(get_current_user)):
     await db.team_unavailability.delete_one({"_id": safe_object_id(unavailability_id), "user_id": current_user["_id"]})
     return {"status": "deleted"}
+
+# ============ Team Unproductivity (Improdutividade) — Fev/2026 ============
+class TeamUnproductivityBody(BaseModel):
+    team_id: str
+    date: str  # YYYY-MM-DD
+    reason: str = "outro"  # chuva, falta_material, falta_equipe, quebra_equipamento, espera_desligamento, acesso_bloqueado, acidente, retrabalho, outro
+    hours_lost: float = 0.0
+    notes: str = ""
+
+@api_router.get("/team-unproductivity")
+async def list_team_unproductivity(current_user: dict = Depends(get_current_user), start: str = "", end: str = ""):
+    q = {"user_id": current_user["_id"]}
+    if start or end:
+        rng = {}
+        if start: rng["$gte"] = start
+        if end: rng["$lte"] = end
+        q["date"] = rng
+    docs = await db.team_unproductivity.find(q).sort("date", -1).to_list(2000)
+    return [{
+        "id": str(d["_id"]),
+        "team_id": d["team_id"],
+        "team_name": d.get("team_name", ""),
+        "date": d["date"],
+        "reason": d.get("reason", "outro"),
+        "hours_lost": d.get("hours_lost", 0.0),
+        "notes": d.get("notes", ""),
+    } for d in docs]
+
+@api_router.post("/team-unproductivity")
+async def create_team_unproductivity(body: TeamUnproductivityBody, current_user: dict = Depends(get_current_user)):
+    team = await db.teams.find_one({"_id": safe_object_id(body.team_id), "user_id": current_user["_id"]})
+    if not team: raise HTTPException(status_code=404, detail="Equipe não encontrada")
+    doc = {
+        "user_id": current_user["_id"],
+        "team_id": body.team_id,
+        "team_name": team.get("name", ""),
+        "date": body.date,
+        "reason": body.reason,
+        "hours_lost": float(body.hours_lost or 0),
+        "notes": body.notes,
+        "created_at": datetime.now(timezone.utc),
+    }
+    res = await db.team_unproductivity.insert_one(doc)
+    return {"status": "ok", "id": str(res.inserted_id)}
+
+@api_router.delete("/team-unproductivity/{item_id}")
+async def delete_team_unproductivity(item_id: str, current_user: dict = Depends(get_current_user)):
+    await db.team_unproductivity.delete_one({"_id": safe_object_id(item_id), "user_id": current_user["_id"]})
+    return {"status": "deleted"}
+
+# ============ Material Requisition Response (Almoxarifado retorna status) — Fev/2026 ============
+WAREHOUSE_RESPONSE_STATUSES = {
+    "separado", "baixado", "separado_parcial", "na_doca",
+    "faltam_materiais", "devolvido", "aguardando_fornecedor", "outro",
+}
+
+class WarehouseResponseBody(BaseModel):
+    status: str
+    responsible: str = ""
+    notes: str = ""
+    missing_items: str = ""  # usado quando status = faltam_materiais
+
+@api_router.post("/projects/{project_id}/materials/{req_id}/response")
+async def set_warehouse_response(project_id: str, req_id: str, body: WarehouseResponseBody, current_user: dict = Depends(get_current_user)):
+    if body.status not in WAREHOUSE_RESPONSE_STATUSES:
+        raise HTTPException(status_code=400, detail=f"Status inválido. Aceitos: {sorted(WAREHOUSE_RESPONSE_STATUSES)}")
+    project = await db.projects.find_one({"_id": safe_object_id(project_id), "user_id": current_user["_id"]})
+    if not project: raise HTTPException(status_code=404, detail="Obra não encontrada")
+    reqs = project.get("material_requisitions", []) or []
+    if not any(r.get("id") == req_id for r in reqs):
+        raise HTTPException(status_code=404, detail="Requisição não encontrada")
+    response = {
+        "status": body.status,
+        "responsible": body.responsible,
+        "notes": body.notes,
+        "missing_items": body.missing_items,
+        "answered_at": datetime.now(timezone.utc).isoformat(),
+        "answered_by": current_user.get("email", ""),
+    }
+    await db.projects.update_one(
+        {"_id": safe_object_id(project_id), "material_requisitions.id": req_id},
+        {"$set": {"material_requisitions.$.warehouse_response": response}}
+    )
+    return {"status": "ok", "warehouse_response": response}
 
 # ============ Retorno diário de programação ============
 class DailyReturnBody(BaseModel):
@@ -821,6 +909,7 @@ def build_project_response(project: dict) -> ProjectResponse:
         ligacoes_novas=project.get("ligacoes_novas", 0),
         religacoes=project.get("religacoes", 0),
         desligamentos=project.get("desligamentos", 0),
+        shutdown_dates=project.get("shutdown_dates", []) or [],
         created_at=project["created_at"].isoformat() if hasattr(project["created_at"], 'isoformat') else project["created_at"],
     )
 
@@ -2290,6 +2379,7 @@ async def get_calendar_view(
                 "execution_status": p.get("execution_status", "aguardando_inicio"),
                 "requires_hot_line": p.get("requires_hot_line", False),
                 "shutdown_info": p.get("shutdown_info", ""),
+                "shutdown_dates": p.get("shutdown_dates", []) or [],
                 "location": p.get("location", ""),
             })
     

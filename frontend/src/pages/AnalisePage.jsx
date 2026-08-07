@@ -36,6 +36,7 @@ export const AnalisePage = () => {
   const [filters, setFilters] = useState({ startDate: '', endDate: '', teamId: '', minValue: '', maxValue: '' });
   const [topExpensive, setTopExpensive] = useState([]);
   const [search, setSearch] = useState('');
+  const [topTypeFilter, setTopTypeFilter] = useState('');
 
   useEffect(() => {
     axios.get(`${API}/teams`).then(({ data }) => setTeams(data));
@@ -55,10 +56,11 @@ export const AnalisePage = () => {
       const v = p.programmed_value || 0;
       if (!isNaN(minV) && v < minV) return false;
       if (!isNaN(maxV) && v > maxV) return false;
+      if (topTypeFilter && p.project_type !== topTypeFilter) return false;
       if (q && !((p.project_code || '').toLowerCase().includes(q) || (p.name || '').toLowerCase().includes(q))) return false;
       return true;
     });
-  }, [topExpensive, filters, search]);
+  }, [topExpensive, filters, search, topTypeFilter]);
 
   useEffect(() => {
     const params = new URLSearchParams();
@@ -277,15 +279,28 @@ export const AnalisePage = () => {
         data-testid="chart-top-expensive"
         className="glass-panel rounded-2xl p-6"
       >
-        <div className="mb-4 flex items-center justify-between">
+        <div className="mb-4 flex items-center justify-between flex-wrap gap-3">
           <div>
             <p className="text-xs tracking-[0.2em] uppercase font-bold text-zinc-500 mb-1">Oportunidades</p>
             <h3 className="font-heading font-black text-xl tracking-tighter text-white">Top 10 Obras Mais Caras</h3>
             <p className="text-xs text-zinc-500 mt-1">Ativas (excluindo concluídas e canceladas)</p>
           </div>
-          <span className="px-3 py-1 rounded-full text-xs font-bold bg-[#E0FF00]/15 border border-[#E0FF00]/40 text-[#E0FF00]">
-            {filteredTop.length} obra{filteredTop.length !== 1 ? 's' : ''}
-          </span>
+          <div className="flex items-center gap-2 flex-wrap">
+            <select
+              data-testid="top-type-filter"
+              value={topTypeFilter}
+              onChange={(e) => setTopTypeFilter(e.target.value)}
+              className="bg-zinc-950/90 border border-white/10 rounded-lg px-3 py-2 text-xs text-white focus:border-[#E0FF00] focus:outline-none"
+            >
+              <option value="">Todos os tipos</option>
+              {Object.entries(PROJECT_TYPE_LABEL).map(([v, l]) => (
+                <option key={v} value={v}>{l}</option>
+              ))}
+            </select>
+            <span className="px-3 py-1 rounded-full text-xs font-bold bg-[#E0FF00]/15 border border-[#E0FF00]/40 text-[#E0FF00]">
+              {filteredTop.length} obra{filteredTop.length !== 1 ? 's' : ''}
+            </span>
+          </div>
         </div>
         {topExpensive.length === 0 ? (
           <div className="h-32 flex items-center justify-center text-zinc-600 text-sm">Sem obras ativas.</div>

@@ -20,6 +20,8 @@ export const CarteiraPage = () => {
   const [editing, setEditing] = useState(null);
   const [search, setSearch] = useState('');
   const [typeFilter, setTypeFilter] = useState('');
+  const [startDateFilter, setStartDateFilter] = useState('');
+  const [endDateFilter, setEndDateFilter] = useState('');
 
   useEffect(() => {
     fetchData();
@@ -81,9 +83,12 @@ export const CarteiraPage = () => {
         return false;
       }
       if (typeFilter && p.project_type !== typeFilter) return false;
+      const ps = (p.start_date || '').slice(0, 10);
+      if (startDateFilter && ps && ps < startDateFilter) return false;
+      if (endDateFilter && ps && ps > endDateFilter) return false;
       return true;
     });
-  }, [projects, search, typeFilter]);
+  }, [projects, search, typeFilter, startDateFilter, endDateFilter]);
 
   const vencidas = useMemo(() => {
     const today = new Date().toISOString().slice(0, 10);
@@ -180,6 +185,34 @@ export const CarteiraPage = () => {
             <option key={v} value={v}>{l}</option>
           ))}
         </select>
+        <div className="flex items-center gap-1 bg-zinc-950/90 border border-white/10 rounded-lg px-2 py-1">
+          <CalIcon className="w-3.5 h-3.5 text-zinc-500" />
+          <input
+            data-testid="carteira-start-date"
+            type="date"
+            value={startDateFilter}
+            onChange={(e) => setStartDateFilter(e.target.value)}
+            className="bg-transparent text-xs text-white font-mono focus:outline-none"
+            title="Data início a partir de"
+          />
+          <span className="text-zinc-600 text-xs">→</span>
+          <input
+            data-testid="carteira-end-date"
+            type="date"
+            value={endDateFilter}
+            onChange={(e) => setEndDateFilter(e.target.value)}
+            className="bg-transparent text-xs text-white font-mono focus:outline-none"
+            title="Data início até"
+          />
+          {(startDateFilter || endDateFilter) && (
+            <button
+              data-testid="carteira-clear-date"
+              onClick={() => { setStartDateFilter(''); setEndDateFilter(''); }}
+              className="text-[10px] text-[#FF003C] ml-1"
+              title="Limpar filtro de data"
+            >×</button>
+          )}
+        </div>
       </div>
 
       {Object.keys(byType).length > 0 && (

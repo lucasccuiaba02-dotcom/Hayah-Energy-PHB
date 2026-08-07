@@ -65,12 +65,26 @@ Dashboard, **Buscar Obras**, Operacional, Carteira, Programação, Calendário, 
   * Modal (data-testid=material-preview-modal) com iframe embutido (data-testid=material-preview-iframe) + botões "Baixar" e "Enviar para o Almoxarifado" (fecha o modal e chama handleSend)
   * Testes: `/app/backend/tests/test_materials_preview.py` (2/2 verdes)
 
+## Onda 2 (Fev/2026) — enums e novas coleções
+- **Almoxarifado resposta**: novo `POST /api/projects/{id}/materials/{req_id}/response` com status enum (`separado`, `baixado`, `separado_parcial`, `na_doca`, `faltam_materiais`, `devolvido`, `aguardando_fornecedor`, `outro`) + responsible + notes + missing_items. UI mostra chip colorido (data-testid=req-warehouse-chip-{id}) no header do `RequisitionRow` e formulário completo dentro do expand com select + responsável + textareas (data-testid=req-warehouse-status/responsible/missing/notes/save).
+- **Desligamento por data específica**: novo campo `shutdown_dates: List[str]` em ProjectCreate/Update/Response. Checkbox por data no ProjectDrawer (data-testid=schedule-entry-shutdown-{idx}). CalendarioPage só mostra ⚠️ nos dias que estão no `shutdown_dates` (data-testid=cal-shutdown-{team}-{date}-{id}). Backwards compatible: se `shutdown_dates` estiver vazio, mantém legado `shutdown_info` como flag geral.
+- **Improdutividade**: nova coleção `team_unproductivity` + 3 endpoints (GET/POST/DELETE /api/team-unproductivity). Motivos (`chuva`, `falta_material`, `falta_equipe`, `quebra_equipamento`, `espera_desligamento`, `acesso_bloqueado`, `acidente`, `retrabalho`, `outro`), com hours_lost e notes. Nova página `/improdutividade` no sidebar (ícone TrendingDown) e novo perm-tab.
+
 ## Backlog (P1/P2)
-- Verificação de domínio Resend (deixar de usar `onboarding@resend.dev`)
+- **Onda 2 (próximo)**: campo de resposta almoxarifado (status separado/baixado/parcial/na_doca/faltam_materiais + responsável) · marcar dia específico como "com desligamento" em obra multi-data · nova aba Improdutividade com motivos padrão
+- **Onda 3 (próximo)**: fotos por ponto P1/P2/P3 + dossiê melhorado · pastas por obra (Fotos/Materiais/Projeto) · 4 relatórios novos (Equipe/Indisponibilidade/Improdutividade/Retorno)
 - Cloudflare 520 em GET /api/projects — investigar payload/pagination
-- Split de server.py em routers (3229 linhas)
+- Split de server.py em routers (3260 linhas)
 - Fotos em GridFS; Cache OSRM; TSP 2-opt
 - WhatsApp Business API oficial
+
+## Onda 1 (Fev/2026) — melhorias rápidas
+- **Tema Dark/Light**: `/contexts/ThemeContext.jsx` + `data-theme` no `<html>` + persistência em localStorage + detecção de preferência do sistema. Botão sol/lua no header (data-testid=theme-toggle). CSS override em `App.css` inverte fundos, textos e bordas em [data-theme="light"], mantém CTAs coloridos.
+- **KPI % No Prazo** (Dashboard): novo card ciano `data-testid=kpi-on-time-pct` calculando `round(no_prazo/(no_prazo+vencidas)*100)`. Row de KPIs virou grid 5 colunas.
+- **Filtro data no Calendário**: input `data-testid=cal-jump-date` no header — usuário pula direto pra qualquer data.
+- **Filtro data na Carteira**: par de inputs `data-testid=carteira-start-date` / `carteira-end-date` filtra por `p.start_date`. Botão × pra limpar.
+- **Filtro tipo obra no Top 10** (Análise): select `data-testid=top-type-filter` acima da lista.
+- **Botão Retorno Programação**: repositionado para ficar destacado + badge `data-testid=pending-returns-badge` com contagem vermelha quando há retornos pendentes (usa `/api/programacao/pending-returns`).
 
 ## Credenciais
 Ver `/app/memory/test_credentials.md`.
