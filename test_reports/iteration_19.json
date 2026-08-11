@@ -1,0 +1,58 @@
+{
+  "summary": "Iteration 19 - Estoque (Onda 2) full backend + frontend regression testing. Created /app/backend/tests/test_estoque.py with 12 pytest cases covering CRUD, KPIs, families, filters, CSV+XLSX import (merge & replace_system_only), export CSV headers, and Onda 1 regression. Result: 11/12 GREEN. One real backend bug found: the XLSX/CSV column autodetection in POST /api/estoque/import picks the WRONG column for 'description' when the sheet has the exact Satelite.xlsx layout (SITUAÇÃO MATERIAL | COD | DESCRIÇÃO | UNID | SOMA). The _pick_col helper iterates headers in order and returns the FIRST header that matches ANY keyword. Since the description keywords include 'material', it matches 'SITUAÇÃO MATERIAL' (index 0) BEFORE reaching 'DESCRIÇÃO' (index 2). Result: imported items get description='ATIVO' (the value from SITUAÇÃO MATERIAL column) instead of the real material name. This will break real Satelite.xlsx imports. All other 11 tests pass: create/update/delete with 409/404, PATCH recomputes net/accuracy/value_physical/value_system/value_diff/is_low_stock/is_divergent correctly, KPIs aggregate, families endpoint returns unique sorted lists, filters (family, group, low_stock, divergent, q) work individually and combined, CSV import merge creates 2 items, replace_system_only zeros qty_system of items not in file while preserving qty_physical, export CSV has UTF-8 BOM + exactly 13 columns in correct order. Frontend: /estoque route accessible, all required data-testids present (nav-estoque, est-kpi-*, est-search, est-filter-*, est-groupby-*, est-export, est-new, est-import-open, est-row-*, est-qty-system/physical/unit-value/edit-{code}). KPIs render, TEST-01 row from prior manual test shows correct computed values (net=+95, accuracy=0%, valor físico R$2.422,50). Regression: /materiais still exposes material-project-search; faturamento/pipeline and faturamento/backlog-alerts still return stuck_threshold_days=15.",
+  "backend_issues": {
+    "critical": [
+      {
+        "endpoint": "POST /api/estoque/import (XLSX with Satelite.xlsx layout)",
+        "issue": "_pick_col() greedy keyword match: header 'SITUAÇÃO MATERIAL' matches the 'material' keyword (which is in the description-column keyword list) BEFORE the loop reaches the real 'DESCRIÇÃO' header at index 2. Consequence: ci_desc=0, and every imported item stores description='ATIVO' (or whatever SITUAÇÃO value the row has) instead of the real material description. This directly breaks importing the exact Satelite.xlsx file the client will upload.",
+        "priority": "HIGH"
+      }
+    ],
+    "minor": [
+      {
+        "endpoint": "POST /api/estoque/import",
+        "issue": "Keyword list for description has 'descric' listed twice (line 3832: ['descric','descric','descricao','material','descricao']). Harmless dedup issue but signals confusion. Recommend: ['descric','descricao'] only (drop 'material'). Similarly ci_qty keyword 'estoque sistema' will also match a column literally named 'estoque sistema' but real spreadsheets use SOMA which works."
+      },
+      {
+        "endpoint": "GET /api/estoque",
+        "issue": "low_stock / divergent filters are applied in Python AFTER fetching from Mongo, so the limit=5000 is applied BEFORE filtering. On large collections users may see fewer than expected filtered results. Consider computing derived flags into the doc on write, or apply filters via aggregation."
+      }
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_estoque.py",
+    "/app/test_reports/pytest/iter19_estoque.xml"
+  ],
+  "action_items": [
+    "server.py _pick_col for description (line ~3832): remove 'material' from keywords AND prioritize exact 'descric' match — change to _pick_col(header_list, ['descric','descricao']). This fixes the Satelite.xlsx bug where description was replaced by SITUAÇÃO MATERIAL value.",
+    "Optional: after fix, add a unit test with the exact Satelite.xlsx header layout ['SITUAÇÃO MATERIAL','COD','DESCRIÇÃO','UNID','SOMA'] to prevent regression (already added as TestImport::test_xlsx_import — currently the failing test).",
+    "Consider adding 'estoque' to ALL_PERMISSIONS in server.py so non-admin users approved with explicit permissions can be granted access — currently only admin (bypasses check) can access the module.",
+    "Consider adding a Mongo index {user_id:1, code:1} unique on stock_items collection for large tenants.",
+    "Cleanup: leftover TEST-01 row created by main agent's earlier manual test remains in DB — not blocking but should be removed."
+  ],
+  "critical_code_review_comments": [
+    "server.py is now 4052 lines (grew ~500 in this iteration for Estoque). Extract /api/estoque endpoints + StockItem models + import parser + export into backend/routers/estoque.py.",
+    "The import parser _pick_col uses a greedy first-header-first-match strategy, which is fragile when spreadsheets contain headers that partially overlap with keywords for OTHER columns (root cause of the description bug). Recommendation: score each header against each column's keyword set, pick the best-scoring header per column, and require exact or word-boundary matches.",
+    "'estoque' is used as a perm string in AppLayout nav item (nav-estoque) but NOT declared in server.py ALL_PERMISSIONS. Admin bypasses the check so it works, but /admin/users cannot grant the estoque permission to other users because the whitelist filters it out (line 483: perms = [p for p in body.permissions if p in ALL_PERMISSIONS]).",
+    "EstoquePage low_stock and divergent filter fields depend on Python filtering post-query — consider computing these as denormalized boolean fields on each document to allow proper Mongo indexing/pagination later.",
+    "Duplicate 'descric' entry and inclusion of 'material' in the description keyword list demonstrates lack of unit tests for the import parser. Add explicit fixture spreadsheets in /app/backend/tests/fixtures/ covering: (a) exact Satelite.xlsx headers, (b) merged-cell garbage rows before header, (c) case + accent variants."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_estoque.py (new — 12 tests)"
+  ],
+  "success_rate": {
+    "backend": "91.7% (11/12 pytest — the failing test exposes the real Satelite.xlsx import bug)",
+    "frontend": "100% on data-testid coverage + route rendering + KPI compute + row display (no react errors, no page errors, all required testids present)"
+  },
+  "test_credentials": "admin@projectmatrix.com / Admin@123",
+  "seed_data_creation": "test_estoque.py creates + deletes items with TEST_* prefix per test (autouse fixture wipes before + after). Leftover TEST-01 (dash, not underscore) row remains from main agent's manual test — one item, harmless.",
+  "retest_needed": true,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Iteration 19 tested Estoque (Onda 2). Backend 11/12 pytest pass. The single failing test (TestImport::test_xlsx_import) is a REAL bug in server.py _pick_col — 'material' keyword captures 'SITUAÇÃO MATERIAL' header before 'DESCRIÇÃO'. Fix: remove 'material' from description keywords at line ~3832. Frontend UI fully wired — all requested data-testids exist. If main agent applies the one-line _pick_col fix, re-run: `python -m pytest /app/backend/tests/test_estoque.py -v -n 0`. Onda 1 regression endpoints (/api/faturamento/pipeline threshold=15, /api/faturamento/backlog-alerts threshold=15) still pass. Also consider adding 'estoque' to ALL_PERMISSIONS in server.py so non-admin users can be granted access. Resend still mocked — do NOT enable.",
+  "rca of the issue": "Bug: XLSX import maps DESCRIPTION column to 'SITUAÇÃO MATERIAL' when using Satelite.xlsx-shaped sheets. Repro: POST /api/estoque/import a xlsx whose header row is ['SITUAÇÃO MATERIAL','COD','DESCRIÇÃO','UNID','SOMA']. Every imported item's description field becomes 'ATIVO' (or whatever value SITUAÇÃO holds). Root cause: /app/backend/server.py line ~3832 `ci_desc = _pick_col(header_list, ['descric','descric','descricao','material','descricao'])`. _pick_col iterates headers in order and returns index of FIRST header whose normalized text CONTAINS ANY keyword. Header 0 'situacao material' contains 'material' → returns 0, never reaches DESCRIÇÃO. Mitigation: change keyword list to `['descric','descricao']` (drop 'material' and the duplicates). After that, ci_desc=2 for the standard Satelite layout. My pytest test_xlsx_import already asserts item['description'] == 'Material X1' after import, so re-running the suite will confirm the fix."
+}

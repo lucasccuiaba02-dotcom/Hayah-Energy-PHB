@@ -39,6 +39,7 @@ const navItems = [
   { to: '/analise', icon: BarChart3, label: 'Análise', testid: 'nav-analise', perm: 'analise' },
   { to: '/relatorios', icon: FileSpreadsheet, label: 'Relatórios', testid: 'nav-relatorios', perm: 'relatorios' },
   { to: '/equipes', icon: Users, label: 'Equipes', testid: 'nav-equipes', perm: 'equipes' },
+  { to: '/estoque', icon: Package, label: 'Estoque', testid: 'nav-estoque', perm: 'estoque' },
   { to: '/indisponibilidade', icon: CalendarX, label: 'Indisponibilidade', testid: 'nav-indisponibilidade', perm: 'programacao' },
   { to: '/improdutividade', icon: TrendingDown, label: 'Improdutividade', testid: 'nav-improdutividade', perm: 'programacao' },
   { to: '/admin/usuarios', icon: Shield, label: 'Admin', testid: 'nav-admin', perm: 'admin' },

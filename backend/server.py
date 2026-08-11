@@ -215,7 +215,7 @@ class UserResponse(BaseModel):
 ALL_PERMISSIONS = [
     "dashboard", "carteira", "programacao", "calendario",
     "operacional", "geolocalizacao", "materiais", "analise",
-    "relatorios", "equipes", "admin",
+    "relatorios", "equipes", "estoque", "faturamento", "admin",
 ]
 
 class TeamCreate(BaseModel):
@@ -3551,6 +3551,407 @@ async def confirm_requisition_receipt(
     if result.matched_count == 0:
         raise HTTPException(status_code=404, detail="Requisição não encontrada")
     return {"status": "confirmed", "receipt": receipt}
+
+
+# =============================================================================
+# ESTOQUE (Almoxarifado físico) — Fev/2026 Onda 2
+# =============================================================================
+
+class StockItemBase(BaseModel):
+    code: str
+    description: str
+    unit: str = "UN"
+    family: str = ""
+    group: str = ""
+    qty_system: float = 0.0
+    qty_physical: float = 0.0
+    unit_value: float = 0.0
+    min_stock: float = 0.0
+    notes: str = ""
+
+
+class StockItemCreate(StockItemBase):
+    pass
+
+
+class StockItemUpdate(BaseModel):
+    code: Optional[str] = None
+    description: Optional[str] = None
+    unit: Optional[str] = None
+    family: Optional[str] = None
+    group: Optional[str] = None
+    qty_system: Optional[float] = None
+    qty_physical: Optional[float] = None
+    unit_value: Optional[float] = None
+    min_stock: Optional[float] = None
+    notes: Optional[str] = None
+
+
+def _stock_doc_to_dict(doc: dict) -> dict:
+    """Serialize stock item (adds computed fields net/accuracy/value_*)."""
+    qs = float(doc.get("qty_system") or 0)
+    qp = float(doc.get("qty_physical") or 0)
+    uv = float(doc.get("unit_value") or 0)
+    net = qp - qs
+    # accuracy: 1 - |net| / max(qs, qp, 1) — bounded 0..1
+    denom = max(qs, qp, 1.0)
+    accuracy = max(0.0, min(1.0, 1.0 - abs(net) / denom))
+    ms = float(doc.get("min_stock") or 0)
+    return {
+        "id": str(doc["_id"]),
+        "code": doc.get("code", ""),
+        "description": doc.get("description", ""),
+        "unit": (doc.get("unit") or "UN").upper(),
+        "family": doc.get("family", ""),
+        "group": doc.get("group", ""),
+        "qty_system": qs,
+        "qty_physical": qp,
+        "unit_value": uv,
+        "min_stock": ms,
+        "notes": doc.get("notes", ""),
+        "net": round(net, 4),
+        "accuracy": round(accuracy, 4),
+        "value_physical": round(qp * uv, 2),
+        "value_system": round(qs * uv, 2),
+        "value_diff": round((qp - qs) * uv, 2),
+        "is_low_stock": ms > 0 and qp <= ms,
+        "is_divergent": abs(net) > 0.001,
+        "last_updated_at": doc.get("last_updated_at", ""),
+        "last_imported_at": doc.get("last_imported_at", ""),
+        "created_at": doc.get("created_at", ""),
+    }
+
+
+@api_router.get("/estoque")
+async def list_stock_items(
+    q: Optional[str] = None,
+    family: Optional[str] = None,
+    group: Optional[str] = None,
+    low_stock: Optional[bool] = None,
+    divergent: Optional[bool] = None,
+    limit: int = 5000,
+    current_user: dict = Depends(get_current_user),
+):
+    """Lista os itens de estoque do usuário. Filtros: q, family, group, low_stock, divergent."""
+    mongo_q: dict = {"user_id": current_user["_id"]}
+    if q:
+        # busca por código OU descrição (case-insensitive)
+        import re as _re
+        rx = _re.compile(_re.escape(q), _re.IGNORECASE)
+        mongo_q["$or"] = [{"code": rx}, {"description": rx}]
+    if family:
+        mongo_q["family"] = family
+    if group:
+        mongo_q["group"] = group
+    docs = await db.stock_items.find(mongo_q).sort("code", 1).to_list(limit)
+    items = [_stock_doc_to_dict(d) for d in docs]
+    if low_stock:
+        items = [i for i in items if i["is_low_stock"]]
+    if divergent:
+        items = [i for i in items if i["is_divergent"]]
+    return {"items": items, "count": len(items)}
+
+
+@api_router.get("/estoque/kpis")
+async def stock_kpis(current_user: dict = Depends(get_current_user)):
+    docs = await db.stock_items.find({"user_id": current_user["_id"]}).to_list(20000)
+    total_items = len(docs)
+    if not docs:
+        return {
+            "total_items": 0,
+            "value_physical_total": 0.0,
+            "value_system_total": 0.0,
+            "value_diff_total": 0.0,
+            "accuracy_global": 0.0,
+            "low_stock_count": 0,
+            "divergent_count": 0,
+            "families_count": 0,
+            "groups_count": 0,
+        }
+    value_phys = 0.0
+    value_sys = 0.0
+    acc_sum = 0.0
+    low_count = 0
+    div_count = 0
+    families: set = set()
+    groups: set = set()
+    for d in docs:
+        it = _stock_doc_to_dict(d)
+        value_phys += it["value_physical"]
+        value_sys += it["value_system"]
+        acc_sum += it["accuracy"]
+        if it["is_low_stock"]:
+            low_count += 1
+        if it["is_divergent"]:
+            div_count += 1
+        if it["family"]:
+            families.add(it["family"])
+        if it["group"]:
+            groups.add(it["group"])
+    return {
+        "total_items": total_items,
+        "value_physical_total": round(value_phys, 2),
+        "value_system_total": round(value_sys, 2),
+        "value_diff_total": round(value_phys - value_sys, 2),
+        "accuracy_global": round(acc_sum / total_items, 4),
+        "low_stock_count": low_count,
+        "divergent_count": div_count,
+        "families_count": len(families),
+        "groups_count": len(groups),
+    }
+
+
+@api_router.get("/estoque/families")
+async def stock_families(current_user: dict = Depends(get_current_user)):
+    """Retorna listas únicas de famílias e grupos para os filtros."""
+    docs = await db.stock_items.find({"user_id": current_user["_id"]}, {"family": 1, "group": 1}).to_list(20000)
+    families = sorted({(d.get("family") or "").strip() for d in docs if (d.get("family") or "").strip()})
+    groups = sorted({(d.get("group") or "").strip() for d in docs if (d.get("group") or "").strip()})
+    return {"families": families, "groups": groups}
+
+
+@api_router.post("/estoque")
+async def create_stock_item(body: StockItemCreate, current_user: dict = Depends(get_current_user)):
+    code = (body.code or "").strip()
+    if not code:
+        raise HTTPException(status_code=400, detail="Código obrigatório")
+    existing = await db.stock_items.find_one({"user_id": current_user["_id"], "code": code})
+    if existing:
+        raise HTTPException(status_code=409, detail=f"Já existe item com código {code}")
+    now = datetime.now(timezone.utc).isoformat()
+    doc = {**body.model_dump(), "user_id": current_user["_id"], "created_at": now, "last_updated_at": now}
+    doc["code"] = code
+    doc["unit"] = (doc.get("unit") or "UN").upper()
+    res = await db.stock_items.insert_one(doc)
+    saved = await db.stock_items.find_one({"_id": res.inserted_id})
+    return _stock_doc_to_dict(saved)
+
+
+@api_router.patch("/estoque/{item_id}")
+async def update_stock_item(item_id: str, body: StockItemUpdate, current_user: dict = Depends(get_current_user)):
+    updates = {k: v for k, v in body.model_dump(exclude_none=True).items()}
+    if not updates:
+        raise HTTPException(status_code=400, detail="Nada para atualizar")
+    if "unit" in updates:
+        updates["unit"] = (updates["unit"] or "UN").upper()
+    if "code" in updates:
+        updates["code"] = (updates["code"] or "").strip()
+        # ensure no duplicate
+        clash = await db.stock_items.find_one({"user_id": current_user["_id"], "code": updates["code"], "_id": {"$ne": safe_object_id(item_id)}})
+        if clash:
+            raise HTTPException(status_code=409, detail=f"Outro item já usa o código {updates['code']}")
+    updates["last_updated_at"] = datetime.now(timezone.utc).isoformat()
+    r = await db.stock_items.update_one(
+        {"_id": safe_object_id(item_id), "user_id": current_user["_id"]},
+        {"$set": updates},
+    )
+    if r.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Item não encontrado")
+    doc = await db.stock_items.find_one({"_id": safe_object_id(item_id)})
+    return _stock_doc_to_dict(doc)
+
+
+@api_router.delete("/estoque/{item_id}")
+async def delete_stock_item(item_id: str, current_user: dict = Depends(get_current_user)):
+    r = await db.stock_items.delete_one({"_id": safe_object_id(item_id), "user_id": current_user["_id"]})
+    if r.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Item não encontrado")
+    return {"status": "deleted"}
+
+
+@api_router.post("/estoque/import")
+async def import_stock_sistemico(
+    file: UploadFile = File(...),
+    mode: str = Form("merge"),  # merge (default) | replace_system_only
+    current_user: dict = Depends(get_current_user),
+):
+    """Importa planilha SISTÊMICA (xlsx/csv) e atualiza qty_system + description/unit.
+    Colunas aceitas: código/COD, descrição, unidade/UNID, quantidade sistêmica (SOMA/QTD).
+    Modo 'merge': cria itens novos e atualiza campos sistêmicos dos existentes (mantém qty_physical).
+    Modo 'replace_system_only': zera qty_system dos itens NÃO presentes na planilha.
+    """
+    import openpyxl, csv as _csv, io as _io
+
+    fname = (file.filename or "").lower()
+    raw = await file.read()
+    if len(raw) > 30 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="Arquivo > 30MB")
+
+    rows: List[dict] = []
+    header_norm = lambda s: (str(s or "").strip().lower().replace("ç", "c").replace("ã", "a").replace("é", "e").replace("í", "i").replace("ó", "o").replace("ú", "u"))
+
+    def _pick_col(headers, keywords):
+        for i, h in enumerate(headers):
+            nh = header_norm(h)
+            for kw in keywords:
+                if kw in nh:
+                    return i
+        return -1
+
+    if fname.endswith(".csv"):
+        text = raw.decode("utf-8-sig", errors="ignore")
+        reader = _csv.reader(_io.StringIO(text))
+        all_rows = list(reader)
+        if not all_rows:
+            raise HTTPException(status_code=400, detail="CSV vazio")
+        headers = all_rows[0]
+        for r in all_rows[1:]:
+            row = {headers[i]: r[i] if i < len(r) else "" for i in range(len(headers))}
+            rows.append(row)
+        header_list = headers
+    else:
+        try:
+            wb = openpyxl.load_workbook(_io.BytesIO(raw), read_only=True, data_only=True)
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"Arquivo Excel inválido: {e}")
+        # Escolhe a MELHOR aba (procura por cabeçalho contendo COD/DESCRIÇÃO/UNID em qq linha das primeiras 10)
+        best_ws = None
+        best_header_row = 0
+        best_headers: List[str] = []
+        for name in wb.sheetnames:
+            ws = wb[name]
+            for i, row in enumerate(ws.iter_rows(min_row=1, max_row=15, values_only=True), start=1):
+                vals = [str(c) if c is not None else "" for c in row]
+                joined = " ".join(vals).lower()
+                if ("cod" in joined and "descric" in joined) or ("código" in joined and "descrição" in joined) or ("cod" in joined and "unid" in joined):
+                    best_ws = ws
+                    best_header_row = i
+                    best_headers = vals
+                    break
+            if best_ws:
+                break
+        if not best_ws:
+            raise HTTPException(status_code=400, detail="Não encontrei colunas COD/DESCRIÇÃO/UNID na planilha")
+        for r in best_ws.iter_rows(min_row=best_header_row + 1, values_only=True):
+            row = {best_headers[i]: r[i] if i < len(r) else "" for i in range(len(best_headers))}
+            rows.append(row)
+        header_list = best_headers
+
+    # Identifica colunas dentro dos headers.
+    # ATENÇÃO: para "description" NÃO usar 'material' — colide com "SITUAÇÃO MATERIAL".
+    ci_code = _pick_col(header_list, ["cod"])
+    ci_desc = _pick_col(header_list, ["descric", "descricao"])
+    ci_unit = _pick_col(header_list, ["unid", "unit"])
+    ci_qty = _pick_col(header_list, ["soma", "qtd sistema", "qtde sistema", "qtd_sistema", "qty_system", "estoque sistema", "quantidade sistema"])
+    ci_family = _pick_col(header_list, ["familia", "family"])
+    ci_group = _pick_col(header_list, ["grupo", "group"])
+    ci_situacao = _pick_col(header_list, ["situacao", "situação", "status"])
+
+    if ci_code < 0 or ci_desc < 0:
+        raise HTTPException(status_code=400, detail="Cabeçalhos COD/DESCRIÇÃO obrigatórios")
+
+    def _to_float(v):
+        try:
+            if v is None or v == "":
+                return 0.0
+            if isinstance(v, (int, float)):
+                return float(v)
+            s = str(v).strip().replace(".", "").replace(",", ".")
+            # if the value already had a real decimal, above corrupts it; try both
+            try:
+                return float(s)
+            except Exception:
+                return float(str(v).replace(",", "."))
+        except Exception:
+            return 0.0
+
+    imported = 0
+    updated = 0
+    created = 0
+    seen_codes: set = set()
+    now = datetime.now(timezone.utc).isoformat()
+    header_list_arr = list(header_list)
+
+    for r in rows:
+        vals = [r.get(header_list_arr[i], "") if i < len(header_list_arr) else "" for i in range(len(header_list_arr))]
+        code = str(vals[ci_code] or "").strip()
+        desc = str(vals[ci_desc] or "").strip()
+        if not code or not desc:
+            continue
+        unit = (str(vals[ci_unit] or "UN").strip() if ci_unit >= 0 else "UN").upper()
+        qty_sys = _to_float(vals[ci_qty]) if ci_qty >= 0 else 0.0
+        family = str(vals[ci_family] or "").strip() if ci_family >= 0 else ""
+        group = str(vals[ci_group] or "").strip() if ci_group >= 0 else ""
+        situacao = str(vals[ci_situacao] or "").strip() if ci_situacao >= 0 else ""
+        seen_codes.add(code)
+        existing = await db.stock_items.find_one({"user_id": current_user["_id"], "code": code})
+        set_doc = {
+            "description": desc,
+            "unit": unit,
+            "qty_system": qty_sys,
+            "last_imported_at": now,
+            "last_updated_at": now,
+        }
+        if family:
+            set_doc["family"] = family
+        if group:
+            set_doc["group"] = group
+        if situacao:
+            set_doc["situacao"] = situacao
+        if existing:
+            await db.stock_items.update_one({"_id": existing["_id"]}, {"$set": set_doc})
+            updated += 1
+        else:
+            doc = {
+                "user_id": current_user["_id"],
+                "code": code,
+                "description": desc,
+                "unit": unit,
+                "qty_system": qty_sys,
+                "qty_physical": 0.0,
+                "unit_value": 0.0,
+                "min_stock": 0.0,
+                "family": family,
+                "group": group,
+                "situacao": situacao,
+                "notes": "",
+                "created_at": now,
+                "last_imported_at": now,
+                "last_updated_at": now,
+            }
+            await db.stock_items.insert_one(doc)
+            created += 1
+        imported += 1
+
+    zeroed = 0
+    if mode == "replace_system_only" and seen_codes:
+        r = await db.stock_items.update_many(
+            {"user_id": current_user["_id"], "code": {"$nin": list(seen_codes)}},
+            {"$set": {"qty_system": 0.0, "last_updated_at": now}},
+        )
+        zeroed = r.modified_count
+
+    return {
+        "imported": imported,
+        "created": created,
+        "updated": updated,
+        "zeroed_when_absent": zeroed,
+        "mode": mode,
+    }
+
+
+@api_router.get("/estoque/export")
+async def export_stock_csv(current_user: dict = Depends(get_current_user)):
+    """Exporta o estoque atual como CSV."""
+    docs = await db.stock_items.find({"user_id": current_user["_id"]}).sort("code", 1).to_list(20000)
+    import csv as _csv, io as _io
+    buf = _io.StringIO()
+    w = _csv.writer(buf)
+    w.writerow(["codigo", "descricao", "unidade", "familia", "grupo", "qty_sistema", "qty_fisica", "net", "valor_unit", "valor_fisico", "valor_sistemico", "min_stock", "notas"])
+    for d in docs:
+        it = _stock_doc_to_dict(d)
+        w.writerow([
+            it["code"], it["description"], it["unit"], it["family"], it["group"],
+            it["qty_system"], it["qty_physical"], it["net"],
+            it["unit_value"], it["value_physical"], it["value_system"], it["min_stock"],
+            it["notes"],
+        ])
+    csv_bytes = buf.getvalue().encode("utf-8-sig")
+    return Response(
+        content=csv_bytes,
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="estoque-{datetime.now(timezone.utc).strftime("%Y%m%d")}.csv"'},
+    )
 
 
 @api_router.get("/projects/{project_id}/requisitions/{req_id}/receipt-photo")

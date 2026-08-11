@@ -10,7 +10,7 @@ Matriz de programação de projetos com equipes, datas, valores programados, met
 - CRS: SIRGAS 2000 / UTM Zone 21 South (Cuiabá/MT)
 
 ## Módulos (abas no sidebar)
-Dashboard, **Buscar Obras**, Operacional, Carteira, Programação, Calendário, **Faturamento**, Geolocalização, Materiais, Análise, Relatórios, Equipes, Indisponibilidade, Admin
+Dashboard, **Buscar Obras**, Operacional, Carteira, Programação, Calendário, **Faturamento**, Geolocalização, Materiais, **Estoque**, Análise, Relatórios, Equipes, Improdutividade, Indisponibilidade, Admin
 
 ## Regras chave
 - `project_code` único (409)
@@ -42,7 +42,15 @@ Dashboard, **Buscar Obras**, Operacional, Carteira, Programação, Calendário, 
 
 - **Aviso de Backlog Faturamento (iter17)**: endpoints `/api/faturamento/backlog-alerts` (GET) e `/notify` (POST), cron 09:15 broadcast push com `requireInteraction`, beep two-tone WebAudio + `showNotification` local no FaturamentoPage, toggle `Volume2/VolumeX` persistido em `localStorage.hayah_backlog_sound`.
 - **Página de Arquivos consolidada (Google Drive style) (iter17)**: ProjectDetailPage com 2 abas (`pd-tab-operacional`, `pd-tab-arquivos`), a segunda com Documentos + Materiais + Fotos-por-Ponto. Upload de foto envia `point` e auto-incrementa (P1→P2).
-- **Onda 1 (iter18)** — 7 ajustes rápidos:
+- **Onda 1 (iter18)** — 7 ajustes rápidos (PDF Requisição 7 colunas com Código+Descrição+Un; busca por obra em /materiais; unidade dropdown; scroll horizontal Faturamento; scroll vertical Sidebar; status almoxarifado por item; headers CSV EN/PT).
+- **Onda 2 — Módulo ESTOQUE (iter19)** — nova aba `/estoque` com:
+  1. **8 endpoints** `/api/estoque{,/kpis,/families,/import,/export,/{id}}` (CRUD + import xlsx/csv + export csv)
+  2. **Cálculos automáticos** por item: `net = qty_physical - qty_system`, `accuracy = 1 - |net|/max(qty_system,qty_physical,1)`, `value_physical/system/diff`, `is_low_stock`, `is_divergent`
+  3. **KPIs globais**: Valor Físico Total, Valor Sistêmico Total, Acuracidade média, Itens em Alerta (low_stock), Divergentes, contagem de famílias/grupos
+  4. **Import xlsx/csv sistêmico**: auto-detecta cabeçalho contendo COD/DESCRIÇÃO/UNID em qualquer linha das primeiras 15 (via helper `_pick_col`); modos `merge` (default) e `replace_system_only` (zera qty_system dos itens ausentes). Bug fix (iter19): removido `'material'` das keywords de descrição para não colidir com `SITUAÇÃO MATERIAL` do template Satélite.
+  5. **Frontend `EstoquePage.jsx`**: KPI cards + toolbar (busca, filtros família/grupo, chips estoque baixo/divergentes, agrupar por), tabela editável (edições inline em qty_system/qty_physical/unit_value com defaultValue+onBlur), modais Edit e Import.
+  6. **Permissão `estoque`** adicionada a `ALL_PERMISSIONS`.
+  Testado por testing_agent v3 (iteration 19) — 12/12 pytest verde após o fix do `_pick_col`.
   1. **PDF Requisição** 7 colunas: Código · Descrição · Un · Solicitado · Separado · Baixado · Entregue. `material_requisition_pdf.py` usa Paragraph para wrap; widths [22,55,12,22,20,20,22]mm.
   2. **Aba Materiais - busca por obra**: input `material-project-search` filtra dropdown por `project_code` OU `name` (case-insensitive), badge `material-search-count` mostra matches/total.
   3. **Unidade de medida editável**: dropdown `mat-unit-{id}` com 11 opções (UN/PC/PÇ/KG/M/M²/M³/L/CX/PAR/RL) - PATCH persiste imediato.
