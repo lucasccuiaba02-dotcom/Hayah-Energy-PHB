@@ -59,7 +59,7 @@ export const AppLayout = ({ children, title, subtitle, actions }) => {
             <HayahLogo size="md" showText={false} />
           </div>
 
-          <nav className="flex-1 flex flex-col gap-3">
+          <nav className="flex-1 w-full flex flex-col gap-3 hayah-sidebar-scroll px-4 py-1">
             {navItems
               .filter((item) => {
                 if (!user) return false;

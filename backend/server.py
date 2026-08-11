@@ -2527,11 +2527,12 @@ async def import_materials_list(
     fname = (file.filename or "").lower()
 
     HEADER_KEYWORDS = {
-        "item": ["item", "descricao", "descrição", "material", "produto", "designacao", "designação"],
+        "item": ["item", "descricao", "descrição", "descricao item", "descrição item", "material", "produto", "designacao", "designação"],
         "quantity": ["quantidade", "quant.", "quant", "qtd", "qtde", "qte", "qntd", "quant orçada", "quant orcada", "qntd orçada", "qntd orcada"],
         "unit": ["unidade", "unid.", "unid", "un", "um"],
-        "code": ["codigo", "código", "cod.", "sap", "item mat"],
-        "cost": ["preco", "preço", "valor", "custo", "vlr", "unit price", "unit cost"],
+        "code": ["codigo", "código", "cod.", "cod item", "cod. item", "sap", "item mat"],
+        "cost": ["preco", "preço", "valor unit", "custo", "vlr unit", "unit price", "unit cost", "preco unit", "preço unit"],
+        "total_cost": ["vlr total", "valor total", "total geral", "preco total", "preço total", "custo total"],
     }
 
     # Sheet name priority: prefer sheets that look like a requisition/material list
@@ -2706,13 +2707,18 @@ async def import_materials_list(
         qty_out = int(qty) if qty == int(qty) else qty
         unit = pick(r, "unit", "unidade", "un", "unid")
         cost = to_float(pick(r, "cost", "preco", "valor", "custo", "preço", "vlr"))
+        # Se planilha já tem VLR TOTAL, usa; senão calcula preço*qtd
+        explicit_total = to_float(pick(r, "total_cost", "vlr total", "valor total"))
+        total = explicit_total if explicit_total > 0 else round(cost * qty, 2)
+        code = pick(r, "code", "codigo", "código", "cod")
         normalized.append({
             "id": secrets.token_urlsafe(8),
             "item": str(item),
+            "code": str(code) if code else "",
             "quantity": qty_out,
             "unit": str(unit) or "un",
             "unit_cost": cost,
-            "total_cost": round(cost * qty, 2),
+            "total_cost": total,
         })
 
     if not normalized:
@@ -2762,6 +2768,104 @@ async def update_material_item(
     if result.matched_count == 0:
         raise HTTPException(status_code=404, detail="Item não encontrado")
     return {"status": "updated", "id": item_id, "updates": updates}
+
+
+# ============ Material template + export (Fev/2026) ============
+@api_router.get("/materials/template")
+async def download_material_template(current_user: dict = Depends(get_current_user)):
+    """Return a standard Excel template with the columns the user expects."""
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "LISTA MATERIAL"
+    headers = ["COD ITEM", "DESCRIÇÃO ITEM", "QTD", "UNIDADE", "PREÇO", "VLR TOTAL"]
+    yellow = PatternFill(start_color="E0FF00", end_color="E0FF00", fill_type="solid")
+    border = Border(left=Side(style="thin"), right=Side(style="thin"), top=Side(style="thin"), bottom=Side(style="thin"))
+    for i, h in enumerate(headers, 1):
+        c = ws.cell(row=1, column=i, value=h)
+        c.font = Font(bold=True, size=11, color="000000")
+        c.fill = yellow
+        c.alignment = Alignment(horizontal="center", vertical="center")
+        c.border = border
+    # Example row (linha 2) para orientação
+    example = ["EX-001", "POSTE DE CONCRETO DT 10/300", 5, "UN", 850.50, 4252.50]
+    for i, v in enumerate(example, 1):
+        c = ws.cell(row=2, column=i, value=v)
+        c.font = Font(italic=True, color="808080")
+    ws.cell(row=3, column=2, value="↑ Apague esta linha de exemplo antes de reimportar. Adicione uma linha por material.").font = Font(italic=True, color="a1a1aa")
+    # Column widths
+    widths = [12, 45, 8, 10, 14, 14]
+    for i, w in enumerate(widths, 1):
+        ws.column_dimensions[chr(64 + i)].width = w
+    ws.row_dimensions[1].height = 22
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    filename = "modelo_lista_material_hayah.xlsx"
+    return Response(
+        content=buf.read(),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@api_router.get("/projects/{project_id}/materials/export")
+async def export_project_materials(project_id: str, current_user: dict = Depends(get_current_user)):
+    """Export current project.materials to Excel using the same standard template layout."""
+    project = await db.projects.find_one({"_id": safe_object_id(project_id), "user_id": current_user["_id"]})
+    if not project:
+        raise HTTPException(status_code=404, detail="Obra não encontrada")
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "LISTA MATERIAL"
+    headers = ["COD ITEM", "DESCRIÇÃO ITEM", "QTD", "UNIDADE", "PREÇO", "VLR TOTAL"]
+    yellow = PatternFill(start_color="E0FF00", end_color="E0FF00", fill_type="solid")
+    border = Border(left=Side(style="thin"), right=Side(style="thin"), top=Side(style="thin"), bottom=Side(style="thin"))
+    for i, h in enumerate(headers, 1):
+        c = ws.cell(row=1, column=i, value=h)
+        c.font = Font(bold=True, size=11, color="000000")
+        c.fill = yellow
+        c.alignment = Alignment(horizontal="center", vertical="center")
+        c.border = border
+    materials = project.get("materials") or project.get("materials_list") or []
+    row_idx = 2
+    total_geral = 0.0
+    for m in materials:
+        qty = float(m.get("quantity") or m.get("qty_requested") or 0)
+        unit_cost = float(m.get("unit_cost") or 0)
+        total = float(m.get("total_cost") or (qty * unit_cost))
+        total_geral += total
+        ws.cell(row=row_idx, column=1, value=m.get("code") or "")
+        ws.cell(row=row_idx, column=2, value=m.get("item") or "")
+        ws.cell(row=row_idx, column=3, value=qty)
+        ws.cell(row=row_idx, column=4, value=m.get("unit") or "un")
+        ws.cell(row=row_idx, column=5, value=unit_cost)
+        ws.cell(row=row_idx, column=6, value=total)
+        row_idx += 1
+    # Rodapé com TOTAL
+    if materials:
+        c = ws.cell(row=row_idx + 1, column=5, value="TOTAL GERAL:")
+        c.font = Font(bold=True, size=11)
+        c.alignment = Alignment(horizontal="right")
+        cv = ws.cell(row=row_idx + 1, column=6, value=total_geral)
+        cv.font = Font(bold=True, size=12, color="00A050")
+    widths = [12, 45, 8, 10, 14, 14]
+    for i, w in enumerate(widths, 1):
+        ws.column_dimensions[chr(64 + i)].width = w
+    ws.row_dimensions[1].height = 22
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    project_code = project.get("project_code") or "obra"
+    filename = f"lista_material_{project_code}.xlsx"
+    return Response(
+        content=buf.read(),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @api_router.post("/materials/preview")

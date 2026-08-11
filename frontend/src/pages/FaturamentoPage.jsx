@@ -144,7 +144,7 @@ export const FaturamentoPage = () => {
       {loading ? (
         <p className="text-center text-zinc-500 py-8 text-sm">Carregando pipeline…</p>
       ) : (
-        <div data-testid="fat-pipeline" className="overflow-x-auto -mx-4 px-4 pb-4">
+        <div data-testid="fat-pipeline" className="hayah-hscroll -mx-4 px-4 pb-6">
           <div className="flex gap-3 min-w-max">
             {stages.map((s) => {
               const items = pipeline[s.key] || [];
@@ -158,9 +158,9 @@ export const FaturamentoPage = () => {
                       <Icon className="w-4 h-4" style={{ color }} />
                       <p className="text-[10px] tracking-[0.2em] uppercase font-bold" style={{ color }}>{s.label}</p>
                     </div>
-                    <div className="flex items-baseline gap-2">
-                      <p className="font-mono text-lg font-bold text-white">{items.length}</p>
-                      <p className="font-mono text-[10px] text-zinc-500">{formatCurrency(stageTotal)}</p>
+                    <div className="flex items-baseline gap-2 flex-wrap">
+                      <p className="font-mono text-2xl font-black text-white leading-none">{items.length}</p>
+                      <p className="font-mono text-lg font-bold" style={{ color }}>{formatCurrency(stageTotal)}</p>
                     </div>
                   </div>
                   <div className="p-2 space-y-2 max-h-[65vh] overflow-y-auto">
@@ -293,13 +293,13 @@ const LeadCard = ({ label, days, testid }) => (
 );
 
 const KpiCard = ({ label, value, sub, color, icon: Icon, testid }) => (
-  <div data-testid={testid} className="glass-panel rounded-2xl p-4" style={{ borderLeft: `3px solid ${color}` }}>
-    <div className="flex items-center gap-2 mb-1">
-      <Icon className="w-4 h-4" style={{ color }} />
-      <p className="text-[10px] tracking-[0.2em] uppercase font-bold text-zinc-500">{label}</p>
+  <div data-testid={testid} className="glass-panel rounded-2xl p-5" style={{ borderLeft: `4px solid ${color}` }}>
+    <div className="flex items-center gap-2 mb-1.5">
+      <Icon className="w-5 h-5" style={{ color }} />
+      <p className="text-[11px] tracking-[0.2em] uppercase font-bold text-zinc-500">{label}</p>
     </div>
-    <p className="font-mono text-xl font-bold text-white truncate">{value}</p>
-    <p className="text-[10px] text-zinc-500">{sub}</p>
+    <p className="font-mono text-3xl md:text-4xl font-black text-white truncate leading-tight" style={{ color }}>{value}</p>
+    <p className="text-[11px] text-zinc-500 mt-1">{sub}</p>
   </div>
 );
 

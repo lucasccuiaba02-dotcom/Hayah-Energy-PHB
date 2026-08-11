@@ -182,6 +182,14 @@ export const SolicitacaoMaterialPage = () => {
               <h2 className="font-heading font-black text-2xl tracking-tighter text-white">Requisição de Almoxarifado</h2>
               <p className="text-xs text-zinc-500">PDF gerado automático com QR + assinatura · envio por email para 5 destinatários</p>
             </div>
+            <a
+              data-testid="materials-download-template"
+              href={`${API}/materials/template`}
+              className="text-xs font-bold bg-white/5 border border-[#00F0FF]/40 hover:bg-[#00F0FF]/10 text-[#00F0FF] px-4 py-2 rounded-full inline-flex items-center gap-2 transition-all"
+              title="Baixar modelo Excel padrão (COD ITEM · DESCRIÇÃO · QTD · UNIDADE · PREÇO · VLR TOTAL)"
+            >
+              <FileDown className="w-4 h-4" /> Baixar Modelo
+            </a>
             <button
               data-testid="preview-material-request"
               onClick={handlePreview}
@@ -250,15 +258,35 @@ export const SolicitacaoMaterialPage = () => {
               <p className="text-[10px] tracking-[0.2em] uppercase font-bold text-[#00F0FF] inline-flex items-center gap-1">
                 <FileText className="w-3 h-3" /> Materiais desta obra ({materials.length})
               </p>
-              {materials.length === 0 && <p className="text-[11px] text-zinc-500 italic">Nenhum material. Importe a lista (Excel/CSV) no cadastro da obra.</p>}
-              {materials.length > 0 && (
-                <div className="flex items-center gap-3 text-[10px]">
-                  <span className="text-zinc-400">Solicitado <b className="text-white font-mono">{totals.solicitado}</b></span>
-                  <span className="text-[#39FF14]">Separado <b className="font-mono">{totals.separado}</b></span>
-                  <span className="text-[#FF5E00]">Baixado <b className="font-mono">{totals.baixado}</b></span>
-                  <span className="text-[#00F0FF]">Entregue <b className="font-mono">{totals.entregue}</b></span>
-                </div>
-              )}
+              {materials.length === 0 && <p className="text-[11px] text-zinc-500 italic">Nenhum material. Importe a lista (Excel/CSV) no cadastro da obra ou baixe o modelo →</p>}
+              <div className="flex items-center gap-2 flex-wrap ml-auto">
+                {materials.length > 0 && (
+                  <div className="flex items-center gap-3 text-[10px]">
+                    <span className="text-zinc-400">Solicitado <b className="text-white font-mono">{totals.solicitado}</b></span>
+                    <span className="text-[#39FF14]">Separado <b className="font-mono">{totals.separado}</b></span>
+                    <span className="text-[#FF5E00]">Baixado <b className="font-mono">{totals.baixado}</b></span>
+                    <span className="text-[#00F0FF]">Entregue <b className="font-mono">{totals.entregue}</b></span>
+                  </div>
+                )}
+                <a
+                  data-testid="materials-download-template-inline"
+                  href={`${API}/materials/template`}
+                  className="text-[11px] font-bold bg-white/5 border border-[#00F0FF]/40 hover:bg-[#00F0FF]/10 text-[#00F0FF] px-3 py-1.5 rounded-full inline-flex items-center gap-1"
+                  title="Baixar modelo Excel padrão para preencher e importar"
+                >
+                  <FileDown className="w-3 h-3" /> Baixar modelo
+                </a>
+                {materials.length > 0 && (
+                  <a
+                    data-testid="materials-export-current"
+                    href={`${API}/projects/${selectedProject}/materials/export`}
+                    className="text-[11px] font-bold bg-[#E0FF00] hover:bg-[#C8E600] text-black px-3 py-1.5 rounded-full inline-flex items-center gap-1"
+                    title="Exportar a lista atual desta obra"
+                  >
+                    <FileDown className="w-3 h-3" /> Exportar lista
+                  </a>
+                )}
+              </div>
             </div>
             {materials.length > 0 && (
               <div className="overflow-x-auto">

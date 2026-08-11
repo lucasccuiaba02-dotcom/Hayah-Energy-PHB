@@ -65,6 +65,16 @@ Dashboard, **Buscar Obras**, Operacional, Carteira, Programação, Calendário, 
   * Modal (data-testid=material-preview-modal) com iframe embutido (data-testid=material-preview-iframe) + botões "Baixar" e "Enviar para o Almoxarifado" (fecha o modal e chama handleSend)
   * Testes: `/app/backend/tests/test_materials_preview.py` (2/2 verdes)
 
+## Onda 3-A (Fev/2026) — melhorias solicitadas pelo gerente
+- **Scrollbar horizontal visível no Faturamento** (`.hayah-hscroll` em App.css) — barra amarela grossa (12px) na esteira, facilita rolagem com mouse
+- **Números KPI enormes na Faturamento** — KpiCard agora com `text-4xl font-black` colorido no valor. Colunas do kanban mostram total em `text-lg font-bold` colorido
+- **Sidebar rolável verticalmente** (`.hayah-sidebar-scroll` classe custom) — quando há muitos ícones, rola sem cortar
+- **Texto preto legível em light mode** — inversões usam `#0a0a0a` com `font-weight: 700/900` para números e headings, garantindo contraste
+- **Botão "Baixar Modelo" no header do Almoxarifado** — sempre visível (não depende de obra selecionada). Botão "Exportar lista" aparece na tabela quando há materiais
+- **Modelo Excel padrão** (`GET /api/materials/template`) — 6 colunas COD ITEM · DESCRIÇÃO ITEM · QTD · UNIDADE · PREÇO · VLR TOTAL + linha de exemplo em cinza. Cabeçalho amarelo, bordas, larguras ajustadas
+- **Exportar lista atual da obra** (`GET /api/projects/{id}/materials/export`) — mesmo layout, populado com os materiais atuais + linha TOTAL GERAL no rodapé
+- **Parser aceita "VLR TOTAL"**: se planilha já traz o total, respeita; senão calcula `preço × qtd`. Novos keywords: "cod item", "descricao item", "vlr total"
+
 ## Onda 2 (Fev/2026) — enums e novas coleções
 - **Almoxarifado resposta**: novo `POST /api/projects/{id}/materials/{req_id}/response` com status enum (`separado`, `baixado`, `separado_parcial`, `na_doca`, `faltam_materiais`, `devolvido`, `aguardando_fornecedor`, `outro`) + responsible + notes + missing_items. UI mostra chip colorido (data-testid=req-warehouse-chip-{id}) no header do `RequisitionRow` e formulário completo dentro do expand com select + responsável + textareas (data-testid=req-warehouse-status/responsible/missing/notes/save).
 - **Desligamento por data específica**: novo campo `shutdown_dates: List[str]` em ProjectCreate/Update/Response. Checkbox por data no ProjectDrawer (data-testid=schedule-entry-shutdown-{idx}). CalendarioPage só mostra ⚠️ nos dias que estão no `shutdown_dates` (data-testid=cal-shutdown-{team}-{date}-{id}). Backwards compatible: se `shutdown_dates` estiver vazio, mantém legado `shutdown_info` como flag geral.
