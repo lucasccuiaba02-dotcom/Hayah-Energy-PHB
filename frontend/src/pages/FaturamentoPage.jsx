@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { motion } from 'framer-motion';
 import axios from 'axios';
 import { toast } from 'sonner';
@@ -6,8 +6,10 @@ import { AppLayout } from '../components/AppLayout';
 import {
   DollarSign, TrendingUp, Clock, Package, CheckCircle2, Truck, FileCheck2,
   Send, ChevronRight, Filter, Calendar, ArrowRight, Zap, AlertTriangle, Timer,
+  Volume2, VolumeX,
 } from 'lucide-react';
 import { formatCurrency, todayISO } from '../lib/constants';
+import { showNotification } from '../lib/offline';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -50,6 +52,34 @@ export const FaturamentoPage = () => {
   const [endDate, setEndDate] = useState(todayISO());
   const [movingId, setMovingId] = useState(null);
   const [detail, setDetail] = useState(null);
+  const [soundOn, setSoundOn] = useState(() => localStorage.getItem('hayah_backlog_sound') !== '0');
+  const alertedCountRef = useRef(-1);
+
+  const playBacklogBeep = () => {
+    try {
+      const AudioCtx = window.AudioContext || window.webkitAudioContext;
+      if (!AudioCtx) return;
+      const ctx = new AudioCtx();
+      const now = ctx.currentTime;
+      // Two-tone alert: 880Hz then 660Hz
+      [
+        { f: 880, t0: 0.00, dur: 0.18 },
+        { f: 660, t0: 0.22, dur: 0.22 },
+      ].forEach(({ f, t0, dur }) => {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = 'sine';
+        osc.frequency.value = f;
+        gain.gain.setValueAtTime(0.0001, now + t0);
+        gain.gain.exponentialRampToValueAtTime(0.2, now + t0 + 0.02);
+        gain.gain.exponentialRampToValueAtTime(0.0001, now + t0 + dur);
+        osc.connect(gain).connect(ctx.destination);
+        osc.start(now + t0);
+        osc.stop(now + t0 + dur + 0.02);
+      });
+      setTimeout(() => { try { ctx.close(); } catch {} }, 900);
+    } catch (err) { /* silent */ }
+  };
 
   const applyRangePreset = (days) => {
     setRange(String(days));
@@ -75,6 +105,31 @@ export const FaturamentoPage = () => {
   };
 
   useEffect(() => { load(); }, [startDate, endDate]);
+
+  // Aviso de Backlog: som + notificação local quando obras ficam > 15 dias paradas na mesma etapa.
+  // Dispara apenas quando a contagem muda (evita spam a cada refresh).
+  useEffect(() => {
+    const count = data?.stuck_projects?.length || 0;
+    if (loading || count === 0) return;
+    if (alertedCountRef.current === count) return; // no change
+    alertedCountRef.current = count;
+    const totalValue = data.stuck_projects.reduce((s, p) => s + (p.programmed_value || 0), 0);
+    if (soundOn) playBacklogBeep();
+    try {
+      showNotification(
+        `⚠️ ${count} obra(s) parada(s) no faturamento`,
+        `Backlog > 15 dias · Total ${formatCurrency(totalValue)}`,
+      );
+    } catch {}
+  }, [data?.stuck_projects, loading, soundOn]);
+
+  const toggleSound = () => {
+    const next = !soundOn;
+    setSoundOn(next);
+    localStorage.setItem('hayah_backlog_sound', next ? '1' : '0');
+    if (next) playBacklogBeep(); // preview
+    toast[next ? 'success' : 'info'](next ? 'Aviso sonoro do Backlog ativado' : 'Aviso sonoro do Backlog silenciado');
+  };
 
   const stages = data?.stages || [];
   const pipeline = data?.pipeline || {};
@@ -227,7 +282,10 @@ export const FaturamentoPage = () => {
       {!loading && (data?.stuck_projects?.length || 0) > 0 && (
         <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} data-testid="fat-stuck-radar" className="mt-6 glass-panel rounded-2xl overflow-hidden border border-[#FF003C]/40">
           <div className="px-4 py-3 border-b border-[#FF003C]/20 bg-[#FF003C]/5 flex items-center gap-2">
-            <AlertTriangle className="w-4 h-4 text-[#FF003C]" />
+            <span className="relative flex-shrink-0">
+              <AlertTriangle className="w-4 h-4 text-[#FF003C]" />
+              <span className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-[#FF003C] animate-ping"></span>
+            </span>
             <div className="flex-1">
               <p className="text-[10px] tracking-[0.25em] uppercase font-bold text-[#FF003C]">Radar de Backlog</p>
               <p className="text-xs text-zinc-400">
@@ -237,6 +295,20 @@ export const FaturamentoPage = () => {
                 </span>
               </p>
             </div>
+            <button
+              type="button"
+              data-testid="fat-backlog-sound-toggle"
+              onClick={toggleSound}
+              title={soundOn ? 'Silenciar aviso sonoro' : 'Ativar aviso sonoro'}
+              className={`flex-shrink-0 inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider px-3 py-1.5 rounded-full border transition ${
+                soundOn
+                  ? 'bg-[#E0FF00]/15 border-[#E0FF00]/40 text-[#E0FF00] hover:bg-[#E0FF00]/25'
+                  : 'bg-white/5 border-white/10 text-zinc-500 hover:text-white'
+              }`}
+            >
+              {soundOn ? <Volume2 className="w-3 h-3" /> : <VolumeX className="w-3 h-3" />}
+              {soundOn ? 'Som on' : 'Som off'}
+            </button>
           </div>
           <div className="divide-y divide-white/5 max-h-[45vh] overflow-y-auto">
             {data.stuck_projects.map((p) => {

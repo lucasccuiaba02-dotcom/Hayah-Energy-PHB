@@ -1,0 +1,28 @@
+{
+  "summary": "Iteration 17 validated Portuguese Hayah Energy app new features: (A) Backend backlog-alerts endpoints, (B) ProjectDetailPage tabs Operacional/Arquivos, (C) FaturamentoPage sound toggle. Backend pytest 4/4 green (test_backlog_alerts.py): GET /api/faturamento/backlog-alerts returns correct schema {count, threshold_days:15, total_value, items[]} with each item having id/project_code/name/billing_stage/days_in_stage>=15/programmed_value/entered_stage_at and never 'pago' stage; POST /api/faturamento/backlog-alerts/notify returns {status:'triggered'}; GET /api/faturamento/pipeline still exposes stuck_projects + stuck_threshold_days=15 (no regression); unauthenticated GET returns 401/403. Scheduler startup log confirmed: 'Scheduler started: 08:30 shutdown + 09:00 anexo-IV D-2 + 09:15 backlog radar + 18:00 tomorrow email (America/Cuiaba)'. Frontend E2E: /projeto/{id} shows both data-testid pd-tab-operacional and pd-tab-arquivos, default tab is Operacional (pd-arquivos hidden), clicking pd-tab-arquivos reveals pd-arquivos with sub-sections pd-arquivos-docs / pd-arquivos-materiais / pd-arquivos-fotos and pd-attachment-upload button visible; clicking back to Operacional hides pd-arquivos. Faturamento: seeded a stuck project (via _seed_stuck_ui.py seed) and verified data-testid=fat-backlog-sound-toggle appears, clicking it toggles localStorage.hayah_backlog_sound (None->'0'->'1'), and a 'Aviso sonoro do Backlog ativado' toast appears; fat-stuck-radar renders with 1 item ('22 dias parada · R$ 42.500,00'). Kanban card shows badge 'X dias parado' as before. No JSX compile errors — page renders cleanly. Seed cleaned up after test.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_backlog_alerts.py",
+    "/app/test_reports/pytest/iter17_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "server.py continues to grow (now ~3646 lines) — the new backlog_daily_check_job, _scan_stuck_billing_projects and 2 backlog endpoints should live in routers/faturamento.py plus services/backlog.py. Carried over from iter15/16.",
+    "backlog_daily_check_job silently ignores broadcast_push failures with only warning-level log; consider retry/backoff or persisting an audit row so ops can see missed pushes.",
+    "_scan_stuck_billing_projects uses today (UTC date) minus entered_iso (which may be timezone-aware ISO) — for Cuiaba timezone edge cases the day-count may be off by 1 near midnight. Not a bug for 15-day threshold, but flag for future TZ-sensitive thresholds.",
+    "ProjectDetailPage.jsx is 698 lines with two views (Operacional + Arquivos) — consider extracting ArquivosView.jsx to reduce cognitive load.",
+    "FaturamentoPage.jsx uses localStorage key 'hayah_backlog_sound' with default 'ON' when key is absent (!== '0'); the initial UI state before first click is undefined in storage — writes only happen on toggle. This is fine but means Volume2 icon may render even though nothing was persisted. Consider setting the key on mount for consistency.",
+    "Photo upload auto-increment relies on regex /^([A-Za-z]*)(\\d+)$/ — will not increment values like 'P01' (leading zero preserved) or 'PT-1'. Consider documenting the expected pattern."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_backlog_alerts.py"
+  ],
+  "success_rate": {"backend": "100% (4/4 pytest)", "frontend": "100% (tabs + arquivos sections + sound toggle + radar + kanban stuck badge)"},
+  "test_credentials": "admin@projectmatrix.com / Admin@123",
+  "seed_data_creation": "Reused /app/backend/tests/_seed_stuck_ui.py seed to create TEST_UI_STUCK_RADAR (billing_stage=ajuste_material, 22 dias parado, R$ 42.500). Cleaned up after test.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Iter17 complete. New public API surface: GET /api/faturamento/backlog-alerts (auth-only) -> {count, threshold_days:15, total_value, items[]}; POST /api/faturamento/backlog-alerts/notify (auth-only) -> {status:'triggered'} — triggers broadcast_push with title '⚠️ Backlog Faturamento — N obra(s) parada(s)', tag 'backlog-radar', requireInteraction=true. Frontend: ProjectDetailPage has 2 tabs (data-testids pd-tab-operacional, pd-tab-arquivos), Arquivos view contains pd-arquivos-docs (uploads via pd-attachment-upload -> POST /api/projects/{id}/attachments; rows pd-att-row-{id} with pd-att-open-{id} / pd-att-remove-{id}), pd-arquivos-materiais (rows pd-mat-row-{id}), pd-arquivos-fotos (groups pd-arq-point-{key} containing pd-arq-photo-{id}). Photo upload in Operacional tab sends 'point' field and auto-increments P1->P2. FaturamentoPage: fat-backlog-sound-toggle visible only when stuck_projects.length>0, persists in localStorage 'hayah_backlog_sound' ('0'=off, '1'=on, absent=on default). Resend still MOCKED (RESEND_API_KEY empty per .env) — do not enable. Seed helper: python /app/backend/tests/_seed_stuck_ui.py seed|cleanup.",
+  "rca of the issue": "N/A — all requested features work as designed."
+}

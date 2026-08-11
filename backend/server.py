@@ -1853,6 +1853,94 @@ async def trigger_anexo_iv_reminder(current_user: dict = Depends(get_current_use
     await anexo_iv_reminder_job()
     return {"status": "triggered"}
 
+# --- Aviso de Backlog Faturamento (Fev/2026) ---
+async def _scan_stuck_billing_projects(threshold_days: int = 15) -> list:
+    """Return billing projects stuck > threshold_days in the same stage (excluding 'pago')."""
+    from datetime import datetime as _dt, timezone as _tz
+    today = _dt.now(_tz.utc).date()
+
+    def _iso_to_date(s: str):
+        try:
+            return _dt.fromisoformat((s or "")[:10]).date()
+        except Exception:
+            return None
+
+    projects = await db.projects.find({"billing_stage": {"$nin": ["", "pago"]}}).to_list(5000)
+    stuck: list = []
+    for p in projects:
+        stage = p.get("billing_stage") or ""
+        if not stage:
+            continue
+        hist = p.get("billing_history") or []
+        entered_iso = ""
+        for h in reversed(hist):
+            if h.get("stage") == stage:
+                entered_iso = h.get("changed_at") or ""
+                break
+        if not entered_iso:
+            entered_iso = (p.get("closed_at") or p.get("updated_at") or "")
+        entered_d = _iso_to_date(entered_iso)
+        if not entered_d:
+            continue
+        days = (today - entered_d).days
+        if days >= threshold_days:
+            stuck.append({
+                "id": str(p["_id"]),
+                "project_code": p.get("project_code", ""),
+                "name": p.get("name", ""),
+                "team_name": p.get("team_name", ""),
+                "billing_stage": stage,
+                "days_in_stage": days,
+                "programmed_value": float(p.get("programmed_value") or 0),
+                "entered_stage_at": entered_iso,
+            })
+    stuck.sort(key=lambda x: -x["days_in_stage"])
+    return stuck
+
+
+async def backlog_daily_check_job():
+    """Runs daily at 09:15 America/Cuiaba - push notification when billing projects are stuck > 15 days."""
+    try:
+        stuck = await _scan_stuck_billing_projects(threshold_days=15)
+        if not stuck:
+            logger.info("Backlog check: no stuck projects")
+            return
+        total_value = sum(s["programmed_value"] for s in stuck)
+        top = stuck[:3]
+        preview = " · ".join([f"{s['project_code'] or s['name']} ({s['days_in_stage']}d)" for s in top])
+        try:
+            await broadcast_push(db, {
+                "title": f"⚠️ Backlog Faturamento — {len(stuck)} obra(s) parada(s)",
+                "body": f"R$ {total_value:,.0f} presos há mais de 15 dias. {preview}".replace(",", "."),
+                "url": "/faturamento",
+                "tag": "backlog-radar",
+                "requireInteraction": True,
+            })
+            logger.info(f"Backlog push sent: {len(stuck)} stuck projects, R$ {total_value:.2f} at risk")
+        except Exception as e:
+            logger.warning(f"Backlog push failed: {e}")
+    except Exception as e:
+        logger.error(f"backlog_daily_check_job error: {e}")
+
+
+@api_router.get("/faturamento/backlog-alerts")
+async def get_backlog_alerts(current_user: dict = Depends(get_current_user)):
+    """Return stuck-billing projects (> 15 days) for the current user's dashboard."""
+    stuck = await _scan_stuck_billing_projects(threshold_days=15)
+    return {
+        "count": len(stuck),
+        "threshold_days": 15,
+        "total_value": sum(s["programmed_value"] for s in stuck),
+        "items": stuck,
+    }
+
+
+@api_router.post("/faturamento/backlog-alerts/notify")
+async def trigger_backlog_notify(current_user: dict = Depends(get_current_user)):
+    """Manually trigger the backlog push broadcast. Useful for testing or 'republish' cases."""
+    await backlog_daily_check_job()
+    return {"status": "triggered"}
+
 # --- Checklist Operacional endpoints (Iteração 7) ---
 class ChecklistUpdate(BaseModel):
     hotline_confirmed: Optional[bool] = None
@@ -3534,8 +3622,9 @@ async def startup_db():
         scheduler.add_job(daily_scheduled_email_job, CronTrigger(hour=18, minute=0), id="daily_18h_email", replace_existing=True)
         scheduler.add_job(morning_shutdown_check_job, CronTrigger(hour=8, minute=30), id="morning_shutdown_check", replace_existing=True)
         scheduler.add_job(anexo_iv_reminder_job, CronTrigger(hour=9, minute=0), id="anexo_iv_d2_reminder", replace_existing=True)
+        scheduler.add_job(backlog_daily_check_job, CronTrigger(hour=9, minute=15), id="billing_backlog_check", replace_existing=True)
         scheduler.start()
-        logger.info("Scheduler started: 08:30 shutdown + 09:00 anexo-IV D-2 + 18:00 tomorrow email (America/Cuiaba)")
+        logger.info("Scheduler started: 08:30 shutdown + 09:00 anexo-IV D-2 + 09:15 backlog radar + 18:00 tomorrow email (America/Cuiaba)")
     except Exception as e:
         logger.warning(f"Failed to start scheduler: {e}")
 

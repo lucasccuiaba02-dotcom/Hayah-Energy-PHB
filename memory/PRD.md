@@ -38,6 +38,13 @@ Dashboard, **Buscar Obras**, Operacional, Carteira, Programação, Calendário, 
 - **Faturamento (esteira)** — 8 estágios com KPIs, filtro por período, kanban horizontal, modal NF, auto-transição de obra concluída
 - **Push Notifications** com `PushBlockedHelpModal` — instruções por navegador quando bloqueado
 - **Smart Material Parser** para template `Satelite-atualxxMODELO.xlsx`:
+- **[11/Fev/2026] Aviso de Backlog Faturamento**: `_scan_stuck_billing_projects` + endpoint GET `/api/faturamento/backlog-alerts` (auth) e POST `/api/faturamento/backlog-alerts/notify` (trigger manual). Novo cron job diário `backlog_daily_check_job` às 09:15 (America/Cuiaba) que dispara `broadcast_push` com tag `backlog-radar` + `requireInteraction: true`. Frontend: FaturamentoPage toca beep two-tone (WebAudio 880Hz→660Hz) + `showNotification` local quando a contagem de `stuck_projects` muda. Botão toggle Volume2/VolumeX (`fat-backlog-sound-toggle`) persiste em `localStorage.hayah_backlog_sound`. Ping animado + badge vermelho no cabeçalho do Radar. Testado por testing_agent v3 (iteration 17) — 4/4 pytest OK, E2E OK.
+- **[11/Fev/2026] Página de Arquivos consolidada (Google Drive style)** em ProjectDetailPage: 2 abas `pd-tab-operacional` (checklist + fotos + diário) e `pd-tab-arquivos` (view unificada com 3 blocos):
+    - **Documentos** (`pd-arquivos-docs`) — upload PDF/imagem (`pd-attachment-upload`), lista com abrir/remover
+    - **Materiais** (`pd-arquivos-materiais`) — tabela item/qtd/un/total
+    - **Fotos por Ponto** (`pd-arquivos-fotos`) — agrupadas por P1/P2/P3... com preview + click-to-open
+   Também: upload de foto agora envia `point` e auto-incrementa (P1→P2). Testado por testing_agent v3 (iteration 17).
+- **[11/Fev/2026] Fix**: JSX syntax error em `ProjectDetailPage.jsx` (resíduo malformado deixado por edit anterior) removido.
   * Varre TODAS as abas (18 no template real)
   * Prioriza sheets com nome contendo "req"/"material"/"solicit" (score 1000) sobre DIÁRIO DE OBRA (50)
   * Detecta header em qualquer linha (headers "QNTD ORÇADA" na linha 15 do Satelite real)
