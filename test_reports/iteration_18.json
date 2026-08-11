@@ -1,0 +1,41 @@
+{
+  "summary": "Iteration 18 validated all 7 Onda-1 features (PDF requisition columns, Materiais search, unit + warehouse_status per-item dropdowns, Faturamento horizontal scroll, sidebar vertical scroll, PATCH endpoint, regression). Backend pytest 7/7 GREEN (test_iteration18.py): PATCH /api/projects/{id}/materials/{item_id} accepts unit/warehouse_status/code/item/notes/qty_* fields and persists; returns 400 only when NO valid field, 200 when mixed valid+unknown. POST /api/materials/preview returns valid application/pdf whose extracted text contains all 7 headers (Código, Descrição, Un, Solicitado, Separado, Baixado, Entregue), the material codes (1234/5678/8888/9999) and descriptions (POSTE...). materials-import CSV accepts BOTH English header (code,item,quantity,unit,cost) AND PT-BR header (codigo,descricao,quantidade,unidade,preco) — both correctly map to code/item/quantity/unit. Regression: /api/faturamento/pipeline still returns stuck_threshold_days=15 and /api/faturamento/backlog-alerts still returns {count,threshold_days:15,items}. Frontend E2E confirmed: /materiais has data-testid=material-project-search (filters by project_code + name, case-insensitive), badge material-search-count shows '6/18' style, empty result shows 'Nenhuma obra encontrada'. After selecting a project the material table shows 9 columns (CÓDIGO,DESCRIÇÃO,UN,SOLICITADO,SEPARADO,BAIXADO,ENTREGUE,ALMOXARIFADO,STATUS); mat-unit-* dropdown change from UN->KG fires PATCH and re-renders with KG; mat-warehouse-status-* change to na_doca persists. Faturamento page: fat-scroll-left present + initially disabled; fat-scroll-right enabled; clicking right enables left. Sidebar has sidebar-scroll-up and sidebar-scroll-down; both disabled at 1080px height (all items fit — expected).",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [
+      {
+        "component": "SolicitacaoMaterialPage (/materiais)",
+        "issue": "FIXED during this iteration. Selecting any project raised runtime ReferenceError: 'fetchHistory is not defined' at line 422 (WarehouseResponseInline onWarehouseResponseSaved={fetchHistory}). The variable was never declared; the intended callback is reloadProjects. This crashed the entire page with red 'Uncaught runtime errors' overlay so users could not interact with the material table at all.",
+        "selector": "onWarehouseResponseSaved prop of WarehouseResponseInline (line 422)",
+        "priority": "CRITICAL"
+      }
+    ],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration18.py",
+    "/app/test_reports/pytest/iter18_results.xml"
+  ],
+  "action_items": [
+    "Review /app/frontend/src/pages/SolicitacaoMaterialPage.jsx line 422 — I replaced fetchHistory with reloadProjects to unblock testing. Please confirm reloadProjects is the intended refresh callback (it re-fetches all projects, which also refreshes materials + history for the selected project). If a lighter fetch of only the current project's history was intended, extract a new helper."
+  ],
+  "critical_code_review_comments": [
+    "SolicitacaoMaterialPage.jsx (755 lines) has an undeclared-variable bug (fetchHistory) that reached preview and blocked the ENTIRE Materiais screen for every user selecting a project. There is no compile-time protection — consider enabling ESLint react-hooks/exhaustive-deps + no-undef, or using TypeScript. This is the second file that grew past 700 lines this iteration; consider splitting the History/Warehouse response UI into a separate component file.",
+    "server.py PATCH /api/projects/{id}/materials/{item_id} silently ignores unknown fields — for developer debugging it would help to include ignored_fields in the 200 response body so integration mistakes are visible in the network tab.",
+    "material_requisition_pdf.py hard-codes column widths [22,55,12,22,20,20,22]mm summing to 173mm; on A4 with 14mm left+right margin the printable width is 182mm — 9mm of slack is fine but if any description wraps to 3+ lines the table may overflow the page. Consider using Table(colWidths=None) + relative widths OR a repeatable header via RepeatBlock.",
+    "constants.js ITEM_WAREHOUSE_STATUS has 7 keys but the spec asked for 6 explicit statuses (na_doca/baixado/devolvido/em_falta/em_transito/bloqueado). Verify no extra key crept in that could confuse users.",
+    "Carrying over from iter17: server.py is now ~3652 lines — extract faturamento + materials routers. Not blocking but growing risk."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iteration18.py",
+    "/app/frontend/src/pages/SolicitacaoMaterialPage.jsx (line 422: fetchHistory -> reloadProjects)"
+  ],
+  "success_rate": {"backend": "100% (7/7 pytest)", "frontend": "100% after fetchHistory hotfix (9-col table, unit/ws dropdowns persist, search+badge+empty-state, faturamento scroll, sidebar scroll)"},
+  "test_credentials": "admin@projectmatrix.com / Admin@123",
+  "seed_data_creation": "Created + destroyed 1 project 'OB-IT18-XXXX' per test run. Used existing 'HIST01' project (materials_list length 1) for UI verification.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "All 7 Onda-1 items validated. IMPORTANT FIX APPLIED: SolicitacaoMaterialPage.jsx line 422 changed fetchHistory -> reloadProjects (fetchHistory was undefined, crashing page on project select). If main agent later refactors, keep reloadProjects (or a new fetchHistory helper) declared before use. Resend is still MOCKED — do not enable. Preview URL: https://team-scheduler-230.preview.emergentagent.com. New pytest file: /app/backend/tests/test_iteration18.py — covers PATCH allowed fields matrix, CSV import EN+PT headers, PDF preview text extraction with pypdf, faturamento regression.",
+  "rca of the issue": "Bug: 'fetchHistory is not defined' on /materiais when selecting any project. Reproduction: 1) login admin, 2) open /materiais, 3) select any project from dropdown -> red overlay 'Uncaught runtime errors ReferenceError: fetchHistory is not defined at SolicitacaoMaterialPage line 36159:39 (bundle.js)'. Root cause: /app/frontend/src/pages/SolicitacaoMaterialPage.jsx line 422 passes onWarehouseResponseSaved={fetchHistory} but no function named fetchHistory exists in the module — the file only defines reloadProjects (line 38). Likely regression from renaming during Onda-1 refactor. Mitigation applied here: replaced fetchHistory with reloadProjects. Verified after fix: page renders 9-col table, unit dropdown UN->KG persists via PATCH, warehouse_status dropdown ''->na_doca persists, no console errors, no pageerror events."
+}

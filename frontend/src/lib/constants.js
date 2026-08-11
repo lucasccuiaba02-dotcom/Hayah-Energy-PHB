@@ -95,6 +95,33 @@ export const WAREHOUSE_RESPONSE_STATUS = [
 ];
 export const WAREHOUSE_RESPONSE_LABEL = WAREHOUSE_RESPONSE_STATUS.reduce((acc, s) => { acc[s.value] = s; return acc; }, {});
 
+// Unidades de medida disponíveis para materiais (Fev/2026)
+export const MATERIAL_UNITS = [
+  { value: 'UN', label: 'UN' },
+  { value: 'PC', label: 'PC' },
+  { value: 'PÇ', label: 'PÇ' },
+  { value: 'KG', label: 'KG' },
+  { value: 'M',  label: 'M (metros)' },
+  { value: 'M²', label: 'M²' },
+  { value: 'M³', label: 'M³' },
+  { value: 'L',  label: 'Litros' },
+  { value: 'CX', label: 'Caixa' },
+  { value: 'PAR',label: 'Par' },
+  { value: 'RL', label: 'Rolo' },
+];
+
+// Status do material no almoxarifado (por item — Fev/2026)
+export const ITEM_WAREHOUSE_STATUS = [
+  { value: '',            label: '—',                 color: '#71717a' },
+  { value: 'na_doca',     label: 'Na doca (separado)', color: '#E0FF00' },
+  { value: 'baixado',     label: 'Baixado (RMA)',      color: '#00F0FF' },
+  { value: 'devolvido',   label: 'Devolvido (DMA)',    color: '#A855F7' },
+  { value: 'em_falta',    label: 'Em falta',           color: '#FF003C' },
+  { value: 'em_transito', label: 'Em trânsito',        color: '#FF5E00' },
+  { value: 'bloqueado',   label: 'Bloqueado',          color: '#94A3B8' },
+];
+export const ITEM_WAREHOUSE_STATUS_LABEL = ITEM_WAREHOUSE_STATUS.reduce((acc, s) => { acc[s.value] = s; return acc; }, {});
+
 export const PERMISSION_TABS = [
   { value: 'dashboard', label: 'Dashboard' },
   { value: 'carteira', label: 'Carteira' },

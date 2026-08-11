@@ -6,7 +6,7 @@ import { AppLayout } from '../components/AppLayout';
 import {
   DollarSign, TrendingUp, Clock, Package, CheckCircle2, Truck, FileCheck2,
   Send, ChevronRight, Filter, Calendar, ArrowRight, Zap, AlertTriangle, Timer,
-  Volume2, VolumeX,
+  Volume2, VolumeX, ChevronLeft,
 } from 'lucide-react';
 import { formatCurrency, todayISO } from '../lib/constants';
 import { showNotification } from '../lib/offline';
@@ -133,6 +133,35 @@ export const FaturamentoPage = () => {
 
   const stages = data?.stages || [];
   const pipeline = data?.pipeline || {};
+  const pipelineRef = useRef(null);
+  const [canScrollLeft, setCanScrollLeft] = useState(false);
+  const [canScrollRight, setCanScrollRight] = useState(false);
+
+  const refreshScrollState = () => {
+    const el = pipelineRef.current;
+    if (!el) return;
+    setCanScrollLeft(el.scrollLeft > 8);
+    setCanScrollRight(el.scrollLeft + el.clientWidth < el.scrollWidth - 8);
+  };
+  useEffect(() => {
+    // Defer to next tick so DOM has laid out the kanban columns
+    const t = setTimeout(refreshScrollState, 50);
+    const t2 = setTimeout(refreshScrollState, 300);
+    const el = pipelineRef.current;
+    if (!el) return () => { clearTimeout(t); clearTimeout(t2); };
+    el.addEventListener('scroll', refreshScrollState, { passive: true });
+    window.addEventListener('resize', refreshScrollState);
+    return () => {
+      clearTimeout(t); clearTimeout(t2);
+      el.removeEventListener('scroll', refreshScrollState);
+      window.removeEventListener('resize', refreshScrollState);
+    };
+  }, [data]);
+
+  const scrollBy = (delta) => {
+    const el = pipelineRef.current;
+    if (el) el.scrollBy({ left: delta, behavior: 'smooth' });
+  };
 
   const moveTo = async (project, newStage) => {
     setMovingId(project.id);
@@ -199,8 +228,31 @@ export const FaturamentoPage = () => {
       {loading ? (
         <p className="text-center text-zinc-500 py-8 text-sm">Carregando pipeline…</p>
       ) : (
-        <div data-testid="fat-pipeline" className="hayah-hscroll -mx-4 px-4 pb-6">
-          <div className="flex gap-3 min-w-max">
+        <div className="relative w-full">
+          {/* Setas de scroll horizontal */}
+          <button
+            type="button"
+            data-testid="fat-scroll-left"
+            onClick={() => scrollBy(-560)}
+            disabled={!canScrollLeft}
+            className="hidden md:flex absolute left-1 top-1/2 -translate-y-1/2 z-10 w-10 h-10 rounded-full bg-[#0f0f10] border border-[#E0FF00]/40 items-center justify-center text-[#E0FF00] shadow-lg hover:bg-[#E0FF00] hover:text-black transition disabled:opacity-30 disabled:cursor-not-allowed"
+            title="Deslizar para a esquerda"
+          >
+            <ChevronLeft className="w-5 h-5" />
+          </button>
+          <button
+            type="button"
+            data-testid="fat-scroll-right"
+            onClick={() => scrollBy(560)}
+            disabled={!canScrollRight}
+            className="hidden md:flex absolute right-1 top-1/2 -translate-y-1/2 z-10 w-10 h-10 rounded-full bg-[#0f0f10] border border-[#E0FF00]/40 items-center justify-center text-[#E0FF00] shadow-lg hover:bg-[#E0FF00] hover:text-black transition disabled:opacity-30 disabled:cursor-not-allowed"
+            title="Deslizar para a direita"
+          >
+            <ChevronRight className="w-5 h-5" />
+          </button>
+
+          <div ref={pipelineRef} data-testid="fat-pipeline" className="hayah-hscroll w-full pb-6">
+            <div className="flex gap-3 min-w-max">
             {stages.map((s) => {
               const items = pipeline[s.key] || [];
               const color = STAGE_COLORS[s.key];
@@ -272,6 +324,7 @@ export const FaturamentoPage = () => {
                 </div>
               );
             })}
+          </div>
           </div>
         </div>
       )}

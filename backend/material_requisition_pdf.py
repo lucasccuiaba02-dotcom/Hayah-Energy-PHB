@@ -83,7 +83,7 @@ def build_requisition_pdf(project: dict, signature_name: str, notes: str, requis
     # MATERIALS TABLE
     materials = project.get("materials_list", []) or []
     if materials:
-        rows = [["Item", "Un", "Solicitado", "Separado", "Baixado", "Entregue"]]
+        rows = [["Código", "Descrição", "Un", "Solicitado", "Separado", "Baixado", "Entregue"]]
         tot_s = tot_sep = tot_bx = tot_ent = 0.0
         for m in materials:
             qs = float(m.get("qty_requested", m.get("quantity", 0)) or 0)
@@ -92,29 +92,32 @@ def build_requisition_pdf(project: dict, signature_name: str, notes: str, requis
             qent = float(m.get("qty_delivered", 0) or 0)
             tot_s += qs; tot_sep += qsep; tot_bx += qbx; tot_ent += qent
             rows.append([
+                Paragraph(str(m.get("code", "") or "-"), styles["Small"]),
                 Paragraph(str(m.get("item", "")), styles["Small"]),
-                m.get("unit", "un"),
+                (m.get("unit", "un") or "un").upper(),
                 f"{qs:g}", f"{qsep:g}", f"{qbx:g}", f"{qent:g}",
             ])
-        rows.append(["TOTAIS", "", f"{tot_s:g}", f"{tot_sep:g}", f"{tot_bx:g}", f"{tot_ent:g}"])
+        rows.append(["", "TOTAIS", "", f"{tot_s:g}", f"{tot_sep:g}", f"{tot_bx:g}", f"{tot_ent:g}"])
 
-        mat_tbl = Table(rows, colWidths=[70 * mm, 12 * mm, 25 * mm, 22 * mm, 22 * mm, 25 * mm])
+        mat_tbl = Table(rows, colWidths=[22 * mm, 55 * mm, 12 * mm, 22 * mm, 20 * mm, 20 * mm, 22 * mm])
         mat_tbl.setStyle(TableStyle([
             ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#050505")),
             ("TEXTCOLOR", (0, 0), (-1, 0), colors.HexColor("#E0FF00")),
             ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
             ("FONTSIZE", (0, 0), (-1, 0), 9),
-            ("ALIGN", (2, 0), (-1, -1), "RIGHT"),
-            ("ALIGN", (1, 0), (1, -1), "CENTER"),
+            ("ALIGN", (3, 0), (-1, -1), "RIGHT"),
+            ("ALIGN", (0, 0), (0, -1), "CENTER"),
+            ("ALIGN", (2, 0), (2, -1), "CENTER"),
+            ("FONTNAME", (0, 1), (0, -2), "Helvetica-Bold"),
             ("FONTSIZE", (0, 1), (-1, -1), 9),
             ("ROWBACKGROUNDS", (0, 1), (-1, -2), [colors.white, colors.HexColor("#FAFAFA")]),
             ("BACKGROUND", (0, -1), (-1, -1), colors.HexColor("#EDEDED")),
             ("FONTNAME", (0, -1), (-1, -1), "Helvetica-Bold"),
             ("BOX", (0, 0), (-1, -1), 0.6, colors.HexColor("#050505")),
             ("INNERGRID", (0, 0), (-1, -1), 0.3, colors.HexColor("#CCCCCC")),
-            ("TEXTCOLOR", (3, 1), (3, -1), colors.HexColor("#00A050")),
-            ("TEXTCOLOR", (4, 1), (4, -1), colors.HexColor("#E55400")),
-            ("TEXTCOLOR", (5, 1), (5, -1), colors.HexColor("#005EE0")),
+            ("TEXTCOLOR", (4, 1), (4, -1), colors.HexColor("#00A050")),
+            ("TEXTCOLOR", (5, 1), (5, -1), colors.HexColor("#E55400")),
+            ("TEXTCOLOR", (6, 1), (6, -1), colors.HexColor("#005EE0")),
             ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
             ("LEFTPADDING", (0, 0), (-1, -1), 3),
             ("RIGHTPADDING", (0, 0), (-1, -1), 3),

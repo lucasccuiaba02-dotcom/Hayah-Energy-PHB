@@ -37,6 +37,26 @@ Dashboard, **Buscar Obras**, Operacional, Carteira, Programação, Calendário, 
 - **Almoxarifado** com header + tabela editável (solicitado/separado/baixado/entregue) + PDF de Requisição (reportlab + QR) + histórico + confirmação de recebimento com camera capture
 - **Faturamento (esteira)** — 8 estágios com KPIs, filtro por período, kanban horizontal, modal NF, auto-transição de obra concluída
 - **Push Notifications** com `PushBlockedHelpModal` — instruções por navegador quando bloqueado
+
+## Novidades Fev/2026 (Ondas)
+
+- **Aviso de Backlog Faturamento (iter17)**: endpoints `/api/faturamento/backlog-alerts` (GET) e `/notify` (POST), cron 09:15 broadcast push com `requireInteraction`, beep two-tone WebAudio + `showNotification` local no FaturamentoPage, toggle `Volume2/VolumeX` persistido em `localStorage.hayah_backlog_sound`.
+- **Página de Arquivos consolidada (Google Drive style) (iter17)**: ProjectDetailPage com 2 abas (`pd-tab-operacional`, `pd-tab-arquivos`), a segunda com Documentos + Materiais + Fotos-por-Ponto. Upload de foto envia `point` e auto-incrementa (P1→P2).
+- **Onda 1 (iter18)** — 7 ajustes rápidos:
+  1. **PDF Requisição** 7 colunas: Código · Descrição · Un · Solicitado · Separado · Baixado · Entregue. `material_requisition_pdf.py` usa Paragraph para wrap; widths [22,55,12,22,20,20,22]mm.
+  2. **Aba Materiais - busca por obra**: input `material-project-search` filtra dropdown por `project_code` OU `name` (case-insensitive), badge `material-search-count` mostra matches/total.
+  3. **Unidade de medida editável**: dropdown `mat-unit-{id}` com 11 opções (UN/PC/PÇ/KG/M/M²/M³/L/CX/PAR/RL) - PATCH persiste imediato.
+  4. **Faturamento scroll horizontal**: botões `fat-scroll-left/right` visíveis no desktop, scrollBy 560px smooth, `pipelineRef` + `refreshScrollState` deferido 50/300ms. Fix: `<main>` recebeu `min-w-0 overflow-hidden` para constrair overflow real.
+  5. **Sidebar scroll vertical**: botões `sidebar-scroll-up/down` no AppLayout com `navRef`, disabled quando no topo/base.
+  6. **Warehouse status por item**: dropdown colorido `mat-warehouse-status-{id}` com 7 opções ({} + na_doca / baixado / devolvido / em_falta / em_transito / bloqueado). Backend PATCH aceita `unit, warehouse_status, code, item, notes` (string) e `qty_*` (numérico).
+  7. **CSV headers em inglês**: HEADER_KEYWORDS agora aceita `code/cod/quantity/qty/unit/cost/price/description/total` além dos PT-BR.
+  Testado por testing_agent v3 (iteration 18) — 7/7 pytest OK, E2E OK. Bug fetchHistory → reloadProjects corrigido pelo testing agent.
+- Matriz Programação com datas nas COLUNAS, equipes nas LINHAS
+- Buscar Obras + Retorno de Programação + Indisponibilidade
+- Geolocalização com FitBounds, WhatsApp, drop-pin UTM
+- **Almoxarifado** com header + tabela editável (solicitado/separado/baixado/entregue) + PDF de Requisição (reportlab + QR) + histórico + confirmação de recebimento com camera capture
+- **Faturamento (esteira)** — 8 estágios com KPIs, filtro por período, kanban horizontal, modal NF, auto-transição de obra concluída
+- **Push Notifications** com `PushBlockedHelpModal` — instruções por navegador quando bloqueado
 - **Smart Material Parser** para template `Satelite-atualxxMODELO.xlsx`:
 - **[11/Fev/2026] Aviso de Backlog Faturamento**: `_scan_stuck_billing_projects` + endpoint GET `/api/faturamento/backlog-alerts` (auth) e POST `/api/faturamento/backlog-alerts/notify` (trigger manual). Novo cron job diário `backlog_daily_check_job` às 09:15 (America/Cuiaba) que dispara `broadcast_push` com tag `backlog-radar` + `requireInteraction: true`. Frontend: FaturamentoPage toca beep two-tone (WebAudio 880Hz→660Hz) + `showNotification` local quando a contagem de `stuck_projects` muda. Botão toggle Volume2/VolumeX (`fat-backlog-sound-toggle`) persiste em `localStorage.hayah_backlog_sound`. Ping animado + badge vermelho no cabeçalho do Radar. Testado por testing_agent v3 (iteration 17) — 4/4 pytest OK, E2E OK.
 - **[11/Fev/2026] Página de Arquivos consolidada (Google Drive style)** em ProjectDetailPage: 2 abas `pd-tab-operacional` (checklist + fotos + diário) e `pd-tab-arquivos` (view unificada com 3 blocos):

@@ -7,7 +7,7 @@ import {
   Package, Send, FileText, MapPin, Users, Calendar, Hash, PenLine,
   CheckCircle2, History, FileDown, Camera, Truck, AlertCircle, Loader, RefreshCw, Eye, X, ClipboardList,
 } from 'lucide-react';
-import { WAREHOUSE_RESPONSE_STATUS, WAREHOUSE_RESPONSE_LABEL } from '../lib/constants';
+import { WAREHOUSE_RESPONSE_STATUS, WAREHOUSE_RESPONSE_LABEL, MATERIAL_UNITS, ITEM_WAREHOUSE_STATUS, ITEM_WAREHOUSE_STATUS_LABEL } from '../lib/constants';
 import { PROJECT_TYPE_LABEL, formatCurrency, todayISO } from '../lib/constants';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
@@ -16,6 +16,7 @@ const API = `${BACKEND_URL}/api`;
 export const SolicitacaoMaterialPage = () => {
   const [projects, setProjects] = useState([]);
   const [selectedProject, setSelectedProject] = useState('');
+  const [projectSearch, setProjectSearch] = useState('');
   const [notes, setNotes] = useState('');
   const [signatureName, setSignatureName] = useState('');
   const [savingRow, setSavingRow] = useState(null);
@@ -40,6 +41,14 @@ export const SolicitacaoMaterialPage = () => {
   };
 
   const selected = useMemo(() => projects.find((p) => p.id === selectedProject), [projects, selectedProject]);
+  const filteredProjects = useMemo(() => {
+    const q = (projectSearch || '').toLowerCase().trim();
+    if (!q) return projects;
+    return projects.filter((p) =>
+      (p.project_code || '').toLowerCase().includes(q) ||
+      (p.name || '').toLowerCase().includes(q)
+    );
+  }, [projects, projectSearch]);
   const materials = selected?.materials_list || [];
   const history = selected?.material_requisitions || [];
 
@@ -55,7 +64,10 @@ export const SolicitacaoMaterialPage = () => {
     if (!selected) return;
     setSavingRow(item.id + ':' + field);
     try {
-      await axios.patch(`${API}/projects/${selected.id}/materials/${item.id}`, { [field]: Number(value) || 0 });
+      // string fields (unit, warehouse_status, code, item, notes) go as-is; numeric fields converted
+      const stringFields = new Set(['unit', 'warehouse_status', 'code', 'item', 'notes']);
+      const payload = { [field]: stringFields.has(field) ? String(value ?? '') : (Number(value) || 0) };
+      await axios.patch(`${API}/projects/${selected.id}/materials/${item.id}`, payload);
       await reloadProjects();
     } catch (err) {
       toast.error(err?.response?.data?.detail || 'Erro ao salvar');
@@ -211,17 +223,37 @@ export const SolicitacaoMaterialPage = () => {
           <div className="grid md:grid-cols-3 gap-3 mb-5">
             <div className="md:col-span-2">
               <label className="text-[10px] tracking-[0.2em] uppercase font-bold text-zinc-500 flex items-center gap-1 mb-1"><Hash className="w-3 h-3" /> Número da obra / Projeto</label>
-              <select
-                data-testid="material-project-select"
-                value={selectedProject}
-                onChange={(e) => setSelectedProject(e.target.value)}
-                className="w-full bg-zinc-950/90 border border-white/10 rounded-lg px-3 py-2 text-white focus:border-[#E0FF00] focus:outline-none"
-              >
-                <option value="">Selecione a obra…</option>
-                {projects.map((p) => (
-                  <option key={p.id} value={p.id}>{p.project_code ? `[${p.project_code}] ` : ''}{p.name}</option>
-                ))}
-              </select>
+              <div className="flex gap-2 flex-wrap">
+                <div className="relative flex-1 min-w-[180px]">
+                  <input
+                    data-testid="material-project-search"
+                    type="search"
+                    value={projectSearch}
+                    onChange={(e) => setProjectSearch(e.target.value)}
+                    placeholder="🔍 Pesquisar por nº da obra ou nome"
+                    className="w-full bg-zinc-950/90 border border-[#00F0FF]/30 rounded-lg px-3 py-2 text-white text-sm placeholder:text-zinc-600 focus:border-[#00F0FF] focus:outline-none"
+                  />
+                  {projectSearch && (
+                    <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] font-mono text-[#00F0FF]" data-testid="material-search-count">
+                      {filteredProjects.length}/{projects.length}
+                    </span>
+                  )}
+                </div>
+                <select
+                  data-testid="material-project-select"
+                  value={selectedProject}
+                  onChange={(e) => setSelectedProject(e.target.value)}
+                  className="flex-[2] min-w-[220px] bg-zinc-950/90 border border-white/10 rounded-lg px-3 py-2 text-white focus:border-[#E0FF00] focus:outline-none"
+                >
+                  <option value="">Selecione a obra…</option>
+                  {filteredProjects.map((p) => (
+                    <option key={p.id} value={p.id}>{p.project_code ? `[${p.project_code}] ` : ''}{p.name}</option>
+                  ))}
+                </select>
+              </div>
+              {projectSearch && filteredProjects.length === 0 && (
+                <p className="text-[10px] text-[#FF5E00] mt-1">Nenhuma obra encontrada para "{projectSearch}"</p>
+              )}
             </div>
             <div>
               <label className="text-[10px] tracking-[0.2em] uppercase font-bold text-zinc-500 flex items-center gap-1 mb-1"><Calendar className="w-3 h-3" /> Data</label>
@@ -293,12 +325,14 @@ export const SolicitacaoMaterialPage = () => {
                 <table className="w-full text-xs">
                   <thead>
                     <tr className="bg-white/[0.03] text-[9px] tracking-[0.15em] uppercase font-bold text-zinc-500">
-                      <th className="text-left px-3 py-2">Item</th>
+                      <th className="text-left px-2 py-2 whitespace-nowrap">Código</th>
+                      <th className="text-left px-3 py-2">Descrição</th>
                       <th className="px-2 py-2">Un</th>
                       <th className="px-2 py-2 text-right text-white">Solicitado</th>
                       <th className="px-2 py-2 text-right text-[#39FF14]">Separado</th>
                       <th className="px-2 py-2 text-right text-[#FF5E00]">Baixado</th>
                       <th className="px-2 py-2 text-right text-[#00F0FF]">Entregue</th>
+                      <th className="px-2 py-2 text-center">Almoxarifado</th>
                       <th className="px-2 py-2 text-right">Status</th>
                     </tr>
                   </thead>
@@ -307,14 +341,46 @@ export const SolicitacaoMaterialPage = () => {
                       const qs = Number(m.qty_requested ?? m.quantity ?? 0);
                       const qent = Number(m.qty_delivered ?? 0);
                       const complete = qent >= qs && qs > 0;
+                      const wsInfo = ITEM_WAREHOUSE_STATUS_LABEL[m.warehouse_status || ''];
                       return (
                         <tr key={m.id} data-testid={`material-row-${m.id}`} className="border-t border-white/5 hover:bg-white/[0.02]">
+                          <td className="px-2 py-2 font-mono text-[#E0FF00] whitespace-nowrap" data-testid={`mat-code-${m.id}`}>{m.code || '-'}</td>
                           <td className="px-3 py-2 text-white">{m.item}</td>
-                          <td className="px-2 py-2 text-zinc-400 text-center">{m.unit || 'un'}</td>
+                          <td className="px-2 py-2">
+                            <select
+                              data-testid={`mat-unit-${m.id}`}
+                              value={(m.unit || 'UN').toUpperCase()}
+                              onChange={(e) => patchItem(m, 'unit', e.target.value)}
+                              className="w-16 bg-zinc-950/60 border border-white/10 rounded-md px-1 py-1 text-[11px] text-zinc-200 text-center focus:outline-none focus:border-[#E0FF00]"
+                            >
+                              {MATERIAL_UNITS.map((u) => <option key={u.value} value={u.value}>{u.value}</option>)}
+                              {/* fallback for unknown legacy values */}
+                              {!MATERIAL_UNITS.find((u) => u.value === (m.unit || 'UN').toUpperCase()) && (
+                                <option value={(m.unit || 'UN').toUpperCase()}>{(m.unit || 'UN').toUpperCase()}</option>
+                              )}
+                            </select>
+                          </td>
                           <td className="px-2 py-2"><QtyInput testid={`qty-requested-${m.id}`} value={qs} saving={savingRow === m.id + ':qty_requested'} onCommit={(v) => patchItem(m, 'qty_requested', v)} color="#fff" /></td>
                           <td className="px-2 py-2"><QtyInput testid={`qty-separated-${m.id}`} value={Number(m.qty_separated ?? 0)} saving={savingRow === m.id + ':qty_separated'} onCommit={(v) => patchItem(m, 'qty_separated', v)} color="#39FF14" /></td>
                           <td className="px-2 py-2"><QtyInput testid={`qty-baixado-${m.id}`} value={Number(m.qty_written_off ?? 0)} saving={savingRow === m.id + ':qty_written_off'} onCommit={(v) => patchItem(m, 'qty_written_off', v)} color="#FF5E00" /></td>
                           <td className="px-2 py-2"><QtyInput testid={`qty-delivered-${m.id}`} value={qent} saving={savingRow === m.id + ':qty_delivered'} onCommit={(v) => patchItem(m, 'qty_delivered', v)} color="#00F0FF" /></td>
+                          <td className="px-2 py-2 text-center">
+                            <select
+                              data-testid={`mat-warehouse-status-${m.id}`}
+                              value={m.warehouse_status || ''}
+                              onChange={(e) => patchItem(m, 'warehouse_status', e.target.value)}
+                              className="max-w-[150px] bg-zinc-950/60 border rounded-full px-2 py-1 text-[10px] font-bold focus:outline-none"
+                              style={{
+                                color: wsInfo?.color || '#94A3B8',
+                                borderColor: `${wsInfo?.color || '#94A3B8'}66`,
+                                backgroundColor: `${wsInfo?.color || '#94A3B8'}12`,
+                              }}
+                            >
+                              {ITEM_WAREHOUSE_STATUS.map((s) => (
+                                <option key={s.value || 'none'} value={s.value} style={{ color: '#000' }}>{s.label}</option>
+                              ))}
+                            </select>
+                          </td>
                           <td className="px-2 py-2 text-right">
                             {complete ? (
                               <span className="inline-flex items-center gap-1 text-[10px] font-bold text-[#39FF14]"><CheckCircle2 className="w-3 h-3" /> OK</span>
@@ -353,7 +419,7 @@ export const SolicitacaoMaterialPage = () => {
                   onOpenPhoto={() => openReceiptPhoto(r.id)}
                   onConfirm={(receiver, notes, photo) => confirmReceipt(r.id, receiver, notes, photo)}
                   onResend={() => resendReq(r.id)}
-                  onWarehouseResponseSaved={fetchHistory}
+                  onWarehouseResponseSaved={reloadProjects}
                   confirming={confirmingId === r.id}
                   resending={resendingId === r.id}
                   defaultReceiver={me?.name || ''}

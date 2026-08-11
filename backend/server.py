@@ -2718,12 +2718,12 @@ async def import_materials_list(
     fname = (file.filename or "").lower()
 
     HEADER_KEYWORDS = {
-        "item": ["item", "descricao", "descrição", "descricao item", "descrição item", "material", "produto", "designacao", "designação"],
-        "quantity": ["quantidade", "quant.", "quant", "qtd", "qtde", "qte", "qntd", "quant orçada", "quant orcada", "qntd orçada", "qntd orcada"],
-        "unit": ["unidade", "unid.", "unid", "un", "um"],
-        "code": ["codigo", "código", "cod.", "cod item", "cod. item", "sap", "item mat"],
-        "cost": ["preco", "preço", "valor unit", "custo", "vlr unit", "unit price", "unit cost", "preco unit", "preço unit"],
-        "total_cost": ["vlr total", "valor total", "total geral", "preco total", "preço total", "custo total"],
+        "item": ["item", "descricao", "descrição", "descricao item", "descrição item", "material", "produto", "designacao", "designação", "description"],
+        "quantity": ["quantidade", "quant.", "quant", "qtd", "qtde", "qte", "qntd", "quant orçada", "quant orcada", "qntd orçada", "qntd orcada", "quantity", "qty"],
+        "unit": ["unidade", "unid.", "unid", "un", "um", "unit"],
+        "code": ["codigo", "código", "cod.", "cod item", "cod. item", "sap", "item mat", "code", "cod", "material code"],
+        "cost": ["preco", "preço", "valor unit", "custo", "vlr unit", "unit price", "unit cost", "preco unit", "preço unit", "cost", "price"],
+        "total_cost": ["vlr total", "valor total", "total geral", "preco total", "preço total", "custo total", "total cost", "total"],
     }
 
     # Sheet name priority: prefer sheets that look like a requisition/material list
@@ -2941,15 +2941,21 @@ async def update_material_item(
     body: dict,
     current_user: dict = Depends(get_current_user),
 ):
-    """Update quantity fields on a material item: qty_requested, qty_separated, qty_written_off, qty_delivered"""
-    allowed = {"qty_requested", "qty_separated", "qty_written_off", "qty_delivered", "notes"}
+    """Update quantity/unit/warehouse_status/code/item fields on a material item."""
+    allowed = {"qty_requested", "qty_separated", "qty_written_off", "qty_delivered", "notes",
+               "unit", "warehouse_status", "code", "item"}
+    numeric = {"qty_requested", "qty_separated", "qty_written_off", "qty_delivered"}
     updates = {}
     for k, v in body.items():
-        if k in allowed:
+        if k not in allowed:
+            continue
+        if k in numeric:
             try:
-                updates[f"materials_list.$.{k}"] = float(v) if k != "notes" else str(v)
+                updates[f"materials_list.$.{k}"] = float(v)
             except Exception:
                 updates[f"materials_list.$.{k}"] = 0
+        else:
+            updates[f"materials_list.$.{k}"] = str(v or "")
     if not updates:
         raise HTTPException(status_code=400, detail="Nenhum campo válido")
     result = await db.projects.update_one(

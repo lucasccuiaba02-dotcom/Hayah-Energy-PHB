@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { useTheme } from '../contexts/ThemeContext';
@@ -22,6 +22,8 @@ import {
   Sun,
   Moon,
   TrendingDown,
+  ChevronUp,
+  ChevronDown,
 } from 'lucide-react';
 
 const navItems = [
@@ -45,6 +47,34 @@ const navItems = [
 export const AppLayout = ({ children, title, subtitle, actions }) => {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
+  const navRef = useRef(null);
+  const [canScrollUp, setCanScrollUp] = useState(false);
+  const [canScrollDown, setCanScrollDown] = useState(false);
+
+  const refreshNavScroll = () => {
+    const el = navRef.current;
+    if (!el) return;
+    setCanScrollUp(el.scrollTop > 4);
+    setCanScrollDown(el.scrollTop + el.clientHeight < el.scrollHeight - 4);
+  };
+  useEffect(() => {
+    const t = setTimeout(refreshNavScroll, 50);
+    const t2 = setTimeout(refreshNavScroll, 300);
+    const el = navRef.current;
+    if (!el) return () => { clearTimeout(t); clearTimeout(t2); };
+    el.addEventListener('scroll', refreshNavScroll, { passive: true });
+    window.addEventListener('resize', refreshNavScroll);
+    return () => {
+      clearTimeout(t); clearTimeout(t2);
+      el.removeEventListener('scroll', refreshNavScroll);
+      window.removeEventListener('resize', refreshNavScroll);
+    };
+  }, [user]);
+
+  const scrollNav = (delta) => {
+    const el = navRef.current;
+    if (el) el.scrollBy({ top: delta, behavior: 'smooth' });
+  };
 
   const handleLogout = async () => {
     await logout();
@@ -55,11 +85,23 @@ export const AppLayout = ({ children, title, subtitle, actions }) => {
     <div className="min-h-screen bg-[#050505]">
       <div className="flex">
         <aside className="w-20 h-screen bg-[#09090b] border-r border-white/8 fixed left-0 top-0 flex flex-col items-center py-6 z-30">
-          <div className="mb-8">
+          <div className="mb-4">
             <HayahLogo size="md" showText={false} />
           </div>
 
-          <nav className="flex-1 w-full flex flex-col gap-3 hayah-sidebar-scroll px-4 py-1">
+          {/* Botão scroll para cima */}
+          <button
+            type="button"
+            data-testid="sidebar-scroll-up"
+            onClick={() => scrollNav(-160)}
+            disabled={!canScrollUp}
+            aria-label="Rolar para cima"
+            className="w-10 h-6 mb-1 rounded-full bg-white/5 border border-white/10 flex items-center justify-center text-zinc-500 hover:text-[#E0FF00] hover:bg-white/10 transition disabled:opacity-25 disabled:cursor-not-allowed"
+          >
+            <ChevronUp className="w-4 h-4" />
+          </button>
+
+          <nav ref={navRef} className="flex-1 w-full flex flex-col gap-3 hayah-sidebar-scroll px-4 py-1">
             {navItems
               .filter((item) => {
                 if (!user) return false;
@@ -91,6 +133,18 @@ export const AppLayout = ({ children, title, subtitle, actions }) => {
             ))}
           </nav>
 
+          {/* Botão scroll para baixo */}
+          <button
+            type="button"
+            data-testid="sidebar-scroll-down"
+            onClick={() => scrollNav(160)}
+            disabled={!canScrollDown}
+            aria-label="Rolar para baixo"
+            className="w-10 h-6 mt-1 mb-3 rounded-full bg-white/5 border border-white/10 flex items-center justify-center text-zinc-500 hover:text-[#E0FF00] hover:bg-white/10 transition disabled:opacity-25 disabled:cursor-not-allowed"
+          >
+            <ChevronDown className="w-4 h-4" />
+          </button>
+
           <button
             data-testid="sidebar-logout-button"
             onClick={handleLogout}
@@ -101,7 +155,7 @@ export const AppLayout = ({ children, title, subtitle, actions }) => {
           </button>
         </aside>
 
-        <main className="flex-1 ml-20">
+        <main className="flex-1 ml-20 min-w-0 overflow-hidden">
           <div className="border-b border-white/8 bg-[#09090b]/50 backdrop-blur-xl sticky top-0 z-20">
             <div className="px-8 py-4 flex items-center justify-between flex-wrap gap-4">
               <div className="flex items-center gap-4">
