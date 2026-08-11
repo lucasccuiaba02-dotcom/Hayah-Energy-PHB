@@ -21,6 +21,7 @@ export const ProjectDetailPage = () => {
   const [uploading, setUploading] = useState(false);
   const fileInputRef = useRef(null);
   const [photoLabel, setPhotoLabel] = useState('antes');
+  const [photoPoint, setPhotoPoint] = useState(''); // P1, P2, P3...
   const [dailyNotes, setDailyNotes] = useState('');
   const [downloadingPdf, setDownloadingPdf] = useState(false);
 
@@ -294,6 +295,14 @@ export const ProjectDetailPage = () => {
                 <option value="durante">Durante</option>
                 <option value="depois">Depois</option>
               </select>
+              <input
+                data-testid="pd-photo-point"
+                value={photoPoint}
+                onChange={(e) => setPhotoPoint(e.target.value.toUpperCase().slice(0, 6))}
+                placeholder="P1"
+                className="w-16 bg-zinc-950/90 border border-[#E0FF00]/30 rounded-full px-2 py-1 text-xs text-[#E0FF00] font-mono font-bold text-center focus:border-[#E0FF00] focus:outline-none"
+                title="Ponto/local da foto (ex: P1, P2, P3). Auto-incrementa após cada envio."
+              />
               <button
                 data-testid="pd-photo-add"
                 onClick={() => fileInputRef.current?.click()}
@@ -317,10 +326,23 @@ export const ProjectDetailPage = () => {
             {photos.length === 0 ? (
               <p className="col-span-2 text-center py-8 text-zinc-600 text-sm">Nenhuma foto ainda</p>
             ) : (
-              photos.map((ph) => (
+              [...photos].sort((a, b) => {
+                // Sort by point (P1, P2, ..., P10) natural order, no-point at end
+                const na = (a.point || '').match(/(\d+)/);
+                const nb = (b.point || '').match(/(\d+)/);
+                if (a.point && !b.point) return -1;
+                if (!a.point && b.point) return 1;
+                if (na && nb) return parseInt(na[1]) - parseInt(nb[1]);
+                return (a.point || '').localeCompare(b.point || '');
+              }).map((ph) => (
                 <div key={ph.id} data-testid={`pd-photo-${ph.id}`} className="relative rounded-lg overflow-hidden border border-white/10">
                   <img src={ph.data_url} alt={ph.label} className="w-full h-32 object-cover" />
                   <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent pointer-events-none"></div>
+                  {ph.point && (
+                    <span data-testid={`pd-photo-point-${ph.id}`} className="absolute top-1 left-1 px-2 py-0.5 rounded-full text-[10px] font-black bg-[#E0FF00] text-black">
+                      {ph.point}
+                    </span>
+                  )}
                   <p className="absolute bottom-1 left-2 text-xs text-white font-bold uppercase">{ph.label}</p>
                   <button
                     onClick={() => handlePhotoDelete(ph.id)}
@@ -376,6 +398,11 @@ const ChecklistRow = ({ testid, icon: Icon, color, label, sub, checked, onToggle
     <Icon className="w-5 h-5 flex-shrink-0" style={{ color: checked ? color : '#71717a' }} />
     <div className="flex-1 min-w-0">
       <p className="text-sm font-bold" style={{ color: checked ? color : '#fff' }}>{label}</p>
+      {sub && <p className="text-xs text-zinc-500 truncate">{sub}</p>}
+    </div>
+  </label>
+);
+="text-sm font-bold" style={{ color: checked ? color : '#fff' }}>{label}</p>
       {sub && <p className="text-xs text-zinc-500 truncate">{sub}</p>}
     </div>
   </label>

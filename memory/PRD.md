@@ -65,6 +65,17 @@ Dashboard, **Buscar Obras**, Operacional, Carteira, Programação, Calendário, 
   * Modal (data-testid=material-preview-modal) com iframe embutido (data-testid=material-preview-iframe) + botões "Baixar" e "Enviar para o Almoxarifado" (fecha o modal e chama handleSend)
   * Testes: `/app/backend/tests/test_materials_preview.py` (2/2 verdes)
 
+## Onda 3-B (Fev/2026) — dossiê fotográfico + 4 relatórios + pastas de arquivos
+- **Fotos por ponto (P1/P2/P3...)**: novo campo `point` no upload de fotos. Input `data-testid=pd-photo-point` com auto-incremento (P1 → P2 → P3 após cada envio). Badge amarelo no card da foto (data-testid=pd-photo-point-{id}). Ordenação natural P1, P2, ...,P10, P11 no PDF do dossiê.
+- **Diário de Obra melhorado** (`daily_log_pdf.py`): fotos agora ordenadas por ponto no PDF, com legenda `<b>P1</b> · ANTES · 2026-02-10 09:15`. Header do dossiê explicativo.
+- **4 novos relatórios CSV** (com BOM UTF-8 para Excel):
+  * `GET /api/reports/teams` — produção por equipe (obras, concluídas, vencidas, valores, % pago)
+  * `GET /api/reports/unavailability` — indisponibilidade (data, equipe, motivo, obs)
+  * `GET /api/reports/unproductivity` — improdutividade (data, equipe, motivo, horas perdidas) + linha TOTAL
+  * `GET /api/reports/returns` — retorno da programação (executada/a_reprogramar/programada + motivo)
+  * Todos aceitam `?start=YYYY-MM-DD&end=YYYY-MM-DD`
+- **4 cards novos na aba Relatórios** (data-testid=report-card-teams / -unavailability / -unproductivity / -returns) com botão CSV colorido. Seção separada "Relatórios Operacionais (CSV)" acima da notificação de amanhã.
+
 ## Onda 3-A (Fev/2026) — melhorias solicitadas pelo gerente
 - **Scrollbar horizontal visível no Faturamento** (`.hayah-hscroll` em App.css) — barra amarela grossa (12px) na esteira, facilita rolagem com mouse
 - **Números KPI enormes na Faturamento** — KpiCard agora com `text-4xl font-black` colorido no valor. Colunas do kanban mostram total em `text-lg font-bold` colorido

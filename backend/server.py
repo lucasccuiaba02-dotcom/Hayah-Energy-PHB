@@ -1888,6 +1888,7 @@ async def update_checklist(project_id: str, data: ChecklistUpdate, current_user:
 async def upload_photo(
     project_id: str,
     label: str = Form("foto"),
+    point: str = Form(""),  # Fev/2026 — ponto (P1, P2, P3...)
     file: UploadFile = File(...),
     current_user: dict = Depends(get_current_user),
 ):
@@ -1902,6 +1903,7 @@ async def upload_photo(
     photo = {
         "id": secrets.token_urlsafe(8),
         "label": label,
+        "point": (point or "").strip().upper()[:12],
         "data_url": data_url,
         "uploaded_at": datetime.now(timezone.utc).isoformat(),
     }
@@ -1917,6 +1919,107 @@ async def delete_photo(project_id: str, photo_id: str, current_user: dict = Depe
     if result.matched_count == 0:
         raise HTTPException(status_code=404, detail="Project not found")
     return {"status": "deleted"}
+
+# ============ Relatórios adicionais (Fev/2026) ============
+@api_router.get("/reports/teams")
+async def report_teams_csv(current_user: dict = Depends(get_current_user), start: str = "", end: str = ""):
+    """Produção por equipe: obras · executadas · valor programado · valor faturado · % pagos."""
+    teams = await db.teams.find({"user_id": current_user["_id"]}).to_list(500)
+    projects = await db.projects.find({"user_id": current_user["_id"]}).to_list(5000)
+    def in_range(p):
+        ps = (p.get("start_date") or "")[:10]
+        if start and ps and ps < start: return False
+        if end and ps and ps > end: return False
+        return True
+    filtered = [p for p in projects if in_range(p)]
+    lines = ["Equipe,Codigo,Obras Total,Concluidas,Vencidas,No Prazo,Valor Programado,Valor Faturado,% Pago"]
+    today_s = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    for t in teams:
+        tid = str(t["_id"])
+        team_projects = [p for p in filtered if (p.get("team_id") == tid) or any(tid in (e.get("team_ids") or []) for e in (p.get("schedule_entries") or []))]
+        if not team_projects: continue
+        total = len(team_projects)
+        done = sum(1 for p in team_projects if p.get("execution_status") == "concluido")
+        vencidas = sum(1 for p in team_projects if p.get("execution_status") not in ("concluido", "cancelado") and (p.get("end_date") or "9999") < today_s)
+        no_prazo = total - vencidas
+        val_prog = sum(float(p.get("programmed_value") or 0) for p in team_projects)
+        val_fat = sum(float(p.get("invoice_value") or 0) for p in team_projects)
+        pagos = sum(1 for p in team_projects if p.get("billing_stage") == "pago")
+        pct_pago = round(pagos / total * 100, 1) if total else 0
+        lines.append(f'"{t.get("name","")}","{t.get("code","")}",{total},{done},{vencidas},{no_prazo},{val_prog:.2f},{val_fat:.2f},{pct_pago}')
+    csv = "\n".join(lines)
+    return Response(content="\ufeff" + csv, media_type="text/csv; charset=utf-8", headers={"Content-Disposition": f'attachment; filename="rel_equipes_{datetime.now().strftime("%Y%m%d")}.csv"'})
+
+
+@api_router.get("/reports/unavailability")
+async def report_unavailability_csv(current_user: dict = Depends(get_current_user), start: str = "", end: str = ""):
+    """Indisponibilidade: por dia · equipe · motivo."""
+    q = {"user_id": current_user["_id"]}
+    if start or end:
+        rng = {}
+        if start: rng["$gte"] = start
+        if end: rng["$lte"] = end
+        q["date"] = rng
+    docs = await db.team_unavailability.find(q).sort("date", -1).to_list(5000)
+    lines = ["Data,Equipe,Motivo,Observacao"]
+    for d in docs:
+        notes = (d.get("notes","") or "").replace('"', '')
+        lines.append(f'{d.get("date","")},"{d.get("team_name","")}","{d.get("reason","")}","{notes}"')
+    return Response(content="\ufeff" + "\n".join(lines), media_type="text/csv; charset=utf-8", headers={"Content-Disposition": f'attachment; filename="rel_indisponibilidade_{datetime.now().strftime("%Y%m%d")}.csv"'})
+
+
+@api_router.get("/reports/unproductivity")
+async def report_unproductivity_csv(current_user: dict = Depends(get_current_user), start: str = "", end: str = ""):
+    """Improdutividade: por dia · equipe · motivo · horas perdidas."""
+    q = {"user_id": current_user["_id"]}
+    if start or end:
+        rng = {}
+        if start: rng["$gte"] = start
+        if end: rng["$lte"] = end
+        q["date"] = rng
+    docs = await db.team_unproductivity.find(q).sort("date", -1).to_list(5000)
+    lines = ["Data,Equipe,Motivo,Horas Perdidas,Observacao"]
+    total_h = 0.0
+    for d in docs:
+        h = float(d.get("hours_lost") or 0)
+        total_h += h
+        notes = (d.get("notes","") or "").replace('"', '')
+        lines.append(f'{d.get("date","")},"{d.get("team_name","")}","{d.get("reason","")}",{h:.1f},"{notes}"')
+    lines.append(f',,"TOTAL",{total_h:.1f},')
+    return Response(content="\ufeff" + "\n".join(lines), media_type="text/csv; charset=utf-8", headers={"Content-Disposition": f'attachment; filename="rel_improdutividade_{datetime.now().strftime("%Y%m%d")}.csv"'})
+
+
+@api_router.get("/reports/returns")
+async def report_returns_csv(current_user: dict = Depends(get_current_user), start: str = "", end: str = ""):
+    """Retorno da programacao: obras executadas / a reprogramar / motivo."""
+    projects = await db.projects.find({"user_id": current_user["_id"]}).to_list(5000)
+    lines = ["Data Programada,Codigo Obra,Nome Obra,Equipe,Status Retorno,Motivo Cancelamento,Valor Programado"]
+    def in_range(d):
+        if not d: return False
+        d = d[:10]
+        if start and d < start: return False
+        if end and d > end: return False
+        return True
+    for p in projects:
+        dates = set()
+        for e in (p.get("schedule_entries") or []):
+            if e.get("start_date"): dates.add(e["start_date"][:10])
+            if e.get("end_date"): dates.add(e["end_date"][:10])
+        if not dates and p.get("start_date"): dates.add(p["start_date"][:10])
+        for d in sorted(dates):
+            if (start or end) and not in_range(d): continue
+            es = p.get("execution_status") or ""
+            if es == "concluido":
+                status_ret = "executada"
+            elif es in ("a_reprogramar", "cancelado", "suspenso"):
+                status_ret = "a_reprogramar"
+            else:
+                status_ret = "programada"
+            cancel_reason = (p.get("cancel_reason","") or "").replace('"', '')
+            lines.append(f'{d},"{p.get("project_code","")}","{p.get("name","")}","{p.get("team_name","")}",{status_ret},"{cancel_reason}",{float(p.get("programmed_value") or 0):.2f}')
+    return Response(content="\ufeff" + "\n".join(lines), media_type="text/csv; charset=utf-8", headers={"Content-Disposition": f'attachment; filename="rel_retorno_programacao_{datetime.now().strftime("%Y%m%d")}.csv"'})
+
+
 
 # --- Diário de Obra (PDF) ---
 @api_router.get("/operacional/daily-log/{project_id}")

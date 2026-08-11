@@ -97,10 +97,24 @@ def build_daily_log_pdf(project: dict, checklist: dict, photos: list, notes: str
                 story.append(Paragraph(line.replace("<", "&lt;").replace(">", "&gt;"), styles["Body"]))
                 story.append(Spacer(1, 4))
 
-    # Photos
+    # Photos — sorted by point (P1, P2, P3...) for dossier presentation
     if photos:
-        story.append(Paragraph(f"Fotos do Turno ({len(photos)})", styles["H2H"]))
-        for ph in photos:
+        def _sort_key(ph):
+            pt = (ph.get("point") or "").upper().strip()
+            m = None
+            if pt:
+                import re as _re
+                m = _re.search(r"(\d+)", pt)
+            n = int(m.group(1)) if m else 99999
+            return (0 if pt else 1, n, pt)
+        sorted_photos = sorted(photos, key=_sort_key)
+        story.append(Paragraph(f"Fotos do Dossiê ({len(sorted_photos)})", styles["H2H"]))
+        story.append(Paragraph(
+            "Registro fotográfico ordenado por ponto (P1, P2, P3...) para composição do dossiê de obra.",
+            styles["Muted"]
+        ))
+        story.append(Spacer(1, 6))
+        for ph in sorted_photos:
             data_url = ph.get("data_url") or ""
             if not data_url.startswith("data:image"):
                 continue
@@ -109,9 +123,19 @@ def build_daily_log_pdf(project: dict, checklist: dict, photos: list, notes: str
                 img_bytes = base64.b64decode(b64)
                 img = Image(io.BytesIO(img_bytes))
                 img._restrictSize(15 * cm, 12 * cm)
-                caption = f"{(ph.get('label') or '').upper()} — {(ph.get('created_at') or '')[:19].replace('T', ' ')}"
+                point = (ph.get("point") or "").strip()
+                label = (ph.get("label") or "").upper()
+                when = (ph.get("uploaded_at") or ph.get("created_at") or "")[:19].replace("T", " ")
+                caption_parts = []
+                if point:
+                    caption_parts.append(f"<b><font color='#E0FF00'>{point}</font></b>")
+                if label:
+                    caption_parts.append(label)
+                if when:
+                    caption_parts.append(f"<font color='#71717a'>{when}</font>")
+                caption = " · ".join(caption_parts)
                 story.append(img)
-                story.append(Paragraph(caption, styles["Muted"]))
+                story.append(Paragraph(caption, styles["Body"]))
                 story.append(Spacer(1, 10))
             except Exception:
                 continue
