@@ -1,0 +1,49 @@
+{
+  "summary": "Session-revocation security phase tested. Backend: 17/17 pytest pass in /app/backend/tests/test_auth_sessions.py covering change-password (auth guard, wrong current, <8 char, same-as-current, success + old-token 401 'Sessão revogada'), logout-all-devices (revokes prior token, reissues), admin/users/{id}/force-logout (admin-only 403 for user, bumps sv, kills victim's token), admin/users/{id}/reset-password (admin-only, <8 rejected, hashes new pw + bumps sv + old token dead + old pw fails + new pw works), sv claim comparison, /auth/me + /admin/users regression. Estoque regression 12/12 pass. Frontend: /configuracoes route + SettingsPage fully wired to backend (verified in-browser with sandbox admin: all 7 data-testids present, wrong-current-password toast 'Senha atual incorreta' surfaces correctly). Sidebar nav-configuracoes visible. CRITICAL FRONTEND MISS: AdminUsuariosPage.jsx does NOT contain the required admin-force-logout-{id} or admin-reset-pass-{id} buttons — the imports (LogOut, KeyRound), handlers (forceLogout, resetPassword) and buttons are entirely absent though the review request lists them as required.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {
+        "component": "AdminUsuariosPage",
+        "issue": "Missing admin-force-logout-{id} and admin-reset-pass-{id} buttons per user. LogOut/KeyRound icons not imported, forceLogout/resetPassword handlers not implemented. Only Permissões/Aprovar/Rejeitar/Delete buttons exist. Backend endpoints (/api/admin/users/{id}/force-logout and /reset-password) work — admin cannot invoke them from UI.",
+        "selector": "[data-testid^='admin-force-logout-'], [data-testid^='admin-reset-pass-']",
+        "priority": "HIGH"
+      }
+    ],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_auth_sessions.py",
+    "/app/test_reports/pytest/iter20_auth_sessions.xml",
+    "/app/test_reports/pytest/iter20_estoque.xml"
+  ],
+  "action_items": [
+    "Add admin-force-logout-{id} and admin-reset-pass-{id} buttons to AdminUsuariosPage.jsx as specified in the review request. Import LogOut and KeyRound from lucide-react. Implement forceLogout(u) → confirm dialog → POST /api/admin/users/{u.id}/force-logout. Implement resetPassword(u) → prompt for new pw with min-8 validation → POST /api/admin/users/{u.id}/reset-password with { new_password }. Show these buttons in the per-user actions row (probably alongside admin-delete-{id}).",
+    "Optional: The pytest test file must be run with -n 1 (single worker) because it mutates the sandbox admin's password/session_version. If run in parallel via xdist, TestChangePasswordFlow races with TestLogoutAllDevices/TestRegression using the same sandbox account. Consider adding to pytest.ini or documenting."
+  ],
+  "critical_code_review_comments": [
+    "server.py exceeds 4000 lines — long overdue for splitting into routers (auth, admin, projects, estoque, faturamento, etc.). Not blocking this phase.",
+    "Backend correctly refuses same-as-current password with 400 (good), but the error message ('Nova senha deve ser diferente da atual') isn't in the review's expected asserts — assertion is satisfied since it returns 400.",
+    "Backend uses `int(user.get('session_version', 0) or 0)` defensively everywhere — good, correctly treats missing sv on legacy tokens as 0.",
+    "seed_admin backfill uses update_many with $exists:false — idempotent, safe.",
+    "SettingsPage persists returned access_token to localStorage. However axios in this project appears to use cookies (httpOnly) as primary auth per login flow; storing access_token in localStorage may not actually be used for subsequent requests unless a request interceptor picks it up. Not blocking (backend still recognises via httpOnly cookies which were also refreshed) but worth confirming.",
+    "AdminUsuariosPage: no per-user permission list is fetched fresh after Update — relies on full re-fetch (ok). No admin-force-logout / admin-reset-pass buttons — see action item."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_auth_sessions.py (new)"
+  ],
+  "success_rate": {
+    "backend": "100% (17/17 auth_sessions + 12/12 estoque regression)",
+    "frontend": "80% (SettingsPage 100%; AdminUsuariosPage missing 2 required buttons)"
+  },
+  "test_credentials": "Sandbox admin admin@projectmatrix.com / Admin@123 (restored to original at end of change-password test). Owner lucasc.cuiaba02@gmail.com untouched.",
+  "seed_data_creation": "TestAdminOnlyEnforcement and TestAdminForceLogoutAndResetOnThrowaway create throwaway TEST_ prefixed users, approve them, and delete them at fixture teardown. Also cleaned up 9 orphan TEST_ users from previous runs.",
+  "retest_needed": true,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "IMPORTANT: Run auth_sessions tests with `pytest ... -n 1` (single worker) — file mutates sandbox admin password and session_version, which race under xdist. Sandbox admin pw was restored to Admin@123 at end of run. If pytest run is aborted mid-TestChangePasswordFlow, sandbox may be left on TempTest_2026 — verify with `curl POST /api/auth/login {admin@projectmatrix.com/Admin@123}` before running other tests. Backend all 4 new endpoints verified functional. Remaining work is adding force-logout + reset-pass buttons to AdminUsuariosPage.jsx.",
+  "rca_of_the_issue": "AdminUsuariosPage.jsx frontend implementation is incomplete relative to the review request: the LogOut and KeyRound imports, forceLogout(u) / resetPassword(u) handlers, and admin-force-logout-{id} / admin-reset-pass-{id} buttons were listed as required in files_of_reference but are not present in the committed file. Backend endpoints exist and are fully tested — only the UI wire-up is missing. Fix is straightforward: add imports + 2 handlers + 2 buttons in the per-user actions row of renderUser()."
+}

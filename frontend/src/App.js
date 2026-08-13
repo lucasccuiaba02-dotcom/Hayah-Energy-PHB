@@ -20,6 +20,7 @@ import { IndisponibilidadePage } from './pages/IndisponibilidadePage';
 import { BuscarObrasPage } from './pages/BuscarObrasPage';
 import { FaturamentoPage } from './pages/FaturamentoPage';
 import { EstoquePage } from './pages/EstoquePage';
+import { SettingsPage } from './pages/SettingsPage';
 import { ImprodutividadePage } from './pages/ImprodutividadePage';
 import { ProtectedRoute } from './components/ProtectedRoute';
 import '@/App.css';
@@ -52,6 +53,7 @@ function AppRoutes() {
       <Route path="/buscar" element={<ProtectedRoute><BuscarObrasPage /></ProtectedRoute>} />
       <Route path="/faturamento" element={<ProtectedRoute><FaturamentoPage /></ProtectedRoute>} />
       <Route path="/estoque" element={<ProtectedRoute><EstoquePage /></ProtectedRoute>} />
+      <Route path="/configuracoes" element={<ProtectedRoute><SettingsPage /></ProtectedRoute>} />
       <Route path="/improdutividade" element={<ProtectedRoute><ImprodutividadePage /></ProtectedRoute>} />
     </Routes>
   );

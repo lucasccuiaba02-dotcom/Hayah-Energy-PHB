@@ -40,6 +40,17 @@ Dashboard, **Buscar Obras**, Operacional, Carteira, Programação, Calendário, 
 
 ## Novidades Fev/2026 (Ondas)
 
+- **Segurança & Sessões (iter20)** — 🚨 revogação global aplicada AGORA no owner (lucasc.cuiaba02@gmail.com sv=2). Recursos:
+  - JWT com `sv` (session_version) embutido; `get_current_user` rejeita 401 quando `token.sv < user.session_version`.
+  - `POST /api/auth/change-password` (body: current+new_password) — valida senha atual, exige 8+ chars, bumpa sv, re-emite token novo para o dispositivo atual (via httpOnly cookie).
+  - `POST /api/auth/logout-all-devices` — bumpa sv, invalida tudo em outros aparelhos, retorna access_token novo pro dispositivo atual.
+  - `POST /api/admin/users/{id}/force-logout` — admin desconecta outro usuário.
+  - `POST /api/admin/users/{id}/reset-password` — admin define senha temporária + revoga sessões antigas.
+  - **Frontend**: página `/configuracoes` (nav-configuracoes) com formulário Trocar senha (força visual) + botão Desconectar outros dispositivos. AdminUsuariosPage ganhou botões `admin-force-logout-{id}` e `admin-reset-pass-{id}`.
+  - **Seed**: `.env` ADMIN_EMAIL/PASSWORD atualizados para o owner real. Sandbox admin `admin@projectmatrix.com`/`Admin@123` mantido para o testing agent via seed adicional.
+  - Migração idempotente: `session_version` backfilled para 0 em todos os usuários existentes.
+  - Permission `settings` adicionada a ALL_PERMISSIONS.
+
 - **Aviso de Backlog Faturamento (iter17)**: endpoints `/api/faturamento/backlog-alerts` (GET) e `/notify` (POST), cron 09:15 broadcast push com `requireInteraction`, beep two-tone WebAudio + `showNotification` local no FaturamentoPage, toggle `Volume2/VolumeX` persistido em `localStorage.hayah_backlog_sound`.
 - **Página de Arquivos consolidada (Google Drive style) (iter17)**: ProjectDetailPage com 2 abas (`pd-tab-operacional`, `pd-tab-arquivos`), a segunda com Documentos + Materiais + Fotos-por-Ponto. Upload de foto envia `point` e auto-incrementa (P1→P2).
 - **Onda 1 (iter18)** — 7 ajustes rápidos (PDF Requisição 7 colunas com Código+Descrição+Un; busca por obra em /materiais; unidade dropdown; scroll horizontal Faturamento; scroll vertical Sidebar; status almoxarifado por item; headers CSV EN/PT).

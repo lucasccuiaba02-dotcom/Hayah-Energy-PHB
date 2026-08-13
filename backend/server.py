@@ -160,12 +160,12 @@ def hash_password(password: str) -> str:
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     return bcrypt.checkpw(plain_password.encode("utf-8"), hashed_password.encode("utf-8"))
 
-def create_access_token(user_id: str, email: str) -> str:
-    payload = {"sub": user_id, "email": email, "exp": datetime.now(timezone.utc) + timedelta(days=7), "type": "access"}
+def create_access_token(user_id: str, email: str, sv: int = 0) -> str:
+    payload = {"sub": user_id, "email": email, "sv": sv, "exp": datetime.now(timezone.utc) + timedelta(days=7), "type": "access"}
     return jwt.encode(payload, get_jwt_secret(), algorithm=JWT_ALGORITHM)
 
-def create_refresh_token(user_id: str) -> str:
-    payload = {"sub": user_id, "exp": datetime.now(timezone.utc) + timedelta(days=7), "type": "refresh"}
+def create_refresh_token(user_id: str, sv: int = 0) -> str:
+    payload = {"sub": user_id, "sv": sv, "exp": datetime.now(timezone.utc) + timedelta(days=7), "type": "refresh"}
     return jwt.encode(payload, get_jwt_secret(), algorithm=JWT_ALGORITHM)
 
 async def get_current_user(request: Request) -> dict:
@@ -183,6 +183,11 @@ async def get_current_user(request: Request) -> dict:
         user = await db.users.find_one({"_id": ObjectId(payload["sub"])})
         if not user:
             raise HTTPException(status_code=401, detail="User not found")
+        # Session revocation check: bump session_version to invalidate all outstanding tokens
+        current_sv = int(user.get("session_version", 0) or 0)
+        token_sv = int(payload.get("sv", 0) or 0)
+        if token_sv < current_sv:
+            raise HTTPException(status_code=401, detail="Sessão revogada — faça login novamente")
         user["_id"] = str(user["_id"])
         user.pop("password_hash", None)
         return user
@@ -215,7 +220,7 @@ class UserResponse(BaseModel):
 ALL_PERMISSIONS = [
     "dashboard", "carteira", "programacao", "calendario",
     "operacional", "geolocalizacao", "materiais", "analise",
-    "relatorios", "equipes", "estoque", "faturamento", "admin",
+    "relatorios", "equipes", "estoque", "faturamento", "settings", "admin",
 ]
 
 class TeamCreate(BaseModel):
@@ -421,8 +426,9 @@ async def login(credentials: UserLogin, response: Response, request: Request):
         raise HTTPException(status_code=403, detail="Cadastro não autorizado")
 
     user_id = str(user["_id"])
-    access_token = create_access_token(user_id, email)
-    refresh_token = create_refresh_token(user_id)
+    sv = int(user.get("session_version", 0) or 0)
+    access_token = create_access_token(user_id, email, sv)
+    refresh_token = create_refresh_token(user_id, sv)
 
     response.set_cookie(key="access_token", value=access_token, httponly=True, secure=True, samesite="none", max_age=604800, path="/")
     response.set_cookie(key="refresh_token", value=refresh_token, httponly=True, secure=True, samesite="none", max_age=604800, path="/")
@@ -443,6 +449,68 @@ async def logout(response: Response):
     response.delete_cookie(key="access_token", path="/")
     response.delete_cookie(key="refresh_token", path="/")
     return {"message": "Logged out successfully"}
+
+
+# ============ Session revocation + password change (Fev/2026) ============
+
+class ChangePasswordBody(BaseModel):
+    current_password: str
+    new_password: str
+
+
+class AdminResetPasswordBody(BaseModel):
+    new_password: str
+
+
+@api_router.post("/auth/change-password")
+async def change_password_endpoint(
+    body: ChangePasswordBody,
+    response: Response,
+    current_user: dict = Depends(get_current_user),
+):
+    """Change own password. Revokes all other sessions and re-issues a token for the current device."""
+    user = await db.users.find_one({"_id": ObjectId(current_user["_id"])})
+    if not user:
+        raise HTTPException(status_code=404, detail="Usuário não encontrado")
+    if not verify_password(body.current_password, user["password_hash"]):
+        raise HTTPException(status_code=400, detail="Senha atual incorreta")
+    if len(body.new_password) < 8:
+        raise HTTPException(status_code=400, detail="Senha nova precisa ter pelo menos 8 caracteres")
+    if body.current_password == body.new_password:
+        raise HTTPException(status_code=400, detail="Nova senha deve ser diferente da atual")
+    new_sv = int(user.get("session_version", 0) or 0) + 1
+    await db.users.update_one(
+        {"_id": user["_id"]},
+        {"$set": {
+            "password_hash": hash_password(body.new_password),
+            "session_version": new_sv,
+            "password_changed_at": datetime.now(timezone.utc).isoformat(),
+        }},
+    )
+    new_access = create_access_token(str(user["_id"]), user["email"], new_sv)
+    new_refresh = create_refresh_token(str(user["_id"]), new_sv)
+    response.set_cookie(key="access_token", value=new_access, httponly=True, secure=True, samesite="none", max_age=604800, path="/")
+    response.set_cookie(key="refresh_token", value=new_refresh, httponly=True, secure=True, samesite="none", max_age=604800, path="/")
+    return {"status": "changed", "access_token": new_access, "session_version": new_sv}
+
+
+@api_router.post("/auth/logout-all-devices")
+async def logout_all_devices_endpoint(
+    response: Response,
+    current_user: dict = Depends(get_current_user),
+):
+    """Revoke sessions on ALL devices (bumps session_version) and reissue a token for the current device."""
+    user = await db.users.find_one({"_id": ObjectId(current_user["_id"])})
+    if not user:
+        raise HTTPException(status_code=404, detail="Usuário não encontrado")
+    new_sv = int(user.get("session_version", 0) or 0) + 1
+    await db.users.update_one({"_id": user["_id"]}, {"$set": {"session_version": new_sv}})
+    new_access = create_access_token(str(user["_id"]), user["email"], new_sv)
+    new_refresh = create_refresh_token(str(user["_id"]), new_sv)
+    response.set_cookie(key="access_token", value=new_access, httponly=True, secure=True, samesite="none", max_age=604800, path="/")
+    response.set_cookie(key="refresh_token", value=new_refresh, httponly=True, secure=True, samesite="none", max_age=604800, path="/")
+    return {"status": "revoked", "session_version": new_sv, "access_token": new_access}
+
 
 @api_router.get("/auth/me", response_model=UserResponse)
 async def get_me(current_user: dict = Depends(get_current_user)):
@@ -507,6 +575,38 @@ async def admin_delete_user(user_id: str, current_user: dict = Depends(require_a
         raise HTTPException(status_code=400, detail="Não é possível remover o próprio usuário")
     await db.users.delete_one({"_id": ObjectId(user_id)})
     return {"status": "deleted"}
+
+
+@api_router.post("/admin/users/{user_id}/force-logout")
+async def admin_force_logout(user_id: str, current_user: dict = Depends(require_admin)):
+    """Admin bumps session_version of another user, invalidating all their tokens."""
+    user = await db.users.find_one({"_id": ObjectId(user_id)})
+    if not user:
+        raise HTTPException(status_code=404, detail="Usuário não encontrado")
+    new_sv = int(user.get("session_version", 0) or 0) + 1
+    await db.users.update_one({"_id": user["_id"]}, {"$set": {"session_version": new_sv}})
+    return {"status": "forced_logout", "session_version": new_sv, "user_id": user_id}
+
+
+@api_router.post("/admin/users/{user_id}/reset-password")
+async def admin_reset_password(user_id: str, body: AdminResetPasswordBody, current_user: dict = Depends(require_admin)):
+    """Admin sets a temporary password for another user AND revokes their sessions."""
+    if len(body.new_password) < 8:
+        raise HTTPException(status_code=400, detail="Senha precisa ter pelo menos 8 caracteres")
+    user = await db.users.find_one({"_id": ObjectId(user_id)})
+    if not user:
+        raise HTTPException(status_code=404, detail="Usuário não encontrado")
+    new_sv = int(user.get("session_version", 0) or 0) + 1
+    await db.users.update_one(
+        {"_id": user["_id"]},
+        {"$set": {
+            "password_hash": hash_password(body.new_password),
+            "session_version": new_sv,
+            "password_changed_at": datetime.now(timezone.utc).isoformat(),
+            "password_reset_by_admin": current_user.get("email", ""),
+        }},
+    )
+    return {"status": "reset", "session_version": new_sv, "user_id": user_id}
 
 # ============ Team Unavailability ============
 class TeamUnavailabilityBody(BaseModel):
@@ -4008,6 +4108,7 @@ async def startup_db():
         await db.users.insert_one({
             "email": admin_email, "password_hash": hashed, "name": "Admin",
             "role": "admin", "status": "approved", "permissions": ALL_PERMISSIONS,
+            "session_version": 0,
             "created_at": datetime.now(timezone.utc)
         })
         logger.info(f"Admin user created: {admin_email}")
@@ -4016,11 +4117,44 @@ async def startup_db():
         updates = {}
         if existing.get("status") != "approved": updates["status"] = "approved"
         if not existing.get("permissions"): updates["permissions"] = ALL_PERMISSIONS
+        if existing.get("role") != "admin": updates["role"] = "admin"
         if not verify_password(admin_password, existing["password_hash"]):
             updates["password_hash"] = hash_password(admin_password)
+        if "session_version" not in existing:
+            updates["session_version"] = 0
         if updates:
             await db.users.update_one({"email": admin_email}, {"$set": updates})
             logger.info("Admin ensured approved + full permissions")
+
+    # Sandbox testing admin (used by the automated testing agent)
+    sandbox_email = "admin@projectmatrix.com"
+    sandbox_password = "Admin@123"
+    sandbox_existing = await db.users.find_one({"email": sandbox_email})
+    if sandbox_existing is None:
+        await db.users.insert_one({
+            "email": sandbox_email, "password_hash": hash_password(sandbox_password), "name": "Testing Admin",
+            "role": "admin", "status": "approved", "permissions": ALL_PERMISSIONS,
+            "session_version": 0,
+            "created_at": datetime.now(timezone.utc),
+        })
+        logger.info(f"Sandbox admin created: {sandbox_email}")
+    else:
+        s_updates = {}
+        if sandbox_existing.get("role") != "admin": s_updates["role"] = "admin"
+        if sandbox_existing.get("status") != "approved": s_updates["status"] = "approved"
+        if not sandbox_existing.get("permissions"): s_updates["permissions"] = ALL_PERMISSIONS
+        if not verify_password(sandbox_password, sandbox_existing["password_hash"]):
+            s_updates["password_hash"] = hash_password(sandbox_password)
+        if "session_version" not in sandbox_existing:
+            s_updates["session_version"] = 0
+        if s_updates:
+            await db.users.update_one({"email": sandbox_email}, {"$set": s_updates})
+
+    # Backfill session_version=0 on all users missing the field (idempotent migration)
+    try:
+        await db.users.update_many({"session_version": {"$exists": False}}, {"$set": {"session_version": 0}})
+    except Exception as e:
+        logger.warning(f"session_version backfill: {e}")
 
     try:
         from apscheduler.schedulers.asyncio import AsyncIOScheduler

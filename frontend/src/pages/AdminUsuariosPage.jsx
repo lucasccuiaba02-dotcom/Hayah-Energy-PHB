@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import axios from 'axios';
 import { toast } from 'sonner';
-import { Shield, CheckCircle2, XCircle, Trash2, Save, Clock } from 'lucide-react';
+import { Shield, CheckCircle2, XCircle, Trash2, Save, Clock, LogOut, KeyRound } from 'lucide-react';
 import { AppLayout } from '../components/AppLayout';
 import { PERMISSION_TABS } from '../lib/constants';
 
@@ -68,6 +68,24 @@ export const AdminUsuariosPage = () => {
     } catch (err) { toast.error(err?.response?.data?.detail || 'Erro'); }
   };
 
+  const forceLogout = async (u) => {
+    if (!window.confirm(`Desconectar ${u.email} de todos os dispositivos?`)) return;
+    try {
+      await axios.post(`${API}/admin/users/${u.id}/force-logout`);
+      toast.success(`Sessões de ${u.email} revogadas.`);
+    } catch (err) { toast.error(err?.response?.data?.detail || 'Erro'); }
+  };
+
+  const resetPassword = async (u) => {
+    const newPass = window.prompt(`Nova senha temporária para ${u.email} (mínimo 8):`, '');
+    if (!newPass) return;
+    if (newPass.length < 8) { toast.error('Mínimo 8 caracteres'); return; }
+    try {
+      await axios.post(`${API}/admin/users/${u.id}/reset-password`, { new_password: newPass });
+      toast.success(`Senha de ${u.email} redefinida. Sessões antigas foram revogadas.`);
+    } catch (err) { toast.error(err?.response?.data?.detail || 'Erro'); }
+  };
+
   const pending = users.filter((u) => u.status === 'pending');
   const approved = users.filter((u) => u.status === 'approved');
   const rejected = users.filter((u) => u.status === 'rejected');
@@ -111,6 +129,12 @@ export const AdminUsuariosPage = () => {
                 </button>
               </>
             )}
+            <button data-testid={`admin-force-logout-${u.id}`} onClick={() => forceLogout(u)} title="Desconectar de todos os dispositivos" className="w-8 h-8 rounded-full bg-white/5 border border-white/10 text-zinc-400 hover:text-[#FF003C] flex items-center justify-center">
+              <LogOut className="w-3 h-3" />
+            </button>
+            <button data-testid={`admin-reset-pass-${u.id}`} onClick={() => resetPassword(u)} title="Resetar senha (define senha temporária + revoga sessões)" className="w-8 h-8 rounded-full bg-white/5 border border-white/10 text-zinc-400 hover:text-[#E0FF00] flex items-center justify-center">
+              <KeyRound className="w-3 h-3" />
+            </button>
             <button data-testid={`admin-delete-${u.id}`} onClick={() => remove(u)} className="w-8 h-8 rounded-full bg-white/5 border border-white/10 text-zinc-400 hover:text-[#FF003C] flex items-center justify-center">
               <Trash2 className="w-3 h-3" />
             </button>
