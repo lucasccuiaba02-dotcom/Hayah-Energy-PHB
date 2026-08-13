@@ -189,9 +189,41 @@ async def get_current_user(request: Request) -> dict:
         if token_sv < current_sv:
             raise HTTPException(status_code=401, detail="Sessão revogada — faça login novamente")
         actor_id = str(user["_id"])
-        # Shared workspace: regular users approved by an admin inherit the admin's data
-        # namespace via `owner_id`. Admins default to owning their own workspace.
-        owner_id_str = str(user.get("owner_id") or user["_id"])
+        # Fev/2026 fix: Admins ALWAYS own their own workspace. Never remap _id via owner_id
+        # for admins — this prevented admins with pre-existing data from seeing their own
+        # projects/teams when accidentally assigned owner_id by a re-approval flow.
+        # Also self-heal: if this admin has pre-existing data of their own but somehow
+        # ended up with owner_id set, clear it silently.
+        role = user.get("role", "user")
+        if role == "admin":
+            if user.get("owner_id"):
+                # Self-heal in prod: admins never share ownership. Detected legacy corruption.
+                await db.users.update_one({"_id": user["_id"]}, {"$set": {"owner_id": None}})
+                user["owner_id"] = None
+            owner_id_str = actor_id
+        else:
+            # Regular users read/write against the approving admin's data namespace.
+            # But if a regular user has their OWN projects (from before demotion/inheritance),
+            # let them keep seeing them — restore ownership.
+            declared_owner = user.get("owner_id")
+            if declared_owner:
+                own_count = await db.projects.count_documents({"user_id": actor_id})
+                if own_count > 0:
+                    # Legacy data corruption: this user has own data but was reassigned to
+                    # another admin's workspace. Promote them back to admin of their own data.
+                    logger.warning(f"Auto-healing user {user.get('email')} with {own_count} own projects — clearing owner_id and promoting to admin")
+                    await db.users.update_one(
+                        {"_id": user["_id"]},
+                        {"$set": {"owner_id": None, "role": "admin", "permissions": ALL_PERMISSIONS}},
+                    )
+                    user["owner_id"] = None
+                    user["role"] = "admin"
+                    user["permissions"] = ALL_PERMISSIONS
+                    owner_id_str = actor_id
+                else:
+                    owner_id_str = str(declared_owner)
+            else:
+                owner_id_str = actor_id
         user["_id"] = owner_id_str
         user["actor_id"] = actor_id
         user.pop("password_hash", None)
@@ -563,6 +595,12 @@ async def admin_approve_user(user_id: str, body: UserApprovalBody, current_user:
     # Data namespace: a regular user inherits the approving admin's workspace so they see
     # the same projects/teams/estoque/etc. An admin owns their own workspace by default.
     admin_actor_id = current_user.get("actor_id") or current_user["_id"]
+    # Fev/2026 safety: if the user being approved ALREADY has their own data (projects
+    # created previously), promote to admin instead of overwriting their workspace.
+    own_projects = await db.projects.count_documents({"user_id": user_id})
+    if own_projects > 0 and approved_role != "admin":
+        logger.warning(f"admin_approve_user: user {user_id} has {own_projects} own projects — auto-promoting to admin to preserve their workspace")
+        approved_role = "admin"
     set_doc = {
         "status": "approved",
         "permissions": perms,
@@ -575,7 +613,7 @@ async def admin_approve_user(user_id: str, body: UserApprovalBody, current_user:
         # Regular users read/write against the approving admin's data.
         set_doc["owner_id"] = admin_actor_id
     await db.users.update_one({"_id": ObjectId(user_id)}, {"$set": set_doc})
-    return {"status": "approved", "permissions": perms, "owner_id": set_doc.get("owner_id")}
+    return {"status": "approved", "permissions": perms, "owner_id": set_doc.get("owner_id"), "role": approved_role, "own_projects_preserved": own_projects}
 
 @api_router.post("/admin/users/{user_id}/reject")
 async def admin_reject_user(user_id: str, current_user: dict = Depends(require_admin)):
@@ -590,12 +628,91 @@ async def admin_update_permissions(user_id: str, body: UserApprovalBody, current
         update["role"] = body.role
         # If admin promotes/demotes, adjust workspace ownership accordingly
         admin_actor_id = current_user.get("actor_id") or current_user["_id"]
-        if body.role == "admin":
-            update["owner_id"] = None  # gains own workspace
+        # Fev/2026 safety: if demoting a user who already has own data, refuse to remap
+        # their workspace ownership — force admin role instead so their data stays accessible.
+        if body.role != "admin":
+            own_projects = await db.projects.count_documents({"user_id": user_id})
+            if own_projects > 0:
+                logger.warning(f"admin_update_permissions: user {user_id} has {own_projects} own projects — keeping as admin to preserve workspace")
+                update["role"] = "admin"
+                update["owner_id"] = None
+            else:
+                update["owner_id"] = admin_actor_id  # shares admin's workspace
         else:
-            update["owner_id"] = admin_actor_id  # shares admin's workspace
+            update["owner_id"] = None  # gains own workspace
     await db.users.update_one({"_id": ObjectId(user_id)}, {"$set": update})
-    return {"status": "updated", "permissions": perms}
+    return {"status": "updated", "permissions": perms, "role": update.get("role")}
+
+
+@api_router.post("/auth/repair-my-workspace")
+async def repair_my_workspace(request: Request):
+    """Fev/2026 recovery endpoint — if the authenticated user has their own data
+    (projects/teams with user_id = their own _id) but was reassigned to another
+    workspace via owner_id, clear owner_id and promote them to admin.
+    Also revokes existing sessions so they must re-login (fresh token with role=admin).
+    Safe to call multiple times — no-op if there's nothing to fix."""
+    token = request.cookies.get("access_token")
+    if not token:
+        auth_header = request.headers.get("Authorization", "")
+        if auth_header.startswith("Bearer "):
+            token = auth_header[7:]
+    if not token:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    try:
+        payload = jwt.decode(token, get_jwt_secret(), algorithms=[JWT_ALGORITHM])
+        user_id_str = payload["sub"]
+        user = await db.users.find_one({"_id": ObjectId(user_id_str)})
+    except Exception:
+        raise HTTPException(status_code=401, detail="Invalid token")
+    if not user:
+        raise HTTPException(status_code=401, detail="User not found")
+
+    own_projects = await db.projects.count_documents({"user_id": user_id_str})
+    own_teams = await db.teams.count_documents({"user_id": user_id_str})
+    old_owner = user.get("owner_id")
+    old_role = user.get("role", "user")
+
+    # Only heal if user has own data and something is misconfigured
+    if own_projects == 0 and own_teams == 0:
+        return {
+            "status": "no_data_to_recover",
+            "own_projects": 0,
+            "own_teams": 0,
+            "role": old_role,
+            "owner_id": old_owner,
+            "message": "Sua conta não tem obras/equipes cadastradas com seu ID de usuário. Nada para recuperar automaticamente — contate o suporte se você acredita que existem dados."
+        }
+
+    needs_fix = bool(old_owner) or old_role != "admin"
+    if not needs_fix:
+        return {
+            "status": "already_healthy",
+            "own_projects": own_projects,
+            "own_teams": own_teams,
+            "role": old_role,
+        }
+
+    new_sv = int(user.get("session_version", 0) or 0) + 1
+    await db.users.update_one(
+        {"_id": user["_id"]},
+        {"$set": {
+            "owner_id": None,
+            "role": "admin",
+            "permissions": ALL_PERMISSIONS,
+            "session_version": new_sv,
+        }},
+    )
+    logger.warning(f"repair_my_workspace: healed user {user.get('email')} — restored {own_projects} projects + {own_teams} teams, promoted to admin, revoked sessions")
+    return {
+        "status": "repaired",
+        "own_projects": own_projects,
+        "own_teams": own_teams,
+        "previous_owner_id": old_owner,
+        "previous_role": old_role,
+        "new_role": "admin",
+        "message": f"Recuperados: {own_projects} obras e {own_teams} equipes. Faça login novamente para ver seus dados.",
+        "must_relogin": True,
+    }
 
 @api_router.delete("/admin/users/{user_id}")
 async def admin_delete_user(user_id: str, current_user: dict = Depends(require_admin)):
