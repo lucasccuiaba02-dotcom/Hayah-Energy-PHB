@@ -1,0 +1,24 @@
+{
+  "summary": "Iteration 23 validation of the 4 P0/P1 features (Faturamento uses actual_value / Team Splits section / consolidated movement_history timeline / Análise tooltip % formatting). Backend: created /app/backend/tests/test_movement_history.py — 9/9 tests passing (create with team_splits → movement_history[0]='created'; multi-field PUT generates exactly 4 movements: status_changed, team_changed, shutdown_info, team_splits_changed; billing-stage PUT appends billing_stage_changed with old/new; pipeline items expose actual_value + programmed_value; totals.value/backlog_value/paid_value are computed from actual_value; backlog-alerts.total_value uses actual_value fallback to programmed). Frontend E2E via Playwright: (a) /faturamento — all 4 KPIs visible (fat-kpi-total/backlog/invoiced/paid) with correct sub-labels 'produção realizada' and 'produção realizada presa'; cards render fat-card-{id} with actual_value large + 'Prog: R$…' below (verified once a seed project was created); (b) /programacao — clicking prog-history-{id} opens reschedule-history-modal titled 'Timeline · Histórico da Obra' with timeline-container listing 3 colored badges (STATUS/DESLIGAMENTO/OBRA CRIADA) rendered from movement_history; (c) ProjectDrawer — toggle project-is-scheduled-toggle exposes team-splits-section; add-team-split creates team-split-row-0/1 with team/programmed/actual/remove testids and team-splits-summary shows correct Σ Programado R$ 10.000,00 / Σ Realizado R$ 5.000,00; (d) /analise — chart-team-performance renders and tooltip shows 'Produtividade : 5.1%' (percentage format, not R$). All seed projects created via API were cleaned up.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_movement_history.py",
+    "/app/test_reports/pytest/iter23_mov.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "server.py continues to exceed 4300 lines — refactor into router modules (faturamento, projects, movement) still pending (flagged since iter21/22).",
+    "_build_movements uses `!=` comparison on team_splits lists directly (line ~1100). Order-dependent: if the frontend sends the same team_splits in a different order, a spurious team_splits_changed movement will be recorded. Consider normalizing (sort by team_id) before diff.",
+    "billing_pipeline stuck detection returns key `stuck_projects` while backlog-alerts endpoint returns key `items` for the same conceptual list — inconsistent API shape. Recommend aligning to a single key name across both endpoints.",
+    "Endpoint response for /faturamento/backlog-alerts is documented as containing `stuck_projects` in the review request but backend actually returns `items` (verified). Frontend already handles this but future clients could be confused."
+  ],
+  "updated_files": ["/app/backend/tests/test_movement_history.py", "/app/test_reports/iteration_23.json"],
+  "success_rate": {"backend": "100% (9/9 new tests pass)", "frontend": "100% (all requested testids + tooltip format + timeline modal + team splits verified)"},
+  "test_credentials": "Used sandbox admin admin@projectmatrix.com / Admin@123 exclusively. Owner lucasc NOT touched.",
+  "seed_data_creation": "Backend tests create a TEST_MOV_* project + billing-stage transitions and delete at teardown. Frontend E2E created one TEST_iter23_ui / TEST_UI_{ts} project via fetch and deleted via fetch DELETE (status 200 confirmed). No residual data.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Regression command: pytest backend/tests/test_movement_history.py -n 0 -v (must use -n 0 because module-scoped fixture creates a fixed project_code that collides across xdist workers; do not enable parallel xdist for this file). Related test files that still run in parallel fine: test_documentos.py, test_estoque.py, test_workspace_sharing.py, test_auth_sessions.py. Timeline modal + team-splits testids are stable — reuse the seed-via-fetch pattern documented in the iter23 playwright script.",
+  "rca_of_the_issue": "No bugs — full validation of new features. All 4 P0/P1 items shipped correctly end-to-end (data flows from ProjectDrawer → server.py._build_movements → GET /projects → ProgramacaoPage TimelineHistoryModal EVENT_META rendering; Faturamento pipeline aggregates by actual_value with programmed_value shown as secondary; Análise CustomTooltip formats productivity as %)."
+}

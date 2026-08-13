@@ -113,7 +113,7 @@ export const FaturamentoPage = () => {
     if (loading || count === 0) return;
     if (alertedCountRef.current === count) return; // no change
     alertedCountRef.current = count;
-    const totalValue = data.stuck_projects.reduce((s, p) => s + (p.programmed_value || 0), 0);
+    const totalValue = data.stuck_projects.reduce((s, p) => s + (p.actual_value || p.programmed_value || 0), 0);
     if (soundOn) playBacklogBeep();
     try {
       showNotification(
@@ -179,10 +179,10 @@ export const FaturamentoPage = () => {
   return (
     <AppLayout title="Faturamento" subtitle="Esteira financeira — acompanhe onde o dinheiro está preso">
       <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="mb-6">
-        {/* KPIs de topo */}
+        {/* KPIs de topo — todos usam PRODUÇÃO REALIZADA (não valor programado) */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
-          <KpiCard testid="fat-kpi-total" label="Total no ciclo" value={formatCurrency(data?.totals?.value || 0)} sub={`${data?.totals?.count || 0} obras`} color="#00F0FF" icon={TrendingUp} />
-          <KpiCard testid="fat-kpi-backlog" label="Backlog (não pago)" value={formatCurrency(data?.backlog_value || 0)} sub="R$ preso" color="#FF5E00" icon={Clock} />
+          <KpiCard testid="fat-kpi-total" label="Total no ciclo" value={formatCurrency(data?.totals?.value || 0)} sub={`${data?.totals?.count || 0} obras · produção realizada`} color="#00F0FF" icon={TrendingUp} />
+          <KpiCard testid="fat-kpi-backlog" label="Backlog (não pago)" value={formatCurrency(data?.backlog_value || 0)} sub="produção realizada presa" color="#FF5E00" icon={Clock} />
           <KpiCard testid="fat-kpi-invoiced" label="Notas emitidas" value={formatCurrency(data?.totals?.invoiced || 0)} sub="valor faturado" color="#E0FF00" icon={FileCheck2} />
           <KpiCard testid="fat-kpi-paid" label="Pago" value={formatCurrency(data?.paid_value || 0)} sub="dinheiro em caixa" color="#00A050" icon={DollarSign} />
         </div>
@@ -257,7 +257,7 @@ export const FaturamentoPage = () => {
               const items = pipeline[s.key] || [];
               const color = STAGE_COLORS[s.key];
               const Icon = STAGE_ICONS[s.key] || Package;
-              const stageTotal = items.reduce((sum, x) => sum + (x.programmed_value || 0), 0);
+              const stageTotal = items.reduce((sum, x) => sum + (x.actual_value || 0), 0);
               return (
                 <div key={s.key} data-testid={`fat-stage-${s.key}`} className="w-[260px] flex-shrink-0 glass-panel rounded-2xl overflow-hidden" style={{ borderTop: `3px solid ${color}` }}>
                   <div className="p-3 border-b border-white/5 bg-white/[0.02]">
@@ -289,10 +289,11 @@ export const FaturamentoPage = () => {
                           </div>
                           <p className="text-white text-xs font-bold truncate">{p.name}</p>
                           <p className="text-[10px] text-zinc-500 truncate">{p.team_name || 'sem equipe'} · {p.location || '—'}</p>
-                          <div className="flex items-baseline justify-between mt-1.5">
-                            <p className="font-mono text-[11px] text-white font-bold">{formatCurrency(p.programmed_value)}</p>
+                          <div className="flex items-baseline justify-between mt-1.5" title={`Produção realizada · Programado: ${formatCurrency(p.programmed_value)}`}>
+                            <p className="font-mono text-[11px] text-white font-bold">{formatCurrency(p.actual_value)}</p>
                             <p className="text-[9px] text-zinc-600 font-mono">{p.entered_stage_at || '—'}</p>
                           </div>
+                          <p className="text-[9px] text-zinc-600 font-mono">Prog: {formatCurrency(p.programmed_value || 0)}</p>
                           {typeof p.days_in_stage === 'number' && (
                             <div className="mt-1 flex items-center gap-1">
                               {p.is_stuck ? (
@@ -342,9 +343,9 @@ export const FaturamentoPage = () => {
             <div className="flex-1">
               <p className="text-[10px] tracking-[0.25em] uppercase font-bold text-[#FF003C]">Radar de Backlog</p>
               <p className="text-xs text-zinc-400">
-                {data.stuck_projects.length} obra(s) parada(s) há mais de {data.stuck_threshold_days || 15} dias — total{' '}
+                {data.stuck_projects.length} obra(s) parada(s) há mais de {data.stuck_threshold_days || 15} dias — total produção realizada{' '}
                 <span className="font-mono font-bold text-white">
-                  {formatCurrency(data.stuck_projects.reduce((s, p) => s + (p.programmed_value || 0), 0))}
+                  {formatCurrency(data.stuck_projects.reduce((s, p) => s + (p.actual_value || p.programmed_value || 0), 0))}
                 </span>
               </p>
             </div>
@@ -389,7 +390,7 @@ export const FaturamentoPage = () => {
                     </p>
                   </div>
                   <div className="text-right flex-shrink-0">
-                    <p className="font-mono text-sm font-bold text-white">{formatCurrency(p.programmed_value)}</p>
+                    <p className="font-mono text-sm font-bold text-white" title={`Produção realizada · Programado ${formatCurrency(p.programmed_value || 0)}`}>{formatCurrency(p.actual_value || 0)}</p>
                     <p className="text-[10px] font-bold text-[#FF003C] inline-flex items-center gap-1 justify-end">
                       <AlertTriangle className="w-2.5 h-2.5" /> {p.days_in_stage} dias parada
                     </p>

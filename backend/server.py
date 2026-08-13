@@ -225,7 +225,7 @@ class UserResponse(BaseModel):
 ALL_PERMISSIONS = [
     "dashboard", "carteira", "programacao", "calendario",
     "operacional", "geolocalizacao", "materiais", "analise",
-    "relatorios", "equipes", "estoque", "faturamento", "settings", "admin",
+    "relatorios", "equipes", "estoque", "faturamento", "documentos", "settings", "admin",
 ]
 
 class TeamCreate(BaseModel):
@@ -284,6 +284,8 @@ class ProjectCreate(BaseModel):
     desligamentos: int = 0
     # Fev/2026 — datas com desligamento (subconjunto de schedule_entries dates)
     shutdown_dates: Optional[List[str]] = None
+    # Fev/2026 — split de produção por equipe: [{team_id, team_name, programmed_value, actual_value}]
+    team_splits: Optional[List[dict]] = None
 
 class ProjectUpdate(BaseModel):
     name: Optional[str] = None
@@ -324,6 +326,7 @@ class ProjectUpdate(BaseModel):
     religacoes: Optional[int] = None
     desligamentos: Optional[int] = None
     shutdown_dates: Optional[List[str]] = None
+    team_splits: Optional[List[dict]] = None
 
 class ProjectResponse(BaseModel):
     id: str
@@ -373,6 +376,8 @@ class ProjectResponse(BaseModel):
     religacoes: int = 0
     desligamentos: int = 0
     shutdown_dates: List[str] = Field(default_factory=list)
+    team_splits: List[dict] = Field(default_factory=list)
+    movement_history: List[dict] = Field(default_factory=list)
     created_at: str
 
 class DashboardStats(BaseModel):
@@ -1034,8 +1039,79 @@ def build_project_response(project: dict) -> ProjectResponse:
         religacoes=project.get("religacoes", 0),
         desligamentos=project.get("desligamentos", 0),
         shutdown_dates=project.get("shutdown_dates", []) or [],
+        team_splits=project.get("team_splits", []) or [],
+        movement_history=project.get("movement_history", []) or [],
         created_at=project["created_at"].isoformat() if hasattr(project["created_at"], 'isoformat') else project["created_at"],
     )
+
+
+def _build_movements(existing: dict, update_data: dict, reschedule_reason: str, notes_text: str, changed_by: str) -> list:
+    """Build movement_history entries from a project diff (Fev/2026 — timeline visível na Programação).
+    Captura mudanças de data, equipe, status, observações, cancelamento e team_splits."""
+    now_iso = datetime.now(timezone.utc).isoformat()
+    movements: list = []
+
+    def add(event_type: str, old_val, new_val, extra_note: str = ""):
+        entry = {
+            "event_type": event_type,
+            "changed_at": now_iso,
+            "changed_by": changed_by,
+            "old": old_val,
+            "new": new_val,
+            "reason": reschedule_reason or "",
+            "notes": (notes_text or extra_note or "").strip(),
+        }
+        movements.append(entry)
+
+    # 1) Datas / Programações
+    old_start = (existing.get("start_date") or "")[:10]
+    old_end = (existing.get("end_date") or "")[:10]
+    new_start = (update_data.get("start_date") or old_start)[:10] if "start_date" in update_data else old_start
+    new_end = (update_data.get("end_date") or old_end)[:10] if "end_date" in update_data else old_end
+    if (new_start != old_start) or (new_end != old_end):
+        add("date_changed", {"start": old_start, "end": old_end}, {"start": new_start, "end": new_end})
+
+    # 2) Equipes principais/adicionais
+    old_team = existing.get("team_name") or ""
+    new_team = update_data.get("team_name", old_team) if "team_name" in update_data else old_team
+    old_add = existing.get("additional_team_name") or ""
+    new_add = update_data.get("additional_team_name", old_add) if "additional_team_name" in update_data else old_add
+    if (new_team != old_team) or (new_add != old_add):
+        add("team_changed", {"team": old_team, "additional": old_add}, {"team": new_team, "additional": new_add})
+
+    # 3) Status execução
+    old_status = existing.get("execution_status") or ""
+    new_status = update_data.get("execution_status", old_status)
+    if new_status != old_status:
+        add("status_changed", old_status, new_status)
+
+    # 4) Observações relevantes
+    for f, label in [("shutdown_info", "shutdown"), ("cancel_reason", "cancel_reason")]:
+        if f in update_data:
+            old_v = (existing.get(f) or "").strip()
+            new_v = (update_data.get(f) or "").strip()
+            if old_v != new_v:
+                add(f, old_v, new_v)
+
+    # 5) Split de equipes (comparação normalizada — não considera ordem)
+    if "team_splits" in update_data:
+        def _norm(items):
+            return sorted(
+                [{
+                    "team_id": (x or {}).get("team_id", ""),
+                    "team_name": (x or {}).get("team_name", ""),
+                    "programmed_value": float((x or {}).get("programmed_value") or 0),
+                    "actual_value": float((x or {}).get("actual_value") or 0),
+                } for x in (items or [])],
+                key=lambda r: r["team_id"] or r["team_name"],
+            )
+        old_ts = _norm(existing.get("team_splits"))
+        new_ts = _norm(update_data.get("team_splits"))
+        if old_ts != new_ts:
+            add("team_splits_changed", existing.get("team_splits") or [], update_data.get("team_splits") or [])
+
+    return movements
+
 
 # Project Routes
 @api_router.post("/projects", response_model=ProjectResponse)
@@ -1081,6 +1157,25 @@ async def create_project(project_data: ProjectCreate, current_user: dict = Depen
     # Auto-set execution_status when scheduling
     if project_doc.get("is_scheduled") and project_doc.get("execution_status") == "aguardando_programacao":
         project_doc["execution_status"] = "programado"
+
+    # Movement inicial (Fev/2026)
+    project_doc["movement_history"] = [{
+        "event_type": "created",
+        "changed_at": datetime.now(timezone.utc).isoformat(),
+        "changed_by": current_user.get("name", ""),
+        "old": None,
+        "new": {
+            "name": project_doc.get("name", ""),
+            "project_code": project_doc.get("project_code", ""),
+            "team": project_doc.get("team_name", ""),
+            "start_date": (project_doc.get("start_date") or "")[:10],
+            "end_date": (project_doc.get("end_date") or "")[:10],
+            "execution_status": project_doc.get("execution_status", ""),
+        },
+        "reason": "",
+        "notes": "Obra programada" if project_doc.get("is_scheduled") else "Obra cadastrada na carteira",
+    }]
+
     
     result = await db.projects.insert_one(project_doc)
     project_doc["_id"] = result.inserted_id
@@ -1197,9 +1292,15 @@ async def update_project(project_id: str, project_data: ProjectUpdate, current_u
             {"$push": {"reschedule_history": history_entry}}
         )
     
+    # Build unified movement_history entries (Fev/2026)
+    movements = _build_movements(existing, update_data, reschedule_reason, "", current_user.get("name", ""))
+    
+    mongo_update: dict = {"$set": update_data}
+    if movements:
+        mongo_update["$push"] = {"movement_history": {"$each": movements}}
     result = await db.projects.update_one(
         {"_id": safe_object_id(project_id), "user_id": current_user["_id"]},
-        {"$set": update_data}
+        mongo_update
     )
     if result.matched_count == 0:
         raise HTTPException(status_code=404, detail="Project not found")
@@ -1275,15 +1376,26 @@ async def update_billing_stage(
     if body.invoice_value is not None:
         updates["invoice_value"] = body.invoice_value
 
+    now_iso = datetime.now(timezone.utc).isoformat()
     entry = {
         "stage": body.stage,
-        "changed_at": datetime.now(timezone.utc).isoformat(),
+        "changed_at": now_iso,
         "changed_by": current_user.get("name", ""),
+        "notes": body.notes or "",
+    }
+    # Also append to unified movement_history
+    movement_entry = {
+        "event_type": "billing_stage_changed",
+        "changed_at": now_iso,
+        "changed_by": current_user.get("name", ""),
+        "old": existing.get("billing_stage", ""),
+        "new": body.stage,
+        "reason": "",
         "notes": body.notes or "",
     }
     await db.projects.update_one(
         {"_id": safe_object_id(project_id)},
-        {"$set": updates, "$push": {"billing_history": entry}},
+        {"$set": updates, "$push": {"billing_history": entry, "movement_history": movement_entry}},
     )
     project = await db.projects.find_one({"_id": safe_object_id(project_id)})
     return build_project_response(project)
@@ -1328,7 +1440,10 @@ async def billing_pipeline(
         stage = p.get("billing_stage")
         if stage not in pipeline:
             continue
-        val = float(p.get("programmed_value") or 0)
+        prog_val = float(p.get("programmed_value") or 0)
+        actual_val = float(p.get("actual_value") or 0)
+        # Faturamento acompanha PRODUÇÃO REALIZADA, não valor programado
+        val = actual_val
         inv_val = float(p.get("invoice_value") or 0)
         item = {
             "id": str(p["_id"]),
@@ -1336,7 +1451,8 @@ async def billing_pipeline(
             "name": p.get("name", ""),
             "team_name": p.get("team_name", ""),
             "location": p.get("location", ""),
-            "programmed_value": val,
+            "actual_value": actual_val,
+            "programmed_value": prog_val,
             "invoice_value": inv_val,
             "invoice_number": p.get("invoice_number", ""),
             "invoice_date": p.get("invoice_date", ""),
@@ -1403,6 +1519,7 @@ async def billing_pipeline(
                 "billing_stage": stage,
                 "team_name": p.get("team_name", ""),
                 "days_in_stage": days_in_stage,
+                "actual_value": float(p.get("actual_value") or 0),
                 "programmed_value": float(p.get("programmed_value") or 0),
                 "entered_stage_at": entered_iso,
             })
@@ -2015,6 +2132,7 @@ async def _scan_stuck_billing_projects(threshold_days: int = 15) -> list:
                 "team_name": p.get("team_name", ""),
                 "billing_stage": stage,
                 "days_in_stage": days,
+                "actual_value": float(p.get("actual_value") or 0),
                 "programmed_value": float(p.get("programmed_value") or 0),
                 "entered_stage_at": entered_iso,
             })
@@ -2029,13 +2147,13 @@ async def backlog_daily_check_job():
         if not stuck:
             logger.info("Backlog check: no stuck projects")
             return
-        total_value = sum(s["programmed_value"] for s in stuck)
+        total_value = sum(s.get("actual_value") or s.get("programmed_value") or 0 for s in stuck)
         top = stuck[:3]
         preview = " · ".join([f"{s['project_code'] or s['name']} ({s['days_in_stage']}d)" for s in top])
         try:
             await broadcast_push(db, {
                 "title": f"⚠️ Backlog Faturamento — {len(stuck)} obra(s) parada(s)",
-                "body": f"R$ {total_value:,.0f} presos há mais de 15 dias. {preview}".replace(",", "."),
+                "body": f"R$ {total_value:,.0f} (produção realizada) presos há mais de 15 dias. {preview}".replace(",", "."),
                 "url": "/faturamento",
                 "tag": "backlog-radar",
                 "requireInteraction": True,
@@ -2054,7 +2172,7 @@ async def get_backlog_alerts(current_user: dict = Depends(get_current_user)):
     return {
         "count": len(stuck),
         "threshold_days": 15,
-        "total_value": sum(s["programmed_value"] for s in stuck),
+        "total_value": sum(s.get("actual_value") or s.get("programmed_value") or 0 for s in stuck),
         "items": stuck,
     }
 
@@ -2753,10 +2871,13 @@ async def get_today_operations(current_user: dict = Depends(get_current_user)):
 @api_router.post("/projects/{project_id}/attachments")
 async def upload_project_attachment(
     project_id: str,
-    kind: str = Form("project_pdf"),  # project_pdf | material_pdf | other
+    kind: str = Form("projeto"),  # projeto | materiais | apr | croqui | dwg | fotos_ext | project_pdf (legacy) | material_pdf (legacy) | other
     file: UploadFile = File(...),
     current_user: dict = Depends(get_current_user),
 ):
+    # Normalize legacy kinds
+    kind_alias = {"project_pdf": "projeto", "material_pdf": "materiais"}
+    kind = kind_alias.get((kind or "").lower(), (kind or "projeto").lower())
     project = await db.projects.find_one({"_id": safe_object_id(project_id), "user_id": current_user["_id"]})
     if not project:
         raise HTTPException(status_code=404, detail="Obra não encontrada")

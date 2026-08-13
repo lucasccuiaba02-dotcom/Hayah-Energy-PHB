@@ -193,12 +193,12 @@ export const ProjectDetailPage = () => {
   const materials = useMemo(() => project?.materials_list || [], [project?.materials_list]);
   const materialsTotal = useMemo(() => materials.reduce((s, m) => s + (m.total_cost || 0), 0), [materials]);
 
-  const uploadPdf = async (file) => {
+  const uploadPdf = async (file, kind = 'projeto') => {
     if (!file) return;
     setUploadingPdf(true);
     try {
       const fd = new FormData();
-      fd.append('kind', 'project_pdf');
+      fd.append('kind', kind);
       fd.append('file', file);
       const { data } = await axios.post(`${API}/projects/${id}/attachments`, fd, {
         headers: { 'Content-Type': 'multipart/form-data' },
@@ -212,6 +212,7 @@ export const ProjectDetailPage = () => {
       if (pdfInputRef.current) pdfInputRef.current.value = '';
     }
   };
+  const [uploadKind, setUploadKind] = useState('projeto');
 
   const openAttachment = async (att) => {
     try {
@@ -513,71 +514,111 @@ export const ProjectDetailPage = () => {
             </p>
           </div>
 
-          {/* Documentos do Projeto (PDFs / imagens anexadas) */}
+          {/* Documentos do Projeto categorizados (PDFs / DWG / imagens) */}
           <div data-testid="pd-arquivos-docs" className="glass-panel rounded-2xl overflow-hidden border border-[#E0FF00]/25">
-            <div className="px-4 py-3 border-b border-white/5 bg-[#E0FF00]/[0.04] flex items-center gap-2">
-              <FileText className="w-4 h-4 text-[#E0FF00]" />
-              <div className="flex-1">
-                <p className="text-[10px] tracking-[0.25em] uppercase font-bold text-[#E0FF00]">Documentos do Projeto</p>
-                <p className="text-[11px] text-zinc-400">
-                  {attachments.length} arquivo(s) · PDF ou imagens até 25MB
-                </p>
+            <div className="px-4 py-3 border-b border-white/5 bg-[#E0FF00]/[0.04]">
+              <div className="flex items-center gap-2">
+                <FileText className="w-4 h-4 text-[#E0FF00]" />
+                <div className="flex-1">
+                  <p className="text-[10px] tracking-[0.25em] uppercase font-bold text-[#E0FF00]">Documentos da Obra</p>
+                  <p className="text-[11px] text-zinc-400">{attachments.length} arquivo(s) · até 25MB</p>
+                </div>
+                <button
+                  type="button"
+                  data-testid="pd-attachment-upload"
+                  onClick={() => pdfInputRef.current?.click()}
+                  disabled={uploadingPdf}
+                  className="inline-flex items-center gap-1 text-[11px] font-bold bg-[#E0FF00] hover:bg-[#C8E600] text-black px-3 py-1.5 rounded-full disabled:opacity-60"
+                >
+                  <Upload className="w-3 h-3" /> {uploadingPdf ? 'Enviando…' : 'Anexar'}
+                </button>
               </div>
-              <button
-                type="button"
-                data-testid="pd-attachment-upload"
-                onClick={() => pdfInputRef.current?.click()}
-                disabled={uploadingPdf}
-                className="inline-flex items-center gap-1 text-[11px] font-bold bg-[#E0FF00] hover:bg-[#C8E600] text-black px-3 py-1.5 rounded-full disabled:opacity-60"
-              >
-                <Upload className="w-3 h-3" /> {uploadingPdf ? 'Enviando…' : 'Anexar'}
-              </button>
+              <div className="flex gap-1 mt-2 flex-wrap">
+                {[
+                  { k: 'projeto',   l: 'Projeto',    c: '#E0FF00' },
+                  { k: 'materiais', l: 'Materiais',  c: '#00F0FF' },
+                  { k: 'apr',       l: 'APR',        c: '#FF003C' },
+                  { k: 'croqui',    l: 'Croqui',     c: '#FF5E00' },
+                  { k: 'dwg',       l: 'DWG',        c: '#A855F7' },
+                  { k: 'fotos_ext', l: 'Foto anexa', c: '#39FF14' },
+                ].map((o) => (
+                  <button
+                    key={o.k}
+                    type="button"
+                    data-testid={`pd-att-kind-${o.k}`}
+                    onClick={() => setUploadKind(o.k)}
+                    className="text-[9px] font-bold uppercase tracking-wider px-2 py-1 rounded-full border transition"
+                    style={{
+                      color: uploadKind === o.k ? '#000' : o.c,
+                      backgroundColor: uploadKind === o.k ? o.c : `${o.c}12`,
+                      borderColor: `${o.c}55`,
+                    }}
+                  >
+                    {o.l}
+                  </button>
+                ))}
+              </div>
+              <p className="text-[10px] text-zinc-500 mt-1.5">
+                Categoria selecionada:{' '}
+                <span className="font-bold text-white">{uploadKind}</span> · O botão Anexar salva nessa categoria.
+              </p>
               <input
                 ref={pdfInputRef}
                 type="file"
-                accept="application/pdf,.pdf,image/*"
+                accept="application/pdf,.pdf,.dwg,.dxf,.ifc,image/*,.xlsx,.xls,.csv"
                 className="hidden"
                 data-testid="pd-attachment-input"
-                onChange={(e) => uploadPdf(e.target.files?.[0])}
+                onChange={(e) => uploadPdf(e.target.files?.[0], uploadKind)}
               />
             </div>
             {attachments.length === 0 ? (
               <p className="px-4 py-6 text-[11px] text-zinc-500 italic text-center">
-                Nenhum documento anexado. Envie plantas, ARTs, projetos executivos, etc.
+                Nenhum documento anexado. Escolha uma categoria acima e clique em Anexar.
               </p>
             ) : (
               <div className="divide-y divide-white/5">
-                {attachments.map((a) => (
-                  <div key={a.id} data-testid={`pd-att-row-${a.id}`} className="flex items-center gap-3 px-4 py-2.5 hover:bg-white/[0.02] transition">
-                    <div className="w-9 h-9 rounded-lg bg-[#E0FF00]/10 border border-[#E0FF00]/30 flex items-center justify-center flex-shrink-0">
-                      <FileText className="w-4 h-4 text-[#E0FF00]" />
+                {attachments.map((a) => {
+                  const legacy = { project_pdf: 'projeto', material_pdf: 'materiais' };
+                  const k = (legacy[a.kind] || a.kind || 'projeto').toLowerCase();
+                  const colorMap = { projeto: '#E0FF00', materiais: '#00F0FF', apr: '#FF003C', croqui: '#FF5E00', dwg: '#A855F7', fotos_ext: '#39FF14', other: '#94A3B8' };
+                  const col = colorMap[k] || '#94A3B8';
+                  return (
+                    <div key={a.id} data-testid={`pd-att-row-${a.id}`} className="flex items-center gap-3 px-4 py-2.5 hover:bg-white/[0.02] transition">
+                      <div className="w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0" style={{ backgroundColor: `${col}18`, border: `1px solid ${col}40` }}>
+                        <FileText className="w-4 h-4" style={{ color: col }} />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                          <p className="text-white text-sm font-bold truncate">{a.filename}</p>
+                          <span className="flex-shrink-0 text-[8px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-full border" style={{ color: col, backgroundColor: `${col}15`, borderColor: `${col}55` }}>
+                            {k}
+                          </span>
+                        </div>
+                        <p className="text-[10px] text-zinc-500 font-mono">
+                          {formatBytes(a.size)} · {(a.uploaded_at || '').slice(0, 10)}
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        data-testid={`pd-att-open-${a.id}`}
+                        onClick={() => openAttachment(a)}
+                        className="w-8 h-8 rounded-full bg-white/5 hover:bg-white/10 text-[#00F0FF] flex items-center justify-center flex-shrink-0"
+                        title="Abrir"
+                      >
+                        <Download className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        data-testid={`pd-att-remove-${a.id}`}
+                        onClick={() => removeAttachment(a.id)}
+                        className="w-8 h-8 rounded-full bg-white/5 hover:bg-white/10 text-[#FF003C] flex items-center justify-center flex-shrink-0"
+                        title="Remover"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
                     </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-white text-sm font-bold truncate">{a.filename}</p>
-                      <p className="text-[10px] text-zinc-500 font-mono">
-                        {formatBytes(a.size)} · {(a.uploaded_at || '').slice(0, 10)}
-                      </p>
-                    </div>
-                    <button
-                      type="button"
-                      data-testid={`pd-att-open-${a.id}`}
-                      onClick={() => openAttachment(a)}
-                      className="w-8 h-8 rounded-full bg-white/5 hover:bg-white/10 text-[#00F0FF] flex items-center justify-center flex-shrink-0"
-                      title="Abrir"
-                    >
-                      <Download className="w-3.5 h-3.5" />
-                    </button>
-                    <button
-                      type="button"
-                      data-testid={`pd-att-remove-${a.id}`}
-                      onClick={() => removeAttachment(a.id)}
-                      className="w-8 h-8 rounded-full bg-white/5 hover:bg-white/10 text-[#FF003C] flex items-center justify-center flex-shrink-0"
-                      title="Remover"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </div>

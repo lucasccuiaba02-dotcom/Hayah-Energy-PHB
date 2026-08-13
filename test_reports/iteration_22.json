@@ -1,0 +1,37 @@
+{
+  "summary": "Full backend+frontend testing for Onda 22 Consolidated Documentos module. Created /app/backend/tests/test_documentos.py with 16 tests covering: (1) upload of each of 6 kinds projeto/materiais/apr/croqui/dwg/fotos_ext persists with correct kind field; (2) legacy kind normalization project_pdf->projeto and material_pdf->materiais; (3) unauthorized (no token) returns 401/403 and non-existent project/attachment returns 404; (4) DELETE soft-deletes (is_deleted=true), record still present, subsequent download 404; (5) GET /projects/{id} returns all 6 kinds correctly; (6) download endpoint sets Content-Disposition with correct filename. Full regression: 55/55 pass (16 documentos + 12 estoque + 16 auth_sessions + 11 workspace_sharing) with -n 1. Frontend verified end-to-end at /documentos: all data-testids present (doc-search-obras, doc-project-list, doc-project-header, doc-kinds-grid, all 6 doc-kind-*, doc-fotos-operacionais, doc-materiais-list, doc-upload-projeto, doc-file-projeto). Search filter works (empty state shown for no matches). Upload flow succeeded end-to-end (file appeared under correct category with success toast). ProjectDetailPage Arquivos tab: pd-attachment-upload + all 6 pd-att-kind-* chips present and clickable; uploaded row shows colored kind badge. Cleanup: test upload deleted at end.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "GET /api/auth/me", "issue": "For existing sandbox admin, DB-stored permissions list does not include 'documentos' (seeded before ALL_PERMISSIONS added the entry). Admin UI is unaffected because role=='admin' bypasses perm checks in AppLayout (line 113). But if E1 wants restricted (role=user) accounts to see the new Documentos tab, admin must PUT permissions with 'documentos' in the list for each affected user. Consider re-running seed_admin refresh logic or a one-time migration script that appends 'documentos' to any existing permissions list missing it."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_documentos.py",
+    "/app/test_reports/pytest/iter22_documentos.xml",
+    "/app/test_reports/pytest/iter22_all.xml"
+  ],
+  "action_items": [
+    "OPTIONAL: Add one-time migration to append 'documentos' to existing users' permissions lists so restricted (non-admin) users can be granted the Documentos tab without manual PUT."
+  ],
+  "critical_code_review_comments": [
+    "server.py > 4200 lines (still not refactored — flagged in iter21).",
+    "upload_project_attachment: no server-side whitelist validation of the 'kind' string. After alias normalization any arbitrary lowercase string is persisted (e.g., kind='foobar' would save as 'foobar'). Frontend uses fixed keys so risk is low, but recommend adding: `if kind not in ALLOWED_KINDS: kind = 'projeto'` where ALLOWED_KINDS = {'projeto','materiais','apr','croqui','dwg','fotos_ext','other'}.",
+    "delete_project_attachment: no distinction between 'project not found' vs 'attachment not found' vs 'not owned' — all return 404 which is fine for security but debugging is harder.",
+    "DocumentosPage.jsx: 'open' function pulls Bearer token from localStorage and adds it to the axios call, but the global axios interceptor should already handle this. Redundant / fragile if token key changes.",
+    "MaterialsPanel uses m.quantity ?? m.qty_requested — inconsistent field naming in the schema; consider unifying on backend response."
+  ],
+  "updated_files": ["/app/backend/tests/test_documentos.py"],
+  "success_rate": {"backend": "100% (55/55)", "frontend": "100% (all documentos + arquivos tab testids verified, upload+search+chips working)"},
+  "test_credentials": "Sandbox admin admin@projectmatrix.com / Admin@123 used exclusively. Owner lucasc NOT touched.",
+  "seed_data_creation": "Ephemeral TEST_doc_project created and deleted per module. One frontend TEST_upload_frontend.pdf attachment was created via UI and cleaned up via curl DELETE at end.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Run backend/tests/test_documentos.py with -n 1. It creates one TEST_doc_project and uploads ~10 files during the run, then deletes the project. Regression suite: run test_documentos + test_estoque + test_auth_sessions + test_workspace_sharing (55 total). Frontend: /documentos requires role=admin OR permissions containing 'documentos'. Existing admins in DB may not have 'documentos' in their stored permissions — nav bypass covers admin role, but if you test a role=user account, remember to PUT permissions first via /api/admin/users/{id}/permissions with a list containing 'documentos'.",
+  "rca_of_the_issue": "Not a bug — feature request. New consolidated Documentos module ships correctly. Only minor caveat: existing admin's DB permissions field predates the ALL_PERMISSIONS addition of 'documentos'; harmless for admins (nav bypass) but requires a re-grant for restricted users."
+}

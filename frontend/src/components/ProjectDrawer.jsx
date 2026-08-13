@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, Zap, MapPin, Plus, Trash2, Calendar, FileText, Package, Upload, Download } from 'lucide-react';
+import { X, Zap, MapPin, Plus, Trash2, Calendar, FileText, Package, Upload, Download, Users as UsersIcon } from 'lucide-react';
 import {
   PROJECT_TYPES,
   TIPO_SERVICO,
@@ -10,6 +10,7 @@ import {
   MATERIAL_STATUS,
   RESCHEDULE_REASONS,
   todayISO,
+  formatCurrency,
 } from '../lib/constants';
 import { AddressSearchInput } from './AddressSearchInput';
 import { ProjectAttachmentsSection } from './ProjectAttachmentsSection';
@@ -37,6 +38,7 @@ export const ProjectDrawer = ({ isOpen, onClose, onSave, project, teams, default
     additional_team_name: '',
     schedule_entries: [], // [{ date, team_ids: [], team_names: [] }]
     shutdown_dates: [], // Fev/2026 — subset of schedule_entries dates that have desligamento
+    team_splits: [], // Fev/2026 — [{ team_id, team_name, programmed_value, actual_value }]
     cancel_reason: '',
     postes_qty: 0,
     transformadores_qty: 0,
@@ -97,6 +99,14 @@ export const ProjectDrawer = ({ isOpen, onClose, onSave, project, teams, default
                 team_names: [project.team_name, project.additional_team_name].filter(Boolean),
               }]
             : []),
+        team_splits: (project.team_splits && project.team_splits.length)
+          ? project.team_splits.map((s) => ({
+              team_id: s.team_id || '',
+              team_name: s.team_name || '',
+              programmed_value: s.programmed_value || 0,
+              actual_value: s.actual_value || 0,
+            }))
+          : [],
         cancel_reason: project.cancel_reason || '',
         postes_qty: project.postes_qty || 0,
         transformadores_qty: project.transformadores_qty || 0,
@@ -149,6 +159,12 @@ export const ProjectDrawer = ({ isOpen, onClose, onSave, project, teams, default
       ligacoes_novas: parseInt(formData.ligacoes_novas) || 0,
       religacoes: parseInt(formData.religacoes) || 0,
       desligamentos: parseInt(formData.desligamentos) || 0,
+      team_splits: (formData.team_splits || []).map((s) => ({
+        team_id: s.team_id || '',
+        team_name: s.team_name || '',
+        programmed_value: parseFloat(s.programmed_value) || 0,
+        actual_value: parseFloat(s.actual_value) || 0,
+      })),
     };
     if (!showRescheduleReason) delete payload.reschedule_reason;
     setSaving(true);
@@ -566,6 +582,116 @@ export const ProjectDrawer = ({ isOpen, onClose, onSave, project, teams, default
                     <div>
                       <label className="text-xs tracking-[0.2em] uppercase font-bold text-zinc-500 block mb-2">Produção Realizada (R$)</label>
                       <input data-testid="project-actual-input" type="number" step="0.01" value={formData.actual_value} onChange={(e) => setFormData({ ...formData, actual_value: e.target.value })} className="w-full bg-zinc-950/90 border border-white/10 rounded-lg px-4 py-3 text-white font-mono" />
+                    </div>
+
+                    {/* Fev/2026 — Split de Produção por Equipe */}
+                    <div className="rounded-xl border border-dashed border-[#00F0FF]/40 bg-[#00F0FF]/[0.03] p-3 space-y-3" data-testid="team-splits-section">
+                      <div className="flex items-center justify-between">
+                        <p className="text-[10px] tracking-[0.2em] uppercase font-bold text-[#00F0FF] inline-flex items-center gap-1">
+                          <UsersIcon className="w-3 h-3" /> Produção por Equipe
+                        </p>
+                        <button
+                          type="button"
+                          data-testid="add-team-split"
+                          onClick={() => setFormData((f) => ({
+                            ...f,
+                            team_splits: [...(f.team_splits || []), { team_id: '', team_name: '', programmed_value: 0, actual_value: 0 }],
+                          }))}
+                          className="text-[11px] text-[#00F0FF] hover:underline inline-flex items-center gap-1"
+                        >
+                          <Plus className="w-3 h-3" /> Adicionar equipe
+                        </button>
+                      </div>
+                      {(formData.team_splits || []).length === 0 && (
+                        <p className="text-[11px] text-zinc-500 italic">
+                          Divida o valor programado e a produção realizada entre múltiplas equipes. Ideal quando o trabalho é compartilhado.
+                        </p>
+                      )}
+                      {(formData.team_splits || []).map((split, idx) => (
+                        <div key={idx} data-testid={`team-split-row-${idx}`} className="rounded-lg bg-zinc-950/60 border border-white/10 p-2 space-y-2">
+                          <div className="flex items-center gap-2">
+                            <select
+                              data-testid={`team-split-team-${idx}`}
+                              value={split.team_id}
+                              onChange={(e) => {
+                                const team = teams.find((t) => t.id === e.target.value);
+                                const next = [...formData.team_splits];
+                                next[idx] = { ...next[idx], team_id: e.target.value, team_name: team ? team.name : '' };
+                                setFormData({ ...formData, team_splits: next });
+                              }}
+                              className="flex-1 bg-zinc-900 border border-white/10 rounded-md px-2 py-1.5 text-white text-sm focus:border-[#00F0FF] focus:outline-none"
+                            >
+                              <option value="">Selecione a equipe</option>
+                              {teams.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+                            </select>
+                            <button
+                              type="button"
+                              data-testid={`team-split-remove-${idx}`}
+                              onClick={() => setFormData({ ...formData, team_splits: formData.team_splits.filter((_, i) => i !== idx) })}
+                              className="w-7 h-7 rounded-md bg-white/5 border border-white/10 flex items-center justify-center text-zinc-400 hover:text-[#FF003C]"
+                            >
+                              <Trash2 className="w-3 h-3" />
+                            </button>
+                          </div>
+                          <div className="grid grid-cols-2 gap-2">
+                            <div>
+                              <label className="text-[9px] uppercase text-zinc-500 block mb-0.5">Prog. (R$)</label>
+                              <input
+                                data-testid={`team-split-programmed-${idx}`}
+                                type="number"
+                                step="0.01"
+                                value={split.programmed_value}
+                                onChange={(e) => {
+                                  const next = [...formData.team_splits];
+                                  next[idx] = { ...next[idx], programmed_value: e.target.value };
+                                  setFormData({ ...formData, team_splits: next });
+                                }}
+                                className="w-full bg-zinc-900 border border-white/10 rounded-md px-2 py-1.5 text-white text-sm font-mono focus:border-[#00F0FF] focus:outline-none"
+                              />
+                            </div>
+                            <div>
+                              <label className="text-[9px] uppercase text-zinc-500 block mb-0.5">Realizado (R$)</label>
+                              <input
+                                data-testid={`team-split-actual-${idx}`}
+                                type="number"
+                                step="0.01"
+                                value={split.actual_value}
+                                onChange={(e) => {
+                                  const next = [...formData.team_splits];
+                                  next[idx] = { ...next[idx], actual_value: e.target.value };
+                                  setFormData({ ...formData, team_splits: next });
+                                }}
+                                className="w-full bg-zinc-900 border border-white/10 rounded-md px-2 py-1.5 text-white text-sm font-mono focus:border-[#39FF14] focus:outline-none"
+                              />
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                      {(formData.team_splits || []).length > 0 && (() => {
+                        const sumProg = (formData.team_splits || []).reduce((s, x) => s + (parseFloat(x.programmed_value) || 0), 0);
+                        const sumActual = (formData.team_splits || []).reduce((s, x) => s + (parseFloat(x.actual_value) || 0), 0);
+                        const totalProg = parseFloat(formData.programmed_value) || 0;
+                        const totalActual = parseFloat(formData.actual_value) || 0;
+                        const progDiff = sumProg - totalProg;
+                        const actualDiff = sumActual - totalActual;
+                        const progWarn = Math.abs(progDiff) > 0.01 && totalProg > 0;
+                        const actualWarn = Math.abs(actualDiff) > 0.01 && totalActual > 0;
+                        return (
+                          <div data-testid="team-splits-summary" className="rounded-lg border border-white/10 bg-black/40 p-2 text-[10px] font-mono">
+                            <div className={`flex justify-between ${progWarn ? 'text-[#FF5E00]' : 'text-zinc-400'}`}>
+                              <span>Σ Programado equipes</span>
+                              <span className="font-bold">{formatCurrency(sumProg)} {progWarn && `(${progDiff > 0 ? '+' : ''}${formatCurrency(progDiff)})`}</span>
+                            </div>
+                            <div className={`flex justify-between mt-0.5 ${actualWarn ? 'text-[#FF5E00]' : 'text-zinc-400'}`}>
+                              <span>Σ Realizado equipes</span>
+                              <span className="font-bold">{formatCurrency(sumActual)} {actualWarn && `(${actualDiff > 0 ? '+' : ''}${formatCurrency(actualDiff)})`}</span>
+                            </div>
+                            {(progWarn || actualWarn) && (
+                              <p className="text-[9px] text-[#FF5E00] mt-1 italic">A soma difere do valor total da obra — sem bloqueio, apenas aviso.</p>
+                            )}
+                          </div>
+                        );
+                      })()}
                     </div>
 
                     <div>

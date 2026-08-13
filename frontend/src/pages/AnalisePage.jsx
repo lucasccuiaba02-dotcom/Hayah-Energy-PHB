@@ -15,14 +15,30 @@ const API = `${BACKEND_URL}/api`;
 
 const COLORS = ['#00F0FF', '#39FF14', '#E0FF00', '#FF5E00', '#6366F1', '#FF003C', '#94A3B8', '#22D3EE', '#A855F7', '#EC4899', '#10B981', '#F59E0B'];
 
+// Chaves que NÃO devem ser formatadas como R$ (percentuais, contagens, dias)
+const NON_CURRENCY_KEYS = new Set(['productivity', 'count', 'projetos', 'obras', 'dias', 'days', 'percent', 'pct']);
+
+const formatTooltipValue = (entry) => {
+  const val = entry?.value;
+  if (val === null || val === undefined) return '—';
+  const key = (entry?.dataKey || entry?.name || '').toString().toLowerCase();
+  const isPercent = key.includes('productivity') || key.includes('pct') || key.includes('percent');
+  const isCount = NON_CURRENCY_KEYS.has(key) || key.includes('count') || key.includes('projet') || key.includes('obra');
+  if (typeof val !== 'number') return String(val);
+  if (isPercent) return `${val.toFixed(1)}%`;
+  if (isCount) return Math.round(val).toLocaleString('pt-BR');
+  // moeda com 2 casas
+  return formatCurrency(val);
+};
+
 const CustomTooltip = ({ active, payload, label }) => {
   if (!active || !payload || !payload.length) return null;
   return (
-    <div className="glass-panel rounded-lg p-3 border border-white/20">
+    <div className="glass-panel rounded-lg p-3 border border-white/20" style={{ background: '#09090b' }}>
       <p className="text-white text-sm font-bold mb-1">{label}</p>
       {payload.map((entry, i) => (
         <p key={i} className="text-xs font-mono" style={{ color: entry.color }}>
-          {entry.name}: {typeof entry.value === 'number' ? formatCurrency(entry.value) : entry.value}
+          {entry.name}: {formatTooltipValue(entry)}
         </p>
       ))}
     </div>
@@ -127,13 +143,24 @@ export const AnalisePage = () => {
           </div>
           {advanced && advanced.team_performance.length > 0 ? (
             <ResponsiveContainer width="100%" height={280}>
-              <BarChart data={advanced.team_performance} layout="vertical">
+              <BarChart data={advanced.team_performance} layout="vertical" margin={{ top: 10, right: 30, left: 10, bottom: 10 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
-                <XAxis type="number" stroke="#71717a" style={{ fontSize: '11px' }} tickFormatter={(v) => `${v}%`} />
-                <YAxis dataKey="team" type="category" stroke="#71717a" style={{ fontSize: '11px' }} width={100} />
+                <XAxis
+                  type="number"
+                  stroke="#71717a"
+                  style={{ fontSize: '11px' }}
+                  domain={[0, (dataMax) => Math.max(120, Math.ceil((dataMax || 0) / 10) * 10)]}
+                  tickFormatter={(v) => `${v}%`}
+                />
+                <YAxis dataKey="team" type="category" stroke="#71717a" style={{ fontSize: '11px' }} width={110} />
                 <Tooltip
                   contentStyle={{ background: '#09090b', border: '1px solid rgba(255,255,255,0.2)' }}
-                  formatter={(v) => `${v}%`}
+                  formatter={(v, _n, entry) => {
+                    const num = typeof v === 'number' ? v : parseFloat(v);
+                    if (isNaN(num)) return v;
+                    return [`${num.toFixed(1)}%`, 'Produtividade'];
+                  }}
+                  labelFormatter={(l) => `Equipe: ${l}`}
                 />
                 <Bar dataKey="productivity" name="Produtividade" radius={[0, 4, 4, 0]}>
                   {advanced.team_performance.map((entry, i) => (

@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { motion } from 'framer-motion';
 import axios from 'axios';
 import { toast } from 'sonner';
-import { Plus, Edit2, Trash2, Calendar, MapPin, Zap, History, ClipboardCheck, Users as UsersIcon, Sun } from 'lucide-react';
+import { Plus, Edit2, Trash2, Calendar, MapPin, Zap, History, ClipboardCheck, Users as UsersIcon, Sun, ArrowRight, CircleDot, FileText, XCircle, CheckCircle2, DollarSign } from 'lucide-react';
 import { AppLayout } from '../components/AppLayout';
 import { ProjectDrawer } from '../components/ProjectDrawer';
 import { ProjectFilters } from '../components/ProjectFilters';
@@ -431,20 +431,25 @@ export const ProgramacaoPage = () => {
                           </div>
                         </div>
                         <div className="flex gap-1">
-                          <button
-                            data-testid={`prog-history-${p.id}`}
-                            onClick={() => setHistoryOpen(p)}
-                            disabled={!p.reschedule_history || p.reschedule_history.length === 0}
-                            title="Histórico de remanejamento"
-                            className="w-7 h-7 rounded-md bg-white/5 border border-white/10 flex items-center justify-center text-zinc-400 hover:text-[#E0FF00] disabled:opacity-30 relative"
-                          >
-                            <History className="w-3 h-3" />
-                            {p.reschedule_history && p.reschedule_history.length > 0 && (
-                              <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-[#FF5E00] text-[9px] text-white font-bold flex items-center justify-center">
-                                {p.reschedule_history.length}
-                              </span>
-                            )}
-                          </button>
+                          {(() => {
+                            const mvCount = (p.movement_history || []).length || (p.reschedule_history || []).length;
+                            return (
+                              <button
+                                data-testid={`prog-history-${p.id}`}
+                                onClick={() => setHistoryOpen(p)}
+                                disabled={mvCount === 0}
+                                title="Timeline · histórico de movimentações"
+                                className="w-7 h-7 rounded-md bg-white/5 border border-white/10 flex items-center justify-center text-zinc-400 hover:text-[#E0FF00] disabled:opacity-30 relative"
+                              >
+                                <History className="w-3 h-3" />
+                                {mvCount > 0 && (
+                                  <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-[#FF5E00] text-[9px] text-white font-bold flex items-center justify-center">
+                                    {mvCount}
+                                  </span>
+                                )}
+                              </button>
+                            );
+                          })()}
                           <button
                             data-testid={`prog-edit-${p.id}`}
                             onClick={() => { setEditing(p); setIsDrawerOpen(true); }}
@@ -622,50 +627,180 @@ export const ProgramacaoPage = () => {
 
 
       {historyOpen && (
-        <div data-testid="reschedule-history-modal" className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4" onClick={() => setHistoryOpen(null)}>
-          <motion.div
-            initial={{ scale: 0.9, opacity: 0 }}
-            animate={{ scale: 1, opacity: 1 }}
-            onClick={(e) => e.stopPropagation()}
-            className="glass-panel rounded-2xl border border-[#E0FF00]/40 max-w-lg w-full p-6 max-h-[80vh] overflow-y-auto"
-          >
-            <div className="flex items-center gap-3 mb-4">
-              <div className="w-10 h-10 rounded-full bg-[#E0FF00]/20 flex items-center justify-center">
-                <History className="w-5 h-5 text-[#E0FF00]" />
-              </div>
-              <div>
-                <h3 className="text-white font-bold text-lg">Histórico de Remanejamento</h3>
-                <p className="text-xs text-zinc-500">{historyOpen.name}</p>
-              </div>
-              <button data-testid="close-history-modal" onClick={() => setHistoryOpen(null)} className="ml-auto w-8 h-8 rounded-full bg-white/5 border border-white/10 text-zinc-400 hover:text-white">✕</button>
-            </div>
-            <div className="space-y-2">
-              {(historyOpen.reschedule_history || []).length === 0 ? (
-                <p className="text-center text-zinc-500 py-6 text-sm">Sem remanejamentos.</p>
-              ) : (
-                [...(historyOpen.reschedule_history || [])].reverse().map((h, i) => (
-                  <div key={i} data-testid={`history-entry-${i}`} className="rounded-lg p-3 bg-white/[0.02] border border-white/10">
-                    <div className="flex items-center justify-between mb-1">
-                      <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-[#FF5E00]/20 border border-[#FF5E00]/40 text-[#FF5E00] uppercase">
-                        {h.reason || 'sem motivo'}
-                      </span>
-                      <span className="text-[10px] text-zinc-500 font-mono">
-                        {h.changed_at ? new Date(h.changed_at).toLocaleString('pt-BR') : ''}
-                      </span>
-                    </div>
-                    <div className="text-xs text-zinc-300 font-mono">
-                      <span className="text-zinc-500">{(h.old_start || '').slice(0, 10) || '—'}</span>
-                      <span className="mx-2 text-[#E0FF00]">→</span>
-                      <span className="text-white">{(h.new_start || '').slice(0, 10) || '—'}</span>
-                    </div>
-                    {h.changed_by && <p className="text-[10px] text-zinc-600 mt-1">por {h.changed_by}</p>}
-                  </div>
-                ))
-              )}
-            </div>
-          </motion.div>
-        </div>
+        <TimelineHistoryModal project={historyOpen} onClose={() => setHistoryOpen(null)} />
       )}
     </AppLayout>
+  );
+};
+
+// ==================== Timeline / Histórico Consolidado (Fev/2026) ====================
+const EVENT_META = {
+  created:                { color: '#39FF14', icon: CircleDot, label: 'Obra criada' },
+  date_changed:           { color: '#00F0FF', icon: Calendar, label: 'Datas' },
+  team_changed:           { color: '#E0FF00', icon: UsersIcon, label: 'Equipe' },
+  status_changed:         { color: '#FF5E00', icon: CheckCircle2, label: 'Status' },
+  billing_stage_changed:  { color: '#B8FF00', icon: DollarSign, label: 'Faturamento' },
+  shutdown_info:          { color: '#E0FF00', icon: Zap, label: 'Desligamento' },
+  cancel_reason:          { color: '#FF003C', icon: XCircle, label: 'Motivo cancelamento' },
+  team_splits_changed:    { color: '#00F0FF', icon: UsersIcon, label: 'Split por equipe' },
+  reschedule:             { color: '#FF5E00', icon: Calendar, label: 'Remanejamento' },
+};
+
+const renderEventValues = (ev) => {
+  if (ev.event_type === 'date_changed') {
+    const oldS = ev.old?.start || '—', newS = ev.new?.start || '—';
+    const oldE = ev.old?.end || '', newE = ev.new?.end || '';
+    return (
+      <div className="text-xs text-zinc-300 font-mono">
+        <span className="text-zinc-500">{oldS}{oldE && oldE !== oldS ? ` → ${oldE}` : ''}</span>
+        <ArrowRight className="w-3 h-3 inline mx-1 text-[#E0FF00]" />
+        <span className="text-white">{newS}{newE && newE !== newS ? ` → ${newE}` : ''}</span>
+      </div>
+    );
+  }
+  if (ev.event_type === 'team_changed') {
+    const oldT = [ev.old?.team, ev.old?.additional].filter(Boolean).join(' + ') || '—';
+    const newT = [ev.new?.team, ev.new?.additional].filter(Boolean).join(' + ') || '—';
+    return (
+      <div className="text-xs text-zinc-300">
+        <span className="text-zinc-500">{oldT}</span>
+        <ArrowRight className="w-3 h-3 inline mx-1 text-[#E0FF00]" />
+        <span className="text-white">{newT}</span>
+      </div>
+    );
+  }
+  if (['status_changed', 'billing_stage_changed'].includes(ev.event_type)) {
+    return (
+      <div className="text-xs text-zinc-300 font-mono">
+        <span className="text-zinc-500">{ev.old || '—'}</span>
+        <ArrowRight className="w-3 h-3 inline mx-1 text-[#E0FF00]" />
+        <span className="text-white">{ev.new || '—'}</span>
+      </div>
+    );
+  }
+  if (ev.event_type === 'team_splits_changed') {
+    const n = Array.isArray(ev.new) ? ev.new.length : 0;
+    return <div className="text-xs text-zinc-300">{n} equipe(s) no split de produção</div>;
+  }
+  if (ev.event_type === 'created') {
+    return (
+      <div className="text-xs text-zinc-300">
+        Código: <span className="font-mono text-[#39FF14]">{ev.new?.project_code || '—'}</span>
+        {ev.new?.team && <span> · Equipe: <span className="text-white">{ev.new.team}</span></span>}
+      </div>
+    );
+  }
+  if (['shutdown_info', 'cancel_reason'].includes(ev.event_type)) {
+    return (
+      <div className="text-xs text-zinc-300 italic">"{ev.new || ev.old || '—'}"</div>
+    );
+  }
+  return null;
+};
+
+const TimelineHistoryModal = ({ project, onClose }) => {
+  // Consolidar movement_history + reschedule_history (legado). movement_history já cobre tudo em obras novas.
+  const events = useMemo(() => {
+    const mv = (project.movement_history || []).map((h) => ({ ...h }));
+    // Legado: reschedule_history antigos que não estão no movement_history
+    (project.reschedule_history || []).forEach((r) => {
+      const already = mv.some((m) => m.event_type === 'date_changed' && m.changed_at === r.changed_at);
+      if (!already) {
+        mv.push({
+          event_type: 'reschedule',
+          changed_at: r.changed_at,
+          changed_by: r.changed_by || '',
+          old: { start: (r.old_start || '').slice(0, 10), end: (r.old_end || '').slice(0, 10) },
+          new: { start: (r.new_start || '').slice(0, 10), end: (r.new_end || '').slice(0, 10) },
+          reason: r.reason || '',
+          notes: '',
+        });
+      }
+    });
+    // Legado: billing_history entries que não vieram como movement_history
+    (project.billing_history || []).forEach((b) => {
+      const already = mv.some((m) => m.event_type === 'billing_stage_changed' && m.changed_at === b.changed_at);
+      if (!already) {
+        mv.push({
+          event_type: 'billing_stage_changed',
+          changed_at: b.changed_at,
+          changed_by: b.changed_by || '',
+          old: '',
+          new: b.stage || '',
+          reason: '',
+          notes: b.notes || '',
+        });
+      }
+    });
+    return mv.sort((a, b) => (b.changed_at || '').localeCompare(a.changed_at || ''));
+  }, [project]);
+
+  return (
+    <div data-testid="reschedule-history-modal" className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4" onClick={onClose}>
+      <motion.div
+        initial={{ scale: 0.9, opacity: 0 }}
+        animate={{ scale: 1, opacity: 1 }}
+        onClick={(e) => e.stopPropagation()}
+        className="glass-panel rounded-2xl border border-[#E0FF00]/40 max-w-2xl w-full p-6 max-h-[85vh] overflow-y-auto"
+      >
+        <div className="flex items-center gap-3 mb-4">
+          <div className="w-10 h-10 rounded-full bg-[#E0FF00]/20 flex items-center justify-center">
+            <History className="w-5 h-5 text-[#E0FF00]" />
+          </div>
+          <div>
+            <h3 className="text-white font-bold text-lg">Timeline · Histórico da Obra</h3>
+            <p className="text-xs text-zinc-500">{project.name}{project.project_code ? ` · ${project.project_code}` : ''}</p>
+          </div>
+          <button data-testid="close-history-modal" onClick={onClose} className="ml-auto w-8 h-8 rounded-full bg-white/5 border border-white/10 text-zinc-400 hover:text-white">✕</button>
+        </div>
+
+        {events.length === 0 ? (
+          <p className="text-center text-zinc-500 py-8 text-sm">Sem movimentações registradas.</p>
+        ) : (
+          <div data-testid="timeline-container" className="relative pl-6">
+            <div className="absolute left-2 top-2 bottom-2 w-px bg-white/10" />
+            {events.map((ev, i) => {
+              const meta = EVENT_META[ev.event_type] || { color: '#94A3B8', icon: FileText, label: ev.event_type };
+              const Icon = meta.icon;
+              return (
+                <div key={i} data-testid={`timeline-entry-${i}`} className="relative mb-4">
+                  <div
+                    className="absolute -left-6 top-1 w-4 h-4 rounded-full flex items-center justify-center"
+                    style={{ background: meta.color, boxShadow: `0 0 8px ${meta.color}80` }}
+                  >
+                    <Icon className="w-2.5 h-2.5 text-black" strokeWidth={3} />
+                  </div>
+                  <div className="rounded-lg p-3 bg-white/[0.02] border border-white/10 hover:border-white/20 transition">
+                    <div className="flex items-center justify-between mb-1 gap-2 flex-wrap">
+                      <span
+                        className="px-2 py-0.5 rounded-full text-[10px] font-bold border uppercase"
+                        style={{ background: `${meta.color}20`, borderColor: `${meta.color}60`, color: meta.color }}
+                      >
+                        {meta.label}
+                      </span>
+                      <span className="text-[10px] text-zinc-500 font-mono">
+                        {ev.changed_at ? new Date(ev.changed_at).toLocaleString('pt-BR') : ''}
+                      </span>
+                    </div>
+                    {renderEventValues(ev)}
+                    {ev.reason && (
+                      <p className="text-[10px] text-[#FF5E00] mt-1">
+                        Motivo: <span className="font-bold uppercase">{ev.reason}</span>
+                      </p>
+                    )}
+                    {ev.notes && (
+                      <p className="text-[11px] text-zinc-400 mt-1 italic">"{ev.notes}"</p>
+                    )}
+                    {ev.changed_by && (
+                      <p className="text-[10px] text-zinc-600 mt-1">por {ev.changed_by}</p>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </motion.div>
+    </div>
   );
 };
