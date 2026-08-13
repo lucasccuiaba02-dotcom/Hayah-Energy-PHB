@@ -40,6 +40,8 @@ Dashboard, **Buscar Obras**, Operacional, Carteira, Programação, Calendário, 
 
 ## Novidades Fev/2026 (Ondas)
 
+- **Workspace Compartilhado / Multi-tenant (iter21)** — 🏢 fix crítico: usuários novos aprovados por um admin herdam o workspace do admin (`owner_id = admin.actor_id`) e vêem exatamente os mesmos projetos, equipes, estoque, etc, com filtro por permissões. Admins mantêm workspace próprio (owner_id = null). Solução transparente: `get_current_user` reescreve `current_user["_id"]` para `owner_id` (fallback = próprio _id) e expõe `actor_id` para checagens de identidade (usado em admin_delete_user). Backfill idempotente aplicado no seed: todos os usuários `role=user` sem owner_id ficam apontando para o `ADMIN_EMAIL` primário. Validado end-to-end via curl (usuário novo → aprovado por lucasc → vê os 4 projetos do lucasc com permissões limitadas).
+
 - **Segurança & Sessões (iter20)** — 🚨 revogação global aplicada AGORA no owner (lucasc.cuiaba02@gmail.com sv=2). Recursos:
   - JWT com `sv` (session_version) embutido; `get_current_user` rejeita 401 quando `token.sv < user.session_version`.
   - `POST /api/auth/change-password` (body: current+new_password) — valida senha atual, exige 8+ chars, bumpa sv, re-emite token novo para o dispositivo atual (via httpOnly cookie).

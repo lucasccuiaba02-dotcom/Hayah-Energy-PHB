@@ -188,7 +188,12 @@ async def get_current_user(request: Request) -> dict:
         token_sv = int(payload.get("sv", 0) or 0)
         if token_sv < current_sv:
             raise HTTPException(status_code=401, detail="Sessão revogada — faça login novamente")
-        user["_id"] = str(user["_id"])
+        actor_id = str(user["_id"])
+        # Shared workspace: regular users approved by an admin inherit the admin's data
+        # namespace via `owner_id`. Admins default to owning their own workspace.
+        owner_id_str = str(user.get("owner_id") or user["_id"])
+        user["_id"] = owner_id_str
+        user["actor_id"] = actor_id
         user.pop("password_hash", None)
         return user
     except jwt.ExpiredSignatureError:
@@ -439,7 +444,7 @@ async def login(credentials: UserLogin, response: Response, request: Request):
         name=user["name"],
         role=user["role"],
         status=user.get("status", "approved"),
-        permissions=user.get("permissions") if user.get("permissions") else ALL_PERMISSIONS,
+        permissions=user.get("permissions") if user.get("permissions") is not None else (ALL_PERMISSIONS if user.get("role") == "admin" else []),
         created_at=user["created_at"].isoformat(),
         access_token=access_token,
     )
@@ -549,12 +554,23 @@ class UserApprovalBody(BaseModel):
 @api_router.post("/admin/users/{user_id}/approve")
 async def admin_approve_user(user_id: str, body: UserApprovalBody, current_user: dict = Depends(require_admin)):
     perms = [p for p in body.permissions if p in ALL_PERMISSIONS]
-    await db.users.update_one({"_id": ObjectId(user_id)}, {"$set": {
+    approved_role = body.role or "user"
+    # Data namespace: a regular user inherits the approving admin's workspace so they see
+    # the same projects/teams/estoque/etc. An admin owns their own workspace by default.
+    admin_actor_id = current_user.get("actor_id") or current_user["_id"]
+    set_doc = {
         "status": "approved",
         "permissions": perms,
-        "role": body.role or "user",
-    }})
-    return {"status": "approved", "permissions": perms}
+        "role": approved_role,
+    }
+    if approved_role == "admin":
+        # Grant admin ownership of THEIR OWN workspace (independent data namespace).
+        set_doc["owner_id"] = None
+    else:
+        # Regular users read/write against the approving admin's data.
+        set_doc["owner_id"] = admin_actor_id
+    await db.users.update_one({"_id": ObjectId(user_id)}, {"$set": set_doc})
+    return {"status": "approved", "permissions": perms, "owner_id": set_doc.get("owner_id")}
 
 @api_router.post("/admin/users/{user_id}/reject")
 async def admin_reject_user(user_id: str, current_user: dict = Depends(require_admin)):
@@ -565,13 +581,21 @@ async def admin_reject_user(user_id: str, current_user: dict = Depends(require_a
 async def admin_update_permissions(user_id: str, body: UserApprovalBody, current_user: dict = Depends(require_admin)):
     perms = [p for p in body.permissions if p in ALL_PERMISSIONS]
     update = {"permissions": perms}
-    if body.role: update["role"] = body.role
+    if body.role:
+        update["role"] = body.role
+        # If admin promotes/demotes, adjust workspace ownership accordingly
+        admin_actor_id = current_user.get("actor_id") or current_user["_id"]
+        if body.role == "admin":
+            update["owner_id"] = None  # gains own workspace
+        else:
+            update["owner_id"] = admin_actor_id  # shares admin's workspace
     await db.users.update_one({"_id": ObjectId(user_id)}, {"$set": update})
     return {"status": "updated", "permissions": perms}
 
 @api_router.delete("/admin/users/{user_id}")
 async def admin_delete_user(user_id: str, current_user: dict = Depends(require_admin)):
-    if str(current_user["_id"]) == user_id:
+    actor_id = current_user.get("actor_id") or current_user["_id"]
+    if str(actor_id) == user_id:
         raise HTTPException(status_code=400, detail="Não é possível remover o próprio usuário")
     await db.users.delete_one({"_id": ObjectId(user_id)})
     return {"status": "deleted"}
@@ -4155,6 +4179,24 @@ async def startup_db():
         await db.users.update_many({"session_version": {"$exists": False}}, {"$set": {"session_version": 0}})
     except Exception as e:
         logger.warning(f"session_version backfill: {e}")
+
+    # Backfill owner_id for regular users so they share the primary admin's workspace.
+    # Rule: role == 'user' and owner_id missing → set owner_id = primary admin _id (from ADMIN_EMAIL).
+    # Admin users own their own workspace (owner_id stays null).
+    try:
+        primary = await db.users.find_one({"email": admin_email})
+        if primary:
+            primary_id = str(primary["_id"])
+            r = await db.users.update_many(
+                {"role": "user", "owner_id": {"$exists": False}},
+                {"$set": {"owner_id": primary_id}},
+            )
+            if r.modified_count:
+                logger.info(f"owner_id backfilled for {r.modified_count} regular users → {primary_id}")
+        # Make sure admins never have owner_id set (self-owned workspace)
+        await db.users.update_many({"role": "admin", "owner_id": {"$ne": None}}, {"$set": {"owner_id": None}})
+    except Exception as e:
+        logger.warning(f"owner_id backfill: {e}")
 
     try:
         from apscheduler.schedulers.asyncio import AsyncIOScheduler

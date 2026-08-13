@@ -1,0 +1,30 @@
+{
+  "summary": "Backend testing of the multi-tenant owner_id / shared-workspace rewrite. New pytest file /app/backend/tests/test_workspace_sharing.py adds 11 tests covering: approval sets owner_id (regular user inherits admin's workspace, admin owns their own), regular user's /api/projects, /api/teams, /api/estoque returns SAME data as the approving sandbox admin, admin-only guards (force-logout / admin/users list / approve → 403 for role='user'), admin self-delete blocked via actor_id, and role transition (user→admin via PUT /admin/users/{id}/permissions gives promoted user its own workspace owner_id=None). Regression: test_estoque.py 12/12 pass, test_auth_sessions.py 16/16 pass. Total 39/39 pass in single-worker mode as recommended. Sandbox admin admin@projectmatrix.com was used exclusively; owner lucasc.cuiaba02@gmail.com untouched. All TEST_ prefixed users cleaned up in module teardown fixture.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "GET /api/auth/me", "issue": "For a regular user, 'id' returned is the workspace-owner (admin) user id rather than the actor's own id — a side-effect of the get_current_user rewrite (current_user['_id'] = owner_id_str). This is intentional/by-design per the review request (all 80+ endpoints filter by current_user['_id']), and callers must use actor_id for personal identity. However, /auth/me could optionally return both id (own) and workspace_id (owner_id) for frontend clarity. Not a blocker."}
+    ]
+  },
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_workspace_sharing.py",
+    "/app/test_reports/pytest/iter21_workspace.xml",
+    "/app/test_reports/pytest/iter21_all.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "get_current_user rewrite is elegant but leaks the admin's user id via /auth/me['id'] to regular users. Consider exposing 'workspace_id' distinctly and keeping 'id' as actor_id in the API response — minor privacy nit.",
+    "UserResponse permission fallback: if user.get('permissions') is falsy the response falls back to ALL_PERMISSIONS. That is safe for admins (approved with []) but could accidentally grant full perms to a legitimately restricted user if permissions were saved as []. Currently harmless because admin_approve_user always writes the filtered list (may be []) — but frontend must not treat [] as ALL. Tests confirm restricted user sees exactly ['dashboard','carteira','materiais'] because backend serializes ALL_PERMISSIONS when list is empty — that means a user approved with 0 permissions would appear as full-admin. Recommend explicit differentiation.",
+    "server.py > 4200 lines — long overdue for router-based refactor (auth/, admin/, projects/, estoque/, faturamento/).",
+    "admin_delete_user uses actor_id correctly for self-check; validated by test_admin_cannot_delete_self."
+  ],
+  "updated_files": ["/app/backend/tests/test_workspace_sharing.py"],
+  "success_rate": {"backend": "100% (39/39: 11 workspace + 12 estoque + 16 auth_sessions)", "frontend": "not tested (backend-only request)"},
+  "test_credentials": "Sandbox admin admin@projectmatrix.com / Admin@123 (untouched). Owner lucasc NOT tested per instructions.",
+  "seed_data_creation": "Ephemeral: TEST_ws_project (deleted), TEST_ws_user_<ts>@example.com (deleted), TEST_promote_<ts>@example.com (deleted). Module-scope autouse teardown sweeps any leftover TEST_ prefixed users.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Run workspace tests with -n 1 (single worker) as they mutate sandbox admin's user list transiently. Sandbox admin is left clean at test end. Owner lucasc is NEVER touched by this suite. If iteration_20 pytest suite hangs mid-flight, sandbox admin pw might be on TempTest_2026 — verify with curl login before re-running.",
+  "rca_of_the_issue": "Original user complaint (new user sees zero projects/teams/estoque) is fixed via owner_id rewrite in get_current_user (lines 172-201). Regular users approved by an admin inherit that admin's data namespace by having current_user['_id'] rewritten to owner_id_str at request time — so all existing endpoint filters (query = {'user_id': current_user['_id']}) transparently return the admin's data. Verified end-to-end via test_user_sees_owner_project / test_user_sees_same_teams_list_as_owner / test_user_sees_same_estoque_as_owner. Data isolation across admin workspaces is preserved because each admin has owner_id=None → _id stays as their own id."
+}
