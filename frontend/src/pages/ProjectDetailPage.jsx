@@ -644,7 +644,8 @@ export const ProjectDetailPage = () => {
                 <table className="w-full text-[11px]">
                   <thead className="text-[9px] tracking-[0.15em] uppercase font-bold text-zinc-500 bg-white/[0.03] sticky top-0">
                     <tr>
-                      <th className="text-left px-3 py-2">Item</th>
+                      <th className="text-left px-2 py-2">Código</th>
+                      <th className="text-left px-3 py-2">Descrição</th>
                       <th className="text-right px-2 py-2">Qtd</th>
                       <th className="text-left px-2 py-2">Un</th>
                       <th className="text-right px-3 py-2">Total</th>
@@ -653,7 +654,8 @@ export const ProjectDetailPage = () => {
                   <tbody>
                     {materials.map((m) => (
                       <tr key={m.id} data-testid={`pd-mat-row-${m.id}`} className="border-t border-white/5">
-                        <td className="px-3 py-1.5 text-white truncate max-w-[180px]" title={m.item}>{m.item}</td>
+                        <td className="px-2 py-1.5 font-mono text-[#E0FF00]" title={m.code || '-'}>{m.code || '-'}</td>
+                        <td className="px-3 py-1.5 text-white truncate max-w-[220px]" title={m.item}>{m.item}</td>
                         <td className="px-2 py-1.5 text-right font-mono text-zinc-300">{m.quantity}</td>
                         <td className="px-2 py-1.5 text-zinc-400 uppercase">{m.unit}</td>
                         <td className="px-3 py-1.5 text-right font-mono text-white font-bold">{formatCurrency(m.total_cost)}</td>

@@ -91,22 +91,19 @@ def build_requisition_pdf(project: dict, signature_name: str, notes: str, requis
             qbx = float(m.get("qty_written_off", 0) or 0)
             qent = float(m.get("qty_delivered", 0) or 0)
             tot_s += qs; tot_sep += qsep; tot_bx += qbx; tot_ent += qent
-        # Material (linha 96): descrição robusta — aceita vários nomes de campo
-        desc = (
-            m.get("description")
-            or m.get("descricao")
-            or m.get("item")
-            or m.get("name")
-            or m.get("material_name")
-            or "—"
-        )
-        code_val = m.get("code") or m.get("codigo") or m.get("code_material") or "—"
-        rows.append([
-            Paragraph(str(code_val), styles["Small"]),
-            Paragraph(str(desc), styles["Small"]),
-            (m.get("unit", "un") or "un").upper(),
-            f"{qs:g}", f"{qsep:g}", f"{qbx:g}", f"{qent:g}",
-        ])
+            # Fev/2026 · fallbacks robustos para descrição/código/unidade — aceita ptBR e inglês
+            desc = (
+                m.get("description") or m.get("descricao") or m.get("item")
+                or m.get("name") or m.get("material_name") or "—"
+            )
+            code_val = m.get("code") or m.get("codigo") or m.get("code_material") or "—"
+            unit_val = (m.get("unit") or m.get("unidade") or m.get("un") or "UN")
+            rows.append([
+                Paragraph(str(code_val), styles["Small"]),
+                Paragraph(str(desc), styles["Small"]),
+                str(unit_val).upper(),
+                f"{qs:g}", f"{qsep:g}", f"{qbx:g}", f"{qent:g}",
+            ])
         rows.append(["", "TOTAIS", "", f"{tot_s:g}", f"{tot_sep:g}", f"{tot_bx:g}", f"{tot_ent:g}"])
 
         mat_tbl = Table(rows, colWidths=[22 * mm, 55 * mm, 12 * mm, 22 * mm, 20 * mm, 20 * mm, 22 * mm])

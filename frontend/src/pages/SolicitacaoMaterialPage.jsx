@@ -340,7 +340,6 @@ export const SolicitacaoMaterialPage = () => {
                     {materials.map((m) => {
                       const qs = Number(m.qty_requested ?? m.quantity ?? 0);
                       const qent = Number(m.qty_delivered ?? 0);
-                      const complete = qent >= qs && qs > 0;
                       const wsInfo = ITEM_WAREHOUSE_STATUS_LABEL[m.warehouse_status || ''];
                       return (
                         <tr key={m.id} data-testid={`material-row-${m.id}`} className="border-t border-white/5 hover:bg-white/[0.02]">
@@ -382,13 +381,12 @@ export const SolicitacaoMaterialPage = () => {
                             </select>
                           </td>
                           <td className="px-2 py-2 text-right">
-                            {complete ? (
-                              <span className="inline-flex items-center gap-1 text-[10px] font-bold text-[#39FF14]"><CheckCircle2 className="w-3 h-3" /> OK</span>
-                            ) : qent > 0 ? (
-                              <span className="text-[10px] font-bold text-[#FF5E00]">Parcial</span>
-                            ) : (
-                              <span className="text-[10px] text-zinc-600">—</span>
-                            )}
+                            {(() => {
+                              if (qs === 0) return <span className="text-[10px] text-zinc-500" data-testid={`mat-status-${m.id}`}>Pendente</span>;
+                              if (qent >= qs) return <span className="inline-flex items-center gap-1 text-[10px] font-bold text-[#39FF14]" data-testid={`mat-status-${m.id}`}><CheckCircle2 className="w-3 h-3" /> Recebido</span>;
+                              if (qent > 0) return <span className="text-[10px] font-bold text-[#FF5E00]" data-testid={`mat-status-${m.id}`}>Parcial</span>;
+                              return <span className="text-[10px] font-bold text-[#E0FF00]" data-testid={`mat-status-${m.id}`}>Solicitado</span>;
+                            })()}
                           </td>
                         </tr>
                       );

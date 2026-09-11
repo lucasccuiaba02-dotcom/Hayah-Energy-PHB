@@ -3389,13 +3389,19 @@ async def import_materials_list(
         raise HTTPException(status_code=400, detail="Arquivo maior que 10MB")
     fname = (file.filename or "").lower()
 
+    # ORDEM É CRÍTICA: match_field itera nessa ordem e retorna no primeiro match.
+    # 'code' vem ANTES de 'item' porque "COD ITEM" precisa ser classificado como code (não como item).
+    # 'total_cost' vem ANTES de 'cost' porque "vlr total"/"valor total" deve prevalecer sobre "vlr"/"valor".
+    # 'cost' vem ANTES de 'unit' porque "PREÇO UNIT"/"VALOR UNIT" contém "unit" mas é um custo.
+    # A palavra genérica "item" NÃO é a primeira keyword de description — usamos "descric"/"descrição"
+    # que são específicas e não colidem com "COD ITEM"/"item mat".
     HEADER_KEYWORDS = {
-        "item": ["item", "descricao", "descrição", "descricao item", "descrição item", "material", "produto", "designacao", "designação", "description"],
+        "code": ["cod item", "cod. item", "codigo", "código", "cod.", "sap", "item mat", "code", "material code", "cod"],
+        "total_cost": ["vlr total", "valor total", "total geral", "preco total", "preço total", "custo total", "total cost", "total"],
+        "cost": ["preco unit", "preço unit", "valor unit", "vlr unit", "unit price", "unit cost", "preco", "preço", "custo", "cost", "price"],
         "quantity": ["quantidade", "quant.", "quant", "qtd", "qtde", "qte", "qntd", "quant orçada", "quant orcada", "qntd orçada", "qntd orcada", "quantity", "qty"],
         "unit": ["unidade", "unid.", "unid", "un", "um", "unit"],
-        "code": ["codigo", "código", "cod.", "cod item", "cod. item", "sap", "item mat", "code", "cod", "material code"],
-        "cost": ["preco", "preço", "valor unit", "custo", "vlr unit", "unit price", "unit cost", "preco unit", "preço unit", "cost", "price"],
-        "total_cost": ["vlr total", "valor total", "total geral", "preco total", "preço total", "custo total", "total cost", "total"],
+        "item": ["descricao item", "descrição item", "descricao", "descrição", "descr", "material", "produto", "designacao", "designação", "description", "item"],
     }
 
     # Sheet name priority: prefer sheets that look like a requisition/material list
