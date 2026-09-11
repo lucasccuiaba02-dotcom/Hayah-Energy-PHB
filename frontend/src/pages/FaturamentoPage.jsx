@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import axios from 'axios';
 import { toast } from 'sonner';
@@ -137,6 +138,18 @@ export const FaturamentoPage = () => {
   };
 
   useEffect(() => { load(); }, [startDate, endDate]);
+
+  // Fev/2026 · Drill-down: quando abrimos com ?view=backlog rolamos até o radar
+  const [searchParams] = useSearchParams();
+  useEffect(() => {
+    if (loading) return;
+    if (searchParams.get('view') !== 'backlog') return;
+    const el = document.querySelector('[data-testid="fat-stuck-radar"]');
+    if (el) {
+      setTimeout(() => el.scrollIntoView({ behavior: 'smooth', block: 'start' }), 200);
+      el.animate([{ boxShadow: '0 0 0 0 rgba(255,0,60,0.7)' }, { boxShadow: '0 0 0 18px rgba(255,0,60,0)' }], { duration: 1400, iterations: 2 });
+    }
+  }, [loading, data, searchParams]);
 
   // Aviso de Backlog: som + notificação local quando obras ficam > 15 dias paradas na mesma etapa.
   // Dispara apenas quando a contagem muda (evita spam a cada refresh).

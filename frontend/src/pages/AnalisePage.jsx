@@ -115,6 +115,8 @@ export const AnalisePage = () => {
               value={`${managerKpis.financial.adherence_pct.toFixed(1)}%`}
               hint="Produção realizada ÷ programado"
               color={managerKpis.financial.adherence_pct >= 95 ? '#39FF14' : managerKpis.financial.adherence_pct >= 80 ? '#E0FF00' : '#FF5E00'}
+              drillTo="/carteira?filter=active"
+              drillHint="Ver obras ativas"
             />
             <KpiCard
               testid="kpi-billing-pct"
@@ -123,6 +125,8 @@ export const AnalisePage = () => {
               value={`${managerKpis.financial.billing_pct.toFixed(1)}%`}
               hint="Faturado ÷ realizado"
               color={managerKpis.financial.billing_pct >= 80 ? '#39FF14' : managerKpis.financial.billing_pct >= 50 ? '#E0FF00' : '#FF5E00'}
+              drillTo="/faturamento"
+              drillHint="Abrir esteira"
             />
             <KpiCard
               testid="kpi-avg-ticket"
@@ -131,6 +135,8 @@ export const AnalisePage = () => {
               value={formatCurrency(managerKpis.financial.avg_ticket)}
               hint={`${managerKpis.operational.active} obras ativas`}
               color="#00F0FF"
+              drillTo="/carteira?filter=active"
+              drillHint="Ver obras ativas"
             />
             <KpiCard
               testid="kpi-completion"
@@ -139,6 +145,8 @@ export const AnalisePage = () => {
               value={`${managerKpis.operational.completion_pct.toFixed(1)}%`}
               hint={`${managerKpis.operational.completed}/${managerKpis.operational.total} obras`}
               color={managerKpis.operational.completion_pct >= 70 ? '#39FF14' : '#E0FF00'}
+              drillTo="/carteira?filter=completed"
+              drillHint="Ver concluídas"
             />
             <KpiCard
               testid="kpi-lead-days"
@@ -147,6 +155,8 @@ export const AnalisePage = () => {
               value={`${managerKpis.operational.avg_lead_days.toFixed(0)}d`}
               hint="Início → conclusão"
               color="#A855F7"
+              drillTo="/carteira?filter=completed"
+              drillHint="Ver concluídas"
             />
             <KpiCard
               testid="kpi-mom-delta"
@@ -155,6 +165,8 @@ export const AnalisePage = () => {
               value={`${managerKpis.mom.delta_pct >= 0 ? '+' : ''}${managerKpis.mom.delta_pct.toFixed(1)}%`}
               hint={`${managerKpis.mom.current_month} vs ${managerKpis.mom.previous_month}`}
               color={managerKpis.mom.delta_pct >= 0 ? '#39FF14' : '#FF003C'}
+              drillTo="/faturamento"
+              drillHint="Ver faturamento"
             />
           </div>
 
@@ -176,6 +188,7 @@ export const AnalisePage = () => {
                   label="Obras vencidas"
                   count={managerKpis.operational.overdue}
                   color="#FF003C"
+                  drillTo="/carteira?filter=vencidas"
                 />
                 <AlertRow
                   testid="alert-backlog"
@@ -183,6 +196,7 @@ export const AnalisePage = () => {
                   count={managerKpis.financial.backlog_count}
                   extra={managerKpis.financial.backlog_value > 0 && formatCurrency(managerKpis.financial.backlog_value)}
                   color="#FF5E00"
+                  drillTo="/faturamento?view=backlog"
                 />
                 <AlertRow
                   testid="alert-losses"
@@ -191,6 +205,7 @@ export const AnalisePage = () => {
                   extra={`${managerKpis.losses.unproductive_hours}h + ${managerKpis.losses.unavailable_days}d`}
                   color="#E0FF00"
                   noBadge
+                  drillTo="/improdutividade"
                 />
               </div>
             </motion.div>
@@ -214,6 +229,7 @@ export const AnalisePage = () => {
                   primary={managerKpis.highlights.best_team?.name || '—'}
                   secondary={managerKpis.highlights.best_team ? `${managerKpis.highlights.best_team.productivity_pct}% de aderência` : 'Sem dados'}
                   color="#39FF14"
+                  drillTo={managerKpis.highlights.best_team ? `/carteira?team_name=${encodeURIComponent(managerKpis.highlights.best_team.name)}` : null}
                 />
                 <HighlightCard
                   testid="highlight-worst-team"
@@ -222,6 +238,7 @@ export const AnalisePage = () => {
                   primary={managerKpis.highlights.worst_team?.name || '—'}
                   secondary={managerKpis.highlights.worst_team ? `${managerKpis.highlights.worst_team.productivity_pct}% de aderência` : 'Sem dados'}
                   color="#FF5E00"
+                  drillTo={managerKpis.highlights.worst_team ? `/carteira?team_name=${encodeURIComponent(managerKpis.highlights.worst_team.name)}` : null}
                 />
                 <HighlightCard
                   testid="highlight-top-type"
@@ -230,6 +247,7 @@ export const AnalisePage = () => {
                   primary={managerKpis.highlights.top_type?.type || '—'}
                   secondary={managerKpis.highlights.top_type ? `${formatCurrency(managerKpis.highlights.top_type.billing)} faturado` : 'Sem dados'}
                   color="#E0FF00"
+                  drillTo={managerKpis.highlights.top_type ? `/carteira?type=${encodeURIComponent(_typeValueFromLabel(managerKpis.highlights.top_type.type))}` : null}
                 />
               </div>
             </motion.div>
@@ -510,59 +528,111 @@ export const AnalisePage = () => {
 };
 
 // ─── Componentes auxiliares dos KPIs executivos ───────────────────────────────
-const KpiCard = ({ testid, icon, label, value, hint, color }) => (
-  <motion.div
-    initial={{ opacity: 0, y: 6 }}
-    animate={{ opacity: 1, y: 0 }}
-    data-testid={testid}
-    className="glass-panel rounded-2xl p-4 border border-white/10 hover:border-white/20 transition-all"
-  >
-    <div className="flex items-center gap-2 mb-2">
-      <div
-        className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0"
-        style={{ backgroundColor: `${color}15`, color, border: `1px solid ${color}40` }}
-      >
-        {icon}
+// Fev/2026 · Helper que abre uma URL do mesmo domínio numa nova aba
+const openDrill = (path) => {
+  if (!path) return;
+  const url = new URL(path, window.location.origin).toString();
+  window.open(url, '_blank', 'noopener,noreferrer');
+};
+
+// Reverse-lookup do rótulo do tipo para o valor (para drill-down por tipo)
+const _typeValueFromLabel = (label) => {
+  const entry = Object.entries(PROJECT_TYPE_LABEL).find(([, l]) => l === label);
+  return entry ? entry[0] : (label || '');
+};
+
+const KpiCard = ({ testid, icon, label, value, hint, color, drillTo, drillHint }) => {
+  const clickable = !!drillTo;
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 6 }}
+      animate={{ opacity: 1, y: 0 }}
+      data-testid={testid}
+      onClick={clickable ? () => openDrill(drillTo) : undefined}
+      role={clickable ? 'button' : undefined}
+      tabIndex={clickable ? 0 : undefined}
+      onKeyDown={clickable ? (e) => { if (e.key === 'Enter') openDrill(drillTo); } : undefined}
+      className={`glass-panel rounded-2xl p-4 border border-white/10 transition-all group ${clickable ? 'cursor-pointer hover:-translate-y-0.5' : ''}`}
+      style={clickable ? { borderColor: 'rgba(255,255,255,0.1)' } : undefined}
+      onMouseEnter={clickable ? (e) => { e.currentTarget.style.borderColor = `${color}55`; } : undefined}
+      onMouseLeave={clickable ? (e) => { e.currentTarget.style.borderColor = 'rgba(255,255,255,0.1)'; } : undefined}
+      title={clickable ? drillHint : undefined}
+    >
+      <div className="flex items-center gap-2 mb-2">
+        <div
+          className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0"
+          style={{ backgroundColor: `${color}15`, color, border: `1px solid ${color}40` }}
+        >
+          {icon}
+        </div>
+        <p className="text-[9px] tracking-[0.2em] uppercase font-bold text-zinc-500 truncate">{label}</p>
       </div>
-      <p className="text-[9px] tracking-[0.2em] uppercase font-bold text-zinc-500 truncate">{label}</p>
-    </div>
-    <p className="font-heading font-black text-2xl tracking-tighter leading-none mb-1" style={{ color }}>
-      {value}
-    </p>
-    {hint && <p className="text-[10px] text-zinc-500 truncate">{hint}</p>}
-  </motion.div>
-);
+      <p className="font-heading font-black text-2xl tracking-tighter leading-none mb-1" style={{ color }}>
+        {value}
+      </p>
+      <div className="flex items-center gap-1 min-h-[14px]">
+        {hint && <p className="text-[10px] text-zinc-500 truncate flex-1">{hint}</p>}
+        {clickable && (
+          <ArrowUpRight className="w-3 h-3 text-zinc-600 group-hover:text-white transition-colors flex-shrink-0" data-testid={`${testid}-drill`} />
+        )}
+      </div>
+    </motion.div>
+  );
+};
 
-const AlertRow = ({ testid, label, count, extra, color, noBadge }) => (
-  <div data-testid={testid} className="flex items-center justify-between gap-3">
-    <div className="flex-1 min-w-0">
-      <p className="text-xs text-zinc-300 truncate">{label}</p>
-      {extra && <p className="text-[10px] font-mono text-zinc-500">{extra}</p>}
+const AlertRow = ({ testid, label, count, extra, color, noBadge, drillTo }) => {
+  const clickable = !!drillTo;
+  return (
+    <div
+      data-testid={testid}
+      onClick={clickable ? () => openDrill(drillTo) : undefined}
+      role={clickable ? 'button' : undefined}
+      tabIndex={clickable ? 0 : undefined}
+      onKeyDown={clickable ? (e) => { if (e.key === 'Enter') openDrill(drillTo); } : undefined}
+      className={`flex items-center justify-between gap-3 rounded-lg px-2 py-1.5 -mx-2 group ${clickable ? 'cursor-pointer hover:bg-white/[0.04]' : ''}`}
+      title={clickable ? 'Ver detalhes em nova aba' : undefined}
+    >
+      <div className="flex-1 min-w-0 flex items-center gap-1.5">
+        <p className="text-xs text-zinc-300 truncate">{label}</p>
+        {clickable && <ArrowUpRight className="w-3 h-3 text-zinc-600 group-hover:text-white transition-colors flex-shrink-0" data-testid={`${testid}-drill`} />}
+      </div>
+      {extra && <p className="text-[10px] font-mono text-zinc-500 hidden sm:block">{extra}</p>}
+      {noBadge ? (
+        <span className="font-mono font-bold text-lg" style={{ color }}>{count}</span>
+      ) : (
+        <span
+          className="font-mono font-black text-xl px-3 py-1 rounded-lg min-w-[3rem] text-center"
+          style={{ color, backgroundColor: `${color}15`, border: `1px solid ${color}40` }}
+        >
+          {count}
+        </span>
+      )}
     </div>
-    {noBadge ? (
-      <span className="font-mono font-bold text-lg" style={{ color }}>{count}</span>
-    ) : (
-      <span
-        className="font-mono font-black text-xl px-3 py-1 rounded-lg min-w-[3rem] text-center"
-        style={{ color, backgroundColor: `${color}15`, border: `1px solid ${color}40` }}
-      >
-        {count}
-      </span>
-    )}
-  </div>
-);
+  );
+};
 
-const HighlightCard = ({ testid, icon, label, primary, secondary, color }) => (
-  <div
-    data-testid={testid}
-    className="rounded-xl p-3 border transition-all"
-    style={{ backgroundColor: `${color}08`, borderColor: `${color}30` }}
-  >
-    <div className="flex items-center gap-1.5 mb-1.5" style={{ color }}>
-      {icon}
-      <p className="text-[9px] tracking-[0.2em] uppercase font-bold">{label}</p>
+const HighlightCard = ({ testid, icon, label, primary, secondary, color, drillTo }) => {
+  const clickable = !!drillTo;
+  return (
+    <div
+      data-testid={testid}
+      onClick={clickable ? () => openDrill(drillTo) : undefined}
+      role={clickable ? 'button' : undefined}
+      tabIndex={clickable ? 0 : undefined}
+      onKeyDown={clickable ? (e) => { if (e.key === 'Enter') openDrill(drillTo); } : undefined}
+      className={`rounded-xl p-3 border transition-all group ${clickable ? 'cursor-pointer hover:-translate-y-0.5' : ''}`}
+      style={{ backgroundColor: `${color}08`, borderColor: `${color}30` }}
+      title={clickable ? 'Abrir carteira filtrada em nova aba' : undefined}
+    >
+      <div className="flex items-center justify-between mb-1.5" style={{ color }}>
+        <div className="flex items-center gap-1.5">
+          {icon}
+          <p className="text-[9px] tracking-[0.2em] uppercase font-bold">{label}</p>
+        </div>
+        {clickable && <ArrowUpRight className="w-3 h-3 opacity-0 group-hover:opacity-100 transition-opacity" data-testid={`${testid}-drill`} />}
+      </div>
+      <p className="text-white font-bold text-sm truncate mb-0.5" title={primary}>{primary}</p>
+      <p className="text-[10px] text-zinc-400">{secondary}</p>
     </div>
-    <p className="text-white font-bold text-sm truncate mb-0.5" title={primary}>{primary}</p>
-    <p className="text-[10px] text-zinc-400">{secondary}</p>
-  </div>
-);
+  );
+};

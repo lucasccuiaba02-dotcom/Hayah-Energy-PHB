@@ -40,6 +40,13 @@ Dashboard, **Buscar Obras**, Operacional, Carteira, Programação, Calendário, 
 
 ## Novidades Fev/2026 (Ondas)
 
+- **Drill-down por KPI na Análise (iter32, 11/Fev/2026)** — 🎯 clique em qualquer KPI/alerta/destaque abre a lista filtrada em NOVA aba:
+  - **KpiCard / AlertRow / HighlightCard** ganharam props `drillTo` + `drillHint`. Cards tornam-se clicáveis (cursor, hover translate, ícone `ArrowUpRight` no canto), com `role="button"` + Enter para acessibilidade. Handler `openDrill(path)` chama `window.open(url, '_blank', 'noopener,noreferrer')`.
+  - Rotas de drill-down configuradas: `Aderência/Ticket Médio → /carteira?filter=active`, `%Faturado/MoM → /faturamento`, `Taxa Conclusão/Prazo Médio → /carteira?filter=completed`, `Obras vencidas → /carteira?filter=vencidas`, `Paradas>15d → /faturamento?view=backlog`, `Perdas → /improdutividade`, `Melhor/Pior equipe → /carteira?team_name=X`, `Tipo rentável → /carteira?type=X`.
+  - **CarteiraPage.jsx**: `useSearchParams` lê `?filter=vencidas|completed|active`, `?type=X`, `?team_name=X` e aplica no useMemo `filtered`. Banner `carteira-drilldown-banner` no topo mostra "DRILL-DOWN ATIVO · Obras vencidas · N obra(s) · Limpar" com botão `carteira-drilldown-clear` (`X`) que limpa filtros e URL.
+  - **FaturamentoPage.jsx**: quando aberta com `?view=backlog`, o `useEffect` scrolla suavemente até `[data-testid=fat-stuck-radar]` e aplica animação de pulse box-shadow vermelha por ~2.8s para chamar atenção.
+  - Testado E2E via Playwright: novo tab abre com URL correta, banner renderiza com 3 obras vencidas listadas.
+
 - **Painel Gerencial da Análise (iter31, 11/Fev/2026)** — 📊 KPIs executivos + alertas + destaques no topo da aba Análise:
   1. Novo endpoint `GET /api/analytics/manager-kpis` (aceita `start_date`, `end_date`, `team_id`) retornando 3 blocos: **financial** (`adherence_pct` = realizado/programado, `billing_pct` = faturado/realizado, `avg_ticket`, `backlog_count/value` reutilizando `_scan_stuck_billing_projects`), **operational** (`active`, `completed`, `overdue`, `completion_pct`, `avg_lead_days`), **mom** (comparativo mês atual vs anterior com `delta_pct`), **highlights** (melhor/pior equipe por aderência + tipo mais rentável por faturamento + `teams_ranked`) e **losses** (`unproductive_hours`, `unavailable_days`, `estimated_cost` com HOUR_COST=R$100 e DAY_COST=R$800).
   2. Frontend `AnalisePage.jsx` ganhou 3 zonas no topo: linha de 6 **KpiCards** coloridos por meta (`kpi-adherence`, `kpi-billing-pct`, `kpi-avg-ticket`, `kpi-completion`, `kpi-lead-days`, `kpi-mom-delta` com ícone TrendingUp/Down), painel **AlertRow** (`alert-overdue`, `alert-backlog`, `alert-losses`) e painel **HighlightCard** (`highlight-best-team`, `highlight-worst-team`, `highlight-top-type`).

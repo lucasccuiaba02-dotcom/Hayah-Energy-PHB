@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import axios from 'axios';
 import { toast } from 'sonner';
-import { Plus, Edit2, Trash2, MapPin, Calendar as CalIcon, Search, Copy } from 'lucide-react';
+import { Plus, Edit2, Trash2, MapPin, Calendar as CalIcon, Search, Copy, X } from 'lucide-react';
 import { SearchBar } from '../components/SearchBar';
 import { AppLayout } from '../components/AppLayout';
 import { ProjectDrawer } from '../components/ProjectDrawer';
@@ -13,15 +14,19 @@ const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
 
 export const CarteiraPage = () => {
+  const [searchParams, setSearchParams] = useSearchParams();
   const [projects, setProjects] = useState([]);
   const [teams, setTeams] = useState([]);
   const [loading, setLoading] = useState(true);
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [editing, setEditing] = useState(null);
   const [search, setSearch] = useState('');
-  const [typeFilter, setTypeFilter] = useState('');
+  const [typeFilter, setTypeFilter] = useState(searchParams.get('type') || '');
   const [startDateFilter, setStartDateFilter] = useState('');
   const [endDateFilter, setEndDateFilter] = useState('');
+  // Fev/2026 · Drill-down: filtros vindos por URL da aba Análise
+  const [statusFilter, setStatusFilter] = useState(searchParams.get('filter') || ''); // '' | 'vencidas' | 'completed' | 'active'
+  const [teamNameFilter, setTeamNameFilter] = useState(searchParams.get('team_name') || '');
 
   useEffect(() => {
     fetchData();
@@ -78,6 +83,8 @@ export const CarteiraPage = () => {
 
   const filtered = useMemo(() => {
     const q = (search || '').toLowerCase();
+    const today = new Date().toISOString().slice(0, 10);
+    const INACTIVE = ['executada', 'concluido', 'cancelado', 'suspenso'];
     return projects.filter((p) => {
       if (q && !(p.name || '').toLowerCase().includes(q) && !(p.location || '').toLowerCase().includes(q) && !(p.project_code || '').toLowerCase().includes(q)) {
         return false;
@@ -86,9 +93,38 @@ export const CarteiraPage = () => {
       const ps = (p.start_date || '').slice(0, 10);
       if (startDateFilter && ps && ps < startDateFilter) return false;
       if (endDateFilter && ps && ps > endDateFilter) return false;
+      // Drill-down filters (URL params)
+      if (teamNameFilter && (p.team_name || '') !== teamNameFilter) return false;
+      if (statusFilter === 'vencidas') {
+        const ed = (p.end_date || '').slice(0, 10);
+        if (!(ed && ed < today && !INACTIVE.includes(p.execution_status))) return false;
+      } else if (statusFilter === 'completed') {
+        if (!['executada', 'concluido'].includes(p.execution_status)) return false;
+      } else if (statusFilter === 'active') {
+        if (INACTIVE.includes(p.execution_status)) return false;
+      }
       return true;
     });
-  }, [projects, search, typeFilter, startDateFilter, endDateFilter]);
+  }, [projects, search, typeFilter, startDateFilter, endDateFilter, statusFilter, teamNameFilter]);
+
+  const clearDrillDown = () => {
+    setStatusFilter('');
+    setTeamNameFilter('');
+    setTypeFilter('');
+    const next = new URLSearchParams(searchParams);
+    ['filter', 'type', 'team_name'].forEach((k) => next.delete(k));
+    setSearchParams(next);
+  };
+  const hasDrillDown = statusFilter || teamNameFilter || (searchParams.get('type') && typeFilter);
+  const drillDownLabel = useMemo(() => {
+    const parts = [];
+    if (statusFilter === 'vencidas') parts.push('Obras vencidas');
+    else if (statusFilter === 'completed') parts.push('Obras concluídas');
+    else if (statusFilter === 'active') parts.push('Obras ativas');
+    if (teamNameFilter) parts.push(`Equipe: ${teamNameFilter}`);
+    if (typeFilter && searchParams.get('type')) parts.push(`Tipo: ${PROJECT_TYPE_LABEL[typeFilter] || typeFilter}`);
+    return parts.join(' · ');
+  }, [statusFilter, teamNameFilter, typeFilter, searchParams]);
 
   const vencidas = useMemo(() => {
     const today = new Date().toISOString().slice(0, 10);
@@ -159,6 +195,24 @@ export const CarteiraPage = () => {
             <p className="text-[10px] tracking-[0.2em] uppercase font-bold text-[#FF5E00] mb-1">Vencendo Amanhã</p>
             <p className="font-mono text-3xl font-black text-white">{vencendoAmanha.length}</p>
           </div>
+        </div>
+      )}
+
+      {hasDrillDown && (
+        <div
+          data-testid="carteira-drilldown-banner"
+          className="mb-4 flex items-center gap-3 flex-wrap glass-panel rounded-xl px-4 py-3 border border-[#00F0FF]/40 bg-[#00F0FF]/[0.04]"
+        >
+          <span className="text-[10px] tracking-[0.2em] uppercase font-bold text-[#00F0FF]">Drill-down ativo</span>
+          <span className="text-sm text-white font-bold">{drillDownLabel}</span>
+          <span className="ml-auto text-[11px] text-zinc-400 font-mono">{filtered.length} obra(s)</span>
+          <button
+            data-testid="carteira-drilldown-clear"
+            onClick={clearDrillDown}
+            className="text-[11px] font-bold px-3 py-1 rounded-full bg-white/5 border border-white/10 hover:bg-white/10 text-white inline-flex items-center gap-1"
+          >
+            <X className="w-3 h-3" /> Limpar
+          </button>
         </div>
       )}
 
