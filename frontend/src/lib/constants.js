@@ -139,3 +139,23 @@ export const PERMISSION_TABS = [
 
 export const formatCurrency = (v) => `R$ ${(v || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 export const todayISO = () => new Date().toISOString().slice(0, 10);
+
+// Fev/2026 · Heurística "swap-on-read" para materiais legados importados com o
+// parser bugado (que gravava o CÓDIGO no campo `item` e deixava `code` vazio).
+// Aplica na renderização quando: code está vazio E o texto do item parece um
+// código (sem espaços, curto, alfanumérico). Retorna sempre { code, description }.
+const _CODE_LIKE_RE = /^[A-Za-z0-9][A-Za-z0-9\-_./]{0,29}$/;
+export const looksLikeMaterialCode = (text) => {
+  if (!text) return false;
+  const s = String(text).trim();
+  return _CODE_LIKE_RE.test(s) && !/\s/.test(s);
+};
+export const resolveMaterialCodeAndDesc = (m) => {
+  const code = String(m?.code || m?.codigo || m?.code_material || '').trim();
+  const desc = String(m?.description || m?.descricao || m?.item || m?.name || m?.material_name || '').trim();
+  if (!code && looksLikeMaterialCode(desc)) {
+    // Legado: item guardava o código. Swap na renderização.
+    return { code: desc, description: '' };
+  }
+  return { code, description: desc };
+};

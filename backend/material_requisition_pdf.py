@@ -6,7 +6,36 @@ from reportlab.lib import colors
 from reportlab.lib.units import mm
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image
+import re
 import qrcode
+
+
+_CODE_LIKE_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9\-_.\/]{0,29}$")
+
+
+def _looks_like_code(text: str) -> bool:
+    """Detecta se o texto parece um código (sem espaços, curto, alfanumérico).
+    Usado como fallback para dados legados importados com o parser bugado
+    (que gravava o CÓDIGO no campo item e deixava code vazio)."""
+    if not text:
+        return False
+    s = str(text).strip()
+    # códigos típicos: "90588", "MAT-001", "SAP.12345", "P.3.4/1"
+    return bool(_CODE_LIKE_RE.match(s)) and " " not in s
+
+
+def _resolve_code_and_desc(m: dict):
+    """Retorna (code, description) do item, aplicando swap-on-read para dados
+    legados: se code vazio E item parece código, swap. Sempre retorna strings."""
+    code = str(m.get("code") or m.get("codigo") or m.get("code_material") or "").strip()
+    desc = str(
+        m.get("description") or m.get("descricao") or m.get("item")
+        or m.get("name") or m.get("material_name") or ""
+    ).strip()
+    if not code and _looks_like_code(desc):
+        # Legado: item guardava o código. Swap.
+        return desc, ""
+    return code or "—", desc or "—"
 
 
 def _qr_image(data: str, size_mm: float = 22) -> Image:
@@ -91,12 +120,9 @@ def build_requisition_pdf(project: dict, signature_name: str, notes: str, requis
             qbx = float(m.get("qty_written_off", 0) or 0)
             qent = float(m.get("qty_delivered", 0) or 0)
             tot_s += qs; tot_sep += qsep; tot_bx += qbx; tot_ent += qent
-            # Fev/2026 · fallbacks robustos para descrição/código/unidade — aceita ptBR e inglês
-            desc = (
-                m.get("description") or m.get("descricao") or m.get("item")
-                or m.get("name") or m.get("material_name") or "—"
-            )
-            code_val = m.get("code") or m.get("codigo") or m.get("code_material") or "—"
+            # Fev/2026 · fallbacks robustos + swap-on-read para dados legados
+            # (parser antigo gravava CÓDIGO no campo item e deixava code vazio).
+            code_val, desc = _resolve_code_and_desc(m)
             unit_val = (m.get("unit") or m.get("unidade") or m.get("un") or "UN")
             rows.append([
                 Paragraph(str(code_val), styles["Small"]),

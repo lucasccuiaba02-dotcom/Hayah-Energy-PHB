@@ -7,7 +7,7 @@ import {
   Package, Send, FileText, MapPin, Users, Calendar, Hash, PenLine,
   CheckCircle2, History, FileDown, Camera, Truck, AlertCircle, Loader, RefreshCw, Eye, X, ClipboardList,
 } from 'lucide-react';
-import { WAREHOUSE_RESPONSE_STATUS, WAREHOUSE_RESPONSE_LABEL, MATERIAL_UNITS, ITEM_WAREHOUSE_STATUS, ITEM_WAREHOUSE_STATUS_LABEL } from '../lib/constants';
+import { WAREHOUSE_RESPONSE_STATUS, WAREHOUSE_RESPONSE_LABEL, MATERIAL_UNITS, ITEM_WAREHOUSE_STATUS, ITEM_WAREHOUSE_STATUS_LABEL, resolveMaterialCodeAndDesc } from '../lib/constants';
 import { PROJECT_TYPE_LABEL, formatCurrency, todayISO } from '../lib/constants';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
@@ -309,6 +309,27 @@ export const SolicitacaoMaterialPage = () => {
                   <FileDown className="w-3 h-3" /> Baixar modelo
                 </a>
                 {materials.length > 0 && (
+                  <button
+                    data-testid="materials-repair-mapping"
+                    type="button"
+                    onClick={async () => {
+                      if (!selectedProject) return;
+                      try {
+                        const { data } = await axios.post(`${API}/projects/${selectedProject}/materials/repair-mapping`);
+                        if (data.repaired > 0) toast.success(`${data.repaired} item(ns) corrigido(s). Reimporte a planilha para preencher as descrições.`);
+                        else toast.info('Nenhum item precisava de reparo.');
+                        await reloadProjects();
+                      } catch (err) {
+                        toast.error(err?.response?.data?.detail || 'Erro ao reparar');
+                      }
+                    }}
+                    className="text-[11px] font-bold bg-white/5 border border-[#FF5E00]/40 hover:bg-[#FF5E00]/10 text-[#FF5E00] px-3 py-1.5 rounded-full inline-flex items-center gap-1"
+                    title="Corrige materiais legados onde código foi salvo na coluna errada"
+                  >
+                    <RefreshCw className="w-3 h-3" /> Reparar mapeamento
+                  </button>
+                )}
+                {materials.length > 0 && (
                   <a
                     data-testid="materials-export-current"
                     href={`${API}/projects/${selectedProject}/materials/export`}
@@ -341,10 +362,11 @@ export const SolicitacaoMaterialPage = () => {
                       const qs = Number(m.qty_requested ?? m.quantity ?? 0);
                       const qent = Number(m.qty_delivered ?? 0);
                       const wsInfo = ITEM_WAREHOUSE_STATUS_LABEL[m.warehouse_status || ''];
+                      const { code: rowCode, description: rowDesc } = resolveMaterialCodeAndDesc(m);
                       return (
                         <tr key={m.id} data-testid={`material-row-${m.id}`} className="border-t border-white/5 hover:bg-white/[0.02]">
-                          <td className="px-2 py-2 font-mono text-[#E0FF00] whitespace-nowrap" data-testid={`mat-code-${m.id}`}>{m.code || '-'}</td>
-                          <td className="px-3 py-2 text-white">{m.item}</td>
+                          <td className="px-2 py-2 font-mono text-[#E0FF00] whitespace-nowrap" data-testid={`mat-code-${m.id}`}>{rowCode || '-'}</td>
+                          <td className="px-3 py-2 text-white" data-testid={`mat-desc-${m.id}`}>{rowDesc || <span className="italic text-zinc-500">— sem descrição (reimporte a planilha)</span>}</td>
                           <td className="px-2 py-2">
                             <select
                               data-testid={`mat-unit-${m.id}`}

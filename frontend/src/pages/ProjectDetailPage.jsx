@@ -5,7 +5,7 @@ import axios from 'axios';
 import { toast } from 'sonner';
 import { ArrowLeft, Zap, AlertTriangle, Package, CheckCircle2, Camera, X, MapPin, Wifi, WifiOff, FileText, FolderOpen, ShieldCheck, Download, Upload, Trash2, Folder } from 'lucide-react';
 import { HayahLogo } from '../components/HayahLogo';
-import { PROJECT_TYPE_LABEL, EXECUTION_STATUS_LABEL, formatCurrency } from '../lib/constants';
+import { PROJECT_TYPE_LABEL, EXECUTION_STATUS_LABEL, formatCurrency, resolveMaterialCodeAndDesc } from '../lib/constants';
 import { enqueue, syncQueue } from '../lib/offline';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
@@ -652,15 +652,18 @@ export const ProjectDetailPage = () => {
                     </tr>
                   </thead>
                   <tbody>
-                    {materials.map((m) => (
-                      <tr key={m.id} data-testid={`pd-mat-row-${m.id}`} className="border-t border-white/5">
-                        <td className="px-2 py-1.5 font-mono text-[#E0FF00]" title={m.code || '-'}>{m.code || '-'}</td>
-                        <td className="px-3 py-1.5 text-white truncate max-w-[220px]" title={m.item}>{m.item}</td>
-                        <td className="px-2 py-1.5 text-right font-mono text-zinc-300">{m.quantity}</td>
-                        <td className="px-2 py-1.5 text-zinc-400 uppercase">{m.unit}</td>
-                        <td className="px-3 py-1.5 text-right font-mono text-white font-bold">{formatCurrency(m.total_cost)}</td>
-                      </tr>
-                    ))}
+                    {materials.map((m) => {
+                      const { code: rc, description: rd } = resolveMaterialCodeAndDesc(m);
+                      return (
+                        <tr key={m.id} data-testid={`pd-mat-row-${m.id}`} className="border-t border-white/5">
+                          <td className="px-2 py-1.5 font-mono text-[#E0FF00]" title={rc || '-'}>{rc || '-'}</td>
+                          <td className="px-3 py-1.5 text-white truncate max-w-[220px]" title={rd}>{rd || <span className="italic text-zinc-500">—</span>}</td>
+                          <td className="px-2 py-1.5 text-right font-mono text-zinc-300">{m.quantity}</td>
+                          <td className="px-2 py-1.5 text-zinc-400 uppercase">{m.unit}</td>
+                          <td className="px-3 py-1.5 text-right font-mono text-white font-bold">{formatCurrency(m.total_cost)}</td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>

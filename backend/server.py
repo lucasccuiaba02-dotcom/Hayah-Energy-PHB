@@ -3645,6 +3645,66 @@ async def update_material_item(
     return {"status": "updated", "id": item_id, "updates": updates}
 
 
+# Fev/2026 · Reparo em massa de materiais legados (parser antigo gravava
+# CÓDIGO no campo item e deixava code vazio). Aplica swap onde detecta o padrão.
+import re as _re_repair
+_CODE_LIKE_RE_REPAIR = _re_repair.compile(r"^[A-Za-z0-9][A-Za-z0-9\-_./]{0,29}$")
+
+
+def _material_looks_like_code(text: str) -> bool:
+    if not text:
+        return False
+    s = str(text).strip()
+    return bool(_CODE_LIKE_RE_REPAIR.match(s)) and " " not in s
+
+
+@api_router.post("/projects/{project_id}/materials/repair-mapping")
+async def repair_materials_mapping(project_id: str, current_user: dict = Depends(get_current_user)):
+    """Repara materiais legados: se `code` vazio E `item` parece código, faz swap.
+    O item.description fica vazio (não há como recuperar). Idempotente."""
+    project = await db.projects.find_one({"_id": safe_object_id(project_id), "user_id": current_user["_id"]})
+    if not project:
+        raise HTTPException(status_code=404, detail="Obra não encontrada")
+    materials = project.get("materials_list", []) or []
+    changed = 0
+    for m in materials:
+        code = str(m.get("code") or "").strip()
+        item = str(m.get("item") or "").strip()
+        if not code and _material_looks_like_code(item):
+            m["code"] = item
+            m["item"] = ""
+            changed += 1
+    if changed:
+        await db.projects.update_one(
+            {"_id": safe_object_id(project_id)},
+            {"$set": {"materials_list": materials}}
+        )
+    return {"status": "ok", "repaired": changed, "total_items": len(materials)}
+
+
+@api_router.post("/projects/repair-all-materials-mapping")
+async def repair_all_materials_mapping(current_user: dict = Depends(get_current_user)):
+    """Reparo global do workspace atual (todas as obras do usuário)."""
+    projects = await db.projects.find({"user_id": current_user["_id"]}).to_list(None)
+    total_changed = 0
+    projects_touched = 0
+    for p in projects:
+        materials = p.get("materials_list", []) or []
+        changed = 0
+        for m in materials:
+            code = str(m.get("code") or "").strip()
+            item = str(m.get("item") or "").strip()
+            if not code and _material_looks_like_code(item):
+                m["code"] = item
+                m["item"] = ""
+                changed += 1
+        if changed:
+            await db.projects.update_one({"_id": p["_id"]}, {"$set": {"materials_list": materials}})
+            total_changed += changed
+            projects_touched += 1
+    return {"status": "ok", "projects_touched": projects_touched, "items_repaired": total_changed}
+
+
 # ============ Material template + export (Fev/2026) ============
 @api_router.get("/materials/template")
 async def download_material_template(current_user: dict = Depends(get_current_user)):
