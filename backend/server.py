@@ -3089,6 +3089,138 @@ async def get_today_operations(current_user: dict = Depends(get_current_user)):
         "by_team": grouped,
     }
 
+
+# ============ Equipamentos Almoxarifado (Fev/2026) ============
+# Transformadores, religadores, reguladores de tensão — rastreio com fotos + patrimônio
+
+class EquipamentoBody(BaseModel):
+    tipo: str = "transformador"  # transformador | religador | regulador_tensao
+    patrimonio: str = ""
+    numero_serie: str = ""
+    codigo_material: str = ""
+    descricao: str = ""
+    potencia: str = ""
+    data_fabricacao: str = ""
+    condicao: str = "novo"  # novo | reforma
+    fabricante: str = ""
+    tensao_primaria: str = ""
+    tensao_secundaria: str = ""
+    notas: str = ""
+
+
+@api_router.get("/equipamentos")
+async def list_equipamentos(current_user: dict = Depends(get_current_user), tipo: str = ""):
+    q = {"user_id": current_user["_id"]}
+    if tipo:
+        q["tipo"] = tipo
+    docs = await db.equipamentos.find(q).sort("created_at", -1).to_list(2000)
+    return [{
+        "id": str(d["_id"]),
+        "tipo": d.get("tipo", "transformador"),
+        "patrimonio": d.get("patrimonio", ""),
+        "numero_serie": d.get("numero_serie", ""),
+        "codigo_material": d.get("codigo_material", ""),
+        "descricao": d.get("descricao", ""),
+        "potencia": d.get("potencia", ""),
+        "data_fabricacao": d.get("data_fabricacao", ""),
+        "condicao": d.get("condicao", "novo"),
+        "fabricante": d.get("fabricante", ""),
+        "tensao_primaria": d.get("tensao_primaria", ""),
+        "tensao_secundaria": d.get("tensao_secundaria", ""),
+        "notas": d.get("notas", ""),
+        "photos": [p for p in (d.get("photos", []) or []) if not p.get("is_deleted")],
+        "created_at": (d.get("created_at").isoformat() if hasattr(d.get("created_at"), "isoformat") else d.get("created_at", "")),
+        "created_by": d.get("created_by", ""),
+    } for d in docs]
+
+
+@api_router.post("/equipamentos")
+async def create_equipamento(body: EquipamentoBody, current_user: dict = Depends(get_current_user)):
+    doc = body.model_dump()
+    doc.update({
+        "user_id": current_user["_id"],
+        "created_at": datetime.now(timezone.utc),
+        "created_by": current_user.get("name", ""),
+        "photos": [],
+    })
+    r = await db.equipamentos.insert_one(doc)
+    return {"id": str(r.inserted_id), **body.model_dump(), "photos": []}
+
+
+@api_router.patch("/equipamentos/{equip_id}")
+async def update_equipamento(equip_id: str, body: EquipamentoBody, current_user: dict = Depends(get_current_user)):
+    r = await db.equipamentos.update_one(
+        {"_id": safe_object_id(equip_id), "user_id": current_user["_id"]},
+        {"$set": body.model_dump()},
+    )
+    if r.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Equipamento não encontrado")
+    return {"status": "updated"}
+
+
+@api_router.delete("/equipamentos/{equip_id}")
+async def delete_equipamento(equip_id: str, current_user: dict = Depends(get_current_user)):
+    await db.equipamentos.delete_one({"_id": safe_object_id(equip_id), "user_id": current_user["_id"]})
+    return {"status": "deleted"}
+
+
+@api_router.post("/equipamentos/{equip_id}/photos")
+async def upload_equipamento_photo(
+    equip_id: str,
+    file: UploadFile = File(...),
+    current_user: dict = Depends(get_current_user),
+):
+    equip = await db.equipamentos.find_one({"_id": safe_object_id(equip_id), "user_id": current_user["_id"]})
+    if not equip:
+        raise HTTPException(status_code=404, detail="Equipamento não encontrado")
+    existing = [p for p in (equip.get("photos", []) or []) if not p.get("is_deleted")]
+    if len(existing) >= 3:
+        raise HTTPException(status_code=400, detail="Máximo de 3 fotos por equipamento")
+    content = await file.read()
+    if len(content) > 10 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="Foto maior que 10MB")
+    fname = file.filename or "foto.jpg"
+    ext = (fname.rsplit(".", 1)[-1] or "jpg").lower() if "." in fname else "jpg"
+    path = f"{APP_NAME}/equipamentos/{current_user['_id']}/{uuid.uuid4()}.{ext}"
+    result = await storage_put(path, content, file.content_type or "image/jpeg")
+    photo = {
+        "id": secrets.token_urlsafe(10),
+        "filename": fname,
+        "size": result.get("size", len(content)),
+        "content_type": file.content_type or "image/jpeg",
+        "storage_path": result["path"],
+        "uploaded_at": datetime.now(timezone.utc).isoformat(),
+        "uploaded_by": current_user.get("name", ""),
+        "is_deleted": False,
+    }
+    await db.equipamentos.update_one(
+        {"_id": safe_object_id(equip_id)},
+        {"$push": {"photos": photo}}
+    )
+    return photo
+
+
+@api_router.get("/equipamentos/{equip_id}/photos/{photo_id}")
+async def download_equipamento_photo(equip_id: str, photo_id: str, current_user: dict = Depends(get_current_user)):
+    equip = await db.equipamentos.find_one({"_id": safe_object_id(equip_id), "user_id": current_user["_id"]})
+    if not equip:
+        raise HTTPException(status_code=404, detail="Equipamento não encontrado")
+    photo = next((p for p in (equip.get("photos", []) or []) if p.get("id") == photo_id and not p.get("is_deleted")), None)
+    if not photo:
+        raise HTTPException(status_code=404, detail="Foto não encontrada")
+    data, ct = await storage_get(photo["storage_path"])
+    return Response(content=data, media_type=photo.get("content_type") or ct)
+
+
+@api_router.delete("/equipamentos/{equip_id}/photos/{photo_id}")
+async def delete_equipamento_photo(equip_id: str, photo_id: str, current_user: dict = Depends(get_current_user)):
+    await db.equipamentos.update_one(
+        {"_id": safe_object_id(equip_id), "user_id": current_user["_id"], "photos.id": photo_id},
+        {"$set": {"photos.$.is_deleted": True}}
+    )
+    return {"status": "deleted"}
+
+
 # Material request with PDF attachments
 
 @api_router.post("/projects/{project_id}/attachments")

@@ -40,6 +40,12 @@ Dashboard, **Buscar Obras**, Operacional, Carteira, Programação, Calendário, 
 
 ## Novidades Fev/2026 (Ondas)
 
+- **Fase C + E · KPIs Indisp/Improd + Equipamentos Almoxarifado (iter27)**:
+  - **Indisponibilidade** reescrita: 4 KPIs (`indisp-kpi-total`, `indisp-kpi-motivo`, `indisp-kpi-equipe`, `indisp-kpi-custo` — R$ 800/dia hardcoded para estimativa) + 3 gráficos (barras horizontais por motivo, pizza por equipe, linha temporal). Filtros por período + motivo. Cores por motivo (chuva/frota/segurança etc).
+  - **Improdutividade** reescrita: 4 KPIs em horas (`improd-kpi-total`, `improd-kpi-motivo`, `improd-kpi-equipe`, `improd-kpi-custo` — R$ 100/hora hardcoded) + 3 gráficos idênticos ao acima em escala horária. Tabela agora tem coluna Custo por linha.
+  - **Nova página `/equipamentos`** (`nav-equipamentos`, permission `estoque`) para transformadores, religadores e reguladores de tensão. Backend: `EquipamentoBody` model + endpoints GET/POST/PATCH/DELETE `/api/equipamentos` e `/api/equipamentos/{id}/photos` (POST/GET/DELETE) — usa Emergent Object Storage `storage_put/get`. Máximo de 3 fotos por equipamento (limite validado no backend). Campos: tipo, patrimônio, série, código material, descrição, potência, data fabricação, condição (novo/reforma), fabricante, tensões primária e secundária, notas.
+  - Frontend: `EquipCard` compacto com badges de tipo (cores) + botão fotos (`equip-photos-{id}` mostrando `N/3`). `EquipModal` com toggle tipo + campos organizados em grid. `PhotosModal` com upload direto da câmera (`capture=environment`) + preview + delete. 3 contadores no topo (`equip-counter-{tipo}`). Busca por descrição/patrimônio/série/código.
+
 - **Fase B · Faturamento + Fase D · Relatórios Excel + PDF bug (iter26)**:
   - **Faturamento (esteira)**: novo botão preset `Ciclo 15 → 15` (fechamento mensal Hayah — dia 15 do mês anterior até 15 do atual, auto-calculado pelo dia atual). Data-testid `fat-range-15to15`. Se hoje > dia 15, ciclo pula para 15 atual → 15 do próximo mês. Também adicionado campo de pesquisa `fat-search` (busca por código, nome ou equipe) com filtro cliente que percorre todos os estágios do pipeline. Botão `fat-search-clear` para limpar.
   - **Excel Programação** (`?report_type=programacao`): 18 colunas incluindo "Motivo Cancelamento/Suspensão" (preenche o `cancel_reason` para obras cancelado/suspenso, "-" caso contrário), "Desligamento" (shutdown_info) e "Observações Gerais" (notes). Reordenado para começar com Código.

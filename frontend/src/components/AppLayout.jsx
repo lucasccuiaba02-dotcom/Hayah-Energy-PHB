@@ -26,6 +26,7 @@ import {
   ChevronDown,
   Settings,
   FolderOpen,
+  Zap,
 } from 'lucide-react';
 
 const navItems = [
@@ -42,6 +43,7 @@ const navItems = [
   { to: '/relatorios', icon: FileSpreadsheet, label: 'Relatórios', testid: 'nav-relatorios', perm: 'relatorios' },
   { to: '/equipes', icon: Users, label: 'Equipes', testid: 'nav-equipes', perm: 'equipes' },
   { to: '/estoque', icon: Package, label: 'Estoque', testid: 'nav-estoque', perm: 'estoque' },
+  { to: '/equipamentos', icon: Zap, label: 'Equipamentos', testid: 'nav-equipamentos', perm: 'estoque' },
   { to: '/documentos', icon: FolderOpen, label: 'Documentos', testid: 'nav-documentos', perm: 'documentos' },
   { to: '/configuracoes', icon: Settings, label: 'Configurações', testid: 'nav-configuracoes', perm: 'settings' },
   { to: '/indisponibilidade', icon: CalendarX, label: 'Indisponibilidade', testid: 'nav-indisponibilidade', perm: 'programacao' },

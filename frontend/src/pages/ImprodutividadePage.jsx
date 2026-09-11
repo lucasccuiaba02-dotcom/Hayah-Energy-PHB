@@ -1,13 +1,65 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import axios from 'axios';
 import { toast } from 'sonner';
 import { motion } from 'framer-motion';
-import { Plus, X, TrendingDown, Filter } from 'lucide-react';
+import {
+  Plus, X, TrendingDown, Filter, DollarSign, AlertCircle, Users, Clock,
+} from 'lucide-react';
+import {
+  ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Cell,
+  PieChart, Pie, LineChart, Line, Legend,
+} from 'recharts';
 import { AppLayout } from '../components/AppLayout';
 import { IMPRODUTIVIDADE_REASONS, IMPRODUTIVIDADE_REASON_LABEL, todayISO } from '../lib/constants';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
+
+// R$ 100/hora (equipe + veículo) — ajustável quando integrar RH
+const COST_PER_HOUR_LOST = 100;
+
+const REASON_COLOR = {
+  chuva: '#00F0FF',
+  falta_material: '#FF5E00',
+  falta_equipe: '#FF003C',
+  quebra_equipamento: '#B4009E',
+  espera_desligamento: '#E0FF00',
+  acesso_bloqueado: '#FFB800',
+  acidente: '#FF003C',
+  retrabalho: '#94A3B8',
+  outro: '#94A3B8',
+};
+
+const fmtBR = (n) => Number(n || 0).toLocaleString('pt-BR', { maximumFractionDigits: 1 });
+const fmtCurrency = (n) => `R$ ${Number(n || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+const KpiCard = ({ icon: Icon, label, value, hint, color = '#E0FF00', testid }) => (
+  <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} data-testid={testid}
+    className="glass-panel rounded-2xl p-4 border" style={{ borderColor: `${color}30` }}>
+    <div className="flex items-center gap-2 mb-2">
+      <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ backgroundColor: `${color}15`, border: `1px solid ${color}40` }}>
+        <Icon className="w-4 h-4" style={{ color }} />
+      </div>
+      <p className="text-[10px] tracking-[0.22em] uppercase font-bold text-zinc-500">{label}</p>
+    </div>
+    <p className="font-mono text-2xl font-black text-white leading-none">{value}</p>
+    {hint && <p className="text-[11px] text-zinc-500 mt-1">{hint}</p>}
+  </motion.div>
+);
+
+const CustomTooltip = ({ active, payload, label }) => {
+  if (!active || !payload || !payload.length) return null;
+  return (
+    <div className="rounded-lg p-3 border border-white/20" style={{ background: '#09090b' }}>
+      <p className="text-white text-sm font-bold mb-1">{label}</p>
+      {payload.map((e, i) => (
+        <p key={i} className="text-xs font-mono" style={{ color: e.color }}>
+          {e.name}: {typeof e.value === 'number' ? fmtBR(e.value) : e.value}
+        </p>
+      ))}
+    </div>
+  );
+};
 
 export const ImprodutividadePage = () => {
   const [teams, setTeams] = useState([]);
@@ -22,15 +74,20 @@ export const ImprodutividadePage = () => {
   const [filterReason, setFilterReason] = useState('');
 
   const load = async () => {
-    const params = new URLSearchParams();
-    if (filterStart) params.append('start', filterStart);
-    if (filterEnd) params.append('end', filterEnd);
-    const [t, u] = await Promise.all([
-      axios.get(`${API}/teams`),
-      axios.get(`${API}/team-unproductivity?${params.toString()}`),
-    ]);
-    setTeams(t.data);
-    setItems(u.data);
+    try {
+      const params = new URLSearchParams();
+      if (filterStart) params.append('start', filterStart);
+      if (filterEnd) params.append('end', filterEnd);
+      const [t, u] = await Promise.all([
+        axios.get(`${API}/teams`),
+        axios.get(`${API}/team-unproductivity?${params.toString()}`),
+      ]);
+      setTeams(t.data);
+      setItems(u.data);
+    } catch (err) {
+      console.error('improd load', err);
+      toast.error('Erro ao carregar');
+    }
   };
 
   useEffect(() => { load(); }, [filterStart, filterEnd]);
@@ -45,24 +102,83 @@ export const ImprodutividadePage = () => {
       toast.success('Improdutividade registrada');
       setNotes(''); setHoursLost('');
       load();
-    } catch { toast.error('Erro ao registrar'); }
+    } catch (err) {
+      console.error('improd add', err);
+      toast.error('Erro ao registrar');
+    }
   };
 
   const remove = async (id) => {
     if (!window.confirm('Remover este registro?')) return;
-    await axios.delete(`${API}/team-unproductivity/${id}`);
-    toast.info('Removido');
-    load();
+    try {
+      await axios.delete(`${API}/team-unproductivity/${id}`);
+      toast.info('Removido');
+      load();
+    } catch (err) {
+      console.error('improd remove', err);
+    }
   };
 
-  const filtered = items.filter((it) => !filterReason || it.reason === filterReason);
-  const totalHours = filtered.reduce((s, i) => s + (i.hours_lost || 0), 0);
+  const filtered = useMemo(() => items.filter((it) => !filterReason || it.reason === filterReason), [items, filterReason]);
+  const totalHours = useMemo(() => filtered.reduce((s, i) => s + (i.hours_lost || 0), 0), [filtered]);
+
+  // KPIs
+  const kpis = useMemo(() => {
+    const total_hours = totalHours;
+    const byReason = {};
+    const byTeam = {};
+    filtered.forEach((it) => {
+      byReason[it.reason] = (byReason[it.reason] || 0) + (it.hours_lost || 0);
+      const tname = it.team_name || '—';
+      byTeam[tname] = (byTeam[tname] || 0) + (it.hours_lost || 0);
+    });
+    const topReason = Object.keys(byReason).sort((a, b) => byReason[b] - byReason[a])[0];
+    const topTeam = Object.keys(byTeam).sort((a, b) => byTeam[b] - byTeam[a])[0];
+    return {
+      total_hours,
+      top_reason: topReason ? { key: topReason, label: IMPRODUTIVIDADE_REASON_LABEL[topReason] || topReason, hours: byReason[topReason] } : null,
+      top_team: topTeam ? { name: topTeam, hours: byTeam[topTeam] } : null,
+      cost_estimate: total_hours * COST_PER_HOUR_LOST,
+    };
+  }, [filtered, totalHours]);
+
+  const byReasonData = useMemo(() => {
+    const g = {};
+    filtered.forEach((it) => { g[it.reason] = (g[it.reason] || 0) + (it.hours_lost || 0); });
+    return Object.keys(g).map((k) => ({
+      motivo: IMPRODUTIVIDADE_REASON_LABEL[k] || k,
+      horas: parseFloat(g[k].toFixed(1)),
+      color: REASON_COLOR[k] || '#94A3B8',
+    })).sort((a, b) => b.horas - a.horas);
+  }, [filtered]);
+
+  const byTeamPie = useMemo(() => {
+    const g = {};
+    filtered.forEach((it) => {
+      const t = it.team_name || '—';
+      g[t] = (g[t] || 0) + (it.hours_lost || 0);
+    });
+    const colors = ['#00F0FF', '#39FF14', '#E0FF00', '#FF5E00', '#FF003C', '#B4009E', '#FFB800', '#00A050'];
+    return Object.keys(g).map((k, i) => ({ name: k, value: parseFloat(g[k].toFixed(1)), color: colors[i % colors.length] }));
+  }, [filtered]);
+
+  const timelineData = useMemo(() => {
+    const g = {};
+    filtered.forEach((it) => { g[it.date] = (g[it.date] || 0) + (it.hours_lost || 0); });
+    return Object.keys(g).sort().map((d) => ({ data: d.slice(5), horas: parseFloat(g[d].toFixed(1)) }));
+  }, [filtered]);
 
   return (
-    <AppLayout
-      title="Improdutividade"
-      subtitle="Registre e visualize horas perdidas por motivos operacionais"
-    >
+    <AppLayout title="Improdutividade" subtitle="Registre e visualize horas perdidas por motivos operacionais">
+      {/* KPIs */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+        <KpiCard testid="improd-kpi-total" icon={Clock} label="Total horas perdidas" value={`${fmtBR(kpis.total_hours)}h`} hint={`${filtered.length} ocorrências`} color="#FF5E00" />
+        <KpiCard testid="improd-kpi-motivo" icon={AlertCircle} label="Top motivo" value={kpis.top_reason ? kpis.top_reason.label : '—'} hint={kpis.top_reason ? `${fmtBR(kpis.top_reason.hours)}h` : 'sem dados'} color="#FF003C" />
+        <KpiCard testid="improd-kpi-equipe" icon={Users} label="Top equipe afetada" value={kpis.top_team ? kpis.top_team.name : '—'} hint={kpis.top_team ? `${fmtBR(kpis.top_team.hours)}h` : 'sem dados'} color="#00F0FF" />
+        <KpiCard testid="improd-kpi-custo" icon={DollarSign} label="Custo estimado" value={fmtCurrency(kpis.cost_estimate)} hint={`${fmtCurrency(COST_PER_HOUR_LOST)}/h`} color="#E0FF00" />
+      </div>
+
+      {/* Form */}
       <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="glass-panel rounded-2xl p-4 mb-4">
         <div className="flex flex-wrap items-end gap-3">
           <div>
@@ -96,6 +212,7 @@ export const ImprodutividadePage = () => {
         </div>
       </motion.div>
 
+      {/* Filtros */}
       <div className="glass-panel rounded-2xl p-3 mb-4 flex flex-wrap items-center gap-3">
         <Filter className="w-4 h-4 text-[#E0FF00]" />
         <span className="text-[10px] tracking-[0.2em] uppercase font-bold text-zinc-500">Filtros</span>
@@ -108,10 +225,61 @@ export const ImprodutividadePage = () => {
         </select>
         <div className="ml-auto text-[11px] text-zinc-400">
           <span className="text-[#FF5E00] font-bold">{filtered.length}</span> registros ·
-          <span className="text-white font-bold ml-2">{totalHours.toFixed(1)}h</span> perdidas
+          <span className="text-white font-bold ml-2">{fmtBR(totalHours)}h</span> perdidas
         </div>
       </div>
 
+      {/* Gráficos */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 mb-4">
+        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="glass-panel rounded-2xl p-4" data-testid="improd-chart-motivo">
+          <p className="text-xs tracking-[0.2em] uppercase font-bold text-zinc-500 mb-3">Horas Perdidas por Motivo</p>
+          {byReasonData.length === 0 ? <p className="text-center text-zinc-500 py-10 text-sm">Sem dados</p> : (
+            <ResponsiveContainer width="100%" height={260}>
+              <BarChart data={byReasonData} layout="vertical" margin={{ top: 5, right: 20, left: 5, bottom: 5 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
+                <XAxis type="number" stroke="#71717a" style={{ fontSize: '11px' }} />
+                <YAxis dataKey="motivo" type="category" stroke="#71717a" style={{ fontSize: '11px' }} width={140} />
+                <Tooltip content={<CustomTooltip />} cursor={{ fill: 'rgba(255,255,255,0.03)' }} />
+                <Bar dataKey="horas" radius={[0, 4, 4, 0]}>
+                  {byReasonData.map((entry, i) => <Cell key={i} fill={entry.color} />)}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          )}
+        </motion.div>
+
+        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="glass-panel rounded-2xl p-4" data-testid="improd-chart-equipe">
+          <p className="text-xs tracking-[0.2em] uppercase font-bold text-zinc-500 mb-3">Distribuição por Equipe (horas)</p>
+          {byTeamPie.length === 0 ? <p className="text-center text-zinc-500 py-10 text-sm">Sem dados</p> : (
+            <ResponsiveContainer width="100%" height={260}>
+              <PieChart>
+                <Pie data={byTeamPie} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius={50} outerRadius={90} paddingAngle={2}>
+                  {byTeamPie.map((entry, i) => <Cell key={i} fill={entry.color} />)}
+                </Pie>
+                <Legend wrapperStyle={{ fontSize: 11, color: '#a1a1aa' }} />
+                <Tooltip content={<CustomTooltip />} />
+              </PieChart>
+            </ResponsiveContainer>
+          )}
+        </motion.div>
+
+        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="glass-panel rounded-2xl p-4 lg:col-span-2" data-testid="improd-chart-timeline">
+          <p className="text-xs tracking-[0.2em] uppercase font-bold text-zinc-500 mb-3">Evolução de Horas no Tempo</p>
+          {timelineData.length === 0 ? <p className="text-center text-zinc-500 py-10 text-sm">Sem dados</p> : (
+            <ResponsiveContainer width="100%" height={220}>
+              <LineChart data={timelineData}>
+                <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
+                <XAxis dataKey="data" stroke="#71717a" style={{ fontSize: '11px' }} />
+                <YAxis stroke="#71717a" style={{ fontSize: '11px' }} />
+                <Tooltip content={<CustomTooltip />} />
+                <Line type="monotone" dataKey="horas" name="Horas perdidas" stroke="#FF5E00" strokeWidth={2} dot={{ fill: '#FF5E00', r: 3 }} />
+              </LineChart>
+            </ResponsiveContainer>
+          )}
+        </motion.div>
+      </div>
+
+      {/* Tabela */}
       <div className="glass-panel rounded-2xl overflow-hidden" data-testid="improd-list">
         {filtered.length === 0 ? (
           <p className="text-center text-zinc-500 py-10 text-sm">Nenhum registro no período selecionado.</p>
@@ -123,6 +291,7 @@ export const ImprodutividadePage = () => {
                 <th className="text-left px-4 py-2">Equipe</th>
                 <th className="text-left px-4 py-2">Motivo</th>
                 <th className="text-right px-4 py-2">Horas</th>
+                <th className="text-right px-4 py-2">Custo</th>
                 <th className="text-left px-4 py-2">Observação</th>
                 <th className="px-4 py-2"></th>
               </tr>
@@ -133,11 +302,13 @@ export const ImprodutividadePage = () => {
                   <td className="px-4 py-2 font-mono text-xs text-white">{it.date}</td>
                   <td className="px-4 py-2 text-white">{it.team_name || '—'}</td>
                   <td className="px-4 py-2">
-                    <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-[#FF5E00]/15 text-[#FF5E00] border border-[#FF5E00]/30">
+                    <span className="px-2 py-0.5 rounded-full text-[10px] font-bold border"
+                          style={{ background: `${REASON_COLOR[it.reason] || '#94A3B8'}20`, borderColor: `${REASON_COLOR[it.reason] || '#94A3B8'}60`, color: REASON_COLOR[it.reason] || '#94A3B8' }}>
                       {IMPRODUTIVIDADE_REASON_LABEL[it.reason] || it.reason}
                     </span>
                   </td>
                   <td className="px-4 py-2 text-right font-mono text-sm text-white">{(it.hours_lost || 0).toFixed(1)}h</td>
+                  <td className="px-4 py-2 text-right font-mono text-[11px] text-[#E0FF00]">{fmtCurrency((it.hours_lost || 0) * COST_PER_HOUR_LOST)}</td>
                   <td className="px-4 py-2 text-zinc-400 text-xs">{it.notes || '—'}</td>
                   <td className="px-4 py-2 text-right">
                     <button data-testid={`improd-delete-${it.id}`} onClick={() => remove(it.id)} className="w-7 h-7 rounded-md bg-white/5 hover:bg-[#FF003C]/20 flex items-center justify-center text-zinc-500 hover:text-[#FF003C]">
