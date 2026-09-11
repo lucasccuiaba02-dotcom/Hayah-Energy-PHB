@@ -40,6 +40,9 @@ Dashboard, **Buscar Obras**, Operacional, Carteira, Programação, Calendário, 
 
 ## Novidades Fev/2026 (Ondas)
 
+- **Fase E-3 · Painel Equipamentos Fixos no Estoque (iter28)**:
+  Nova seção `data-testid="equipamentos-panel"` na página `/estoque` (entre KPIs e Toolbar). Mostra 3 cards coloridos (transformador amarelo, religador ciano, regulador de tensão laranja) com contador total + breakdown novo/reforma cada. Clicando em cada card navega para `/equipamentos?tipo={tipo}`. Botão "Ver todos" (`equipamentos-panel-open`) leva à página completa. Fetch automático via `GET /api/equipamentos` no mount.
+
 - **Fase C + E · KPIs Indisp/Improd + Equipamentos Almoxarifado (iter27)**:
   - **Indisponibilidade** reescrita: 4 KPIs (`indisp-kpi-total`, `indisp-kpi-motivo`, `indisp-kpi-equipe`, `indisp-kpi-custo` — R$ 800/dia hardcoded para estimativa) + 3 gráficos (barras horizontais por motivo, pizza por equipe, linha temporal). Filtros por período + motivo. Cores por motivo (chuva/frota/segurança etc).
   - **Improdutividade** reescrita: 4 KPIs em horas (`improd-kpi-total`, `improd-kpi-motivo`, `improd-kpi-equipe`, `improd-kpi-custo` — R$ 100/hora hardcoded) + 3 gráficos idênticos ao acima em escala horária. Tabela agora tem coluna Custo por linha.

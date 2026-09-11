@@ -5,10 +5,11 @@ import { toast } from 'sonner';
 import {
   Package, DollarSign, Target, AlertTriangle, TrendingDown, TrendingUp,
   Search, Filter, Upload, Download, Plus, Edit3, Trash2, X, Save,
-  CircleAlert, CheckCircle2, FileSpreadsheet, RefreshCw, Layers,
+  CircleAlert, CheckCircle2, FileSpreadsheet, RefreshCw, Layers, Zap, ChevronRight,
 } from 'lucide-react';
 import { AppLayout } from '../components/AppLayout';
 import { MATERIAL_UNITS, formatCurrency } from '../lib/constants';
+import { useNavigate } from 'react-router-dom';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -239,6 +240,7 @@ const ImportModal = ({ open, onClose, onDone }) => {
 };
 
 export const EstoquePage = () => {
+  const navigate = useNavigate();
   const [items, setItems] = useState([]);
   const [kpis, setKpis] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -252,6 +254,7 @@ export const EstoquePage = () => {
   const [editing, setEditing] = useState(null);
   const [importOpen, setImportOpen] = useState(false);
   const [groupBy, setGroupBy] = useState('none'); // 'none' | 'family' | 'group'
+  const [equipamentos, setEquipamentos] = useState([]);
 
   const load = async () => {
     setLoading(true);
@@ -276,6 +279,26 @@ export const EstoquePage = () => {
     } finally { setLoading(false); }
   };
   useEffect(() => { load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [q, family, group, lowStock, divergent]);
+
+  // Fev/2026 · Equipamentos Fixos (transformadores, religadores, reguladores)
+  useEffect(() => {
+    axios.get(`${API}/equipamentos`).then(({ data }) => setEquipamentos(data || [])).catch(() => {});
+  }, []);
+
+  const equipCounters = useMemo(() => {
+    const c = {
+      transformador: { total: 0, novo: 0, reforma: 0 },
+      religador: { total: 0, novo: 0, reforma: 0 },
+      regulador_tensao: { total: 0, novo: 0, reforma: 0 },
+    };
+    equipamentos.forEach((e) => {
+      const t = c[e.tipo];
+      if (!t) return;
+      t.total += 1;
+      if (e.condicao === 'reforma') t.reforma += 1; else t.novo += 1;
+    });
+    return c;
+  }, [equipamentos]);
 
   const grouped = useMemo(() => {
     if (groupBy === 'none') return { '': items };
@@ -359,6 +382,65 @@ export const EstoquePage = () => {
           onClick={() => setLowStock(true)}
         />
       </div>
+
+      {/* Fev/2026 · Painel Equipamentos Fixos */}
+      <motion.div
+        initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
+        data-testid="equipamentos-panel"
+        className="glass-panel rounded-2xl p-4 mb-6 border border-[#E0FF00]/20"
+      >
+        <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+          <div className="flex items-center gap-2">
+            <div className="w-8 h-8 rounded-lg bg-[#E0FF00]/15 border border-[#E0FF00]/40 flex items-center justify-center">
+              <Zap className="w-4 h-4 text-[#E0FF00]" />
+            </div>
+            <div>
+              <p className="text-[10px] tracking-[0.22em] uppercase font-bold text-zinc-500">Equipamentos Fixos</p>
+              <p className="text-white font-bold text-sm">
+                {equipamentos.length} equipamento{equipamentos.length !== 1 ? 's' : ''} cadastrado{equipamentos.length !== 1 ? 's' : ''}
+              </p>
+            </div>
+          </div>
+          <button
+            data-testid="equipamentos-panel-open"
+            onClick={() => navigate('/equipamentos')}
+            className="inline-flex items-center gap-1 text-[11px] font-bold text-black bg-[#E0FF00] hover:bg-[#C8E600] px-4 py-1.5 rounded-full"
+          >
+            Ver todos <ChevronRight className="w-3 h-3" />
+          </button>
+        </div>
+        <div className="grid grid-cols-3 gap-2">
+          {[
+            { key: 'transformador', label: 'Transformadores', color: '#E0FF00' },
+            { key: 'religador', label: 'Religadores', color: '#00F0FF' },
+            { key: 'regulador_tensao', label: 'Reguladores de Tensão', color: '#FF5E00' },
+          ].map((t) => {
+            const c = equipCounters[t.key];
+            return (
+              <button
+                key={t.key}
+                data-testid={`equipamentos-panel-${t.key}`}
+                onClick={() => navigate(`/equipamentos?tipo=${t.key}`)}
+                className="text-left rounded-lg p-3 border transition hover:bg-white/[0.03]"
+                style={{ borderColor: `${t.color}30`, background: `${t.color}05` }}
+              >
+                <p className="text-[10px] uppercase tracking-widest font-bold" style={{ color: t.color }}>{t.label}</p>
+                <p className="font-mono text-2xl font-black text-white leading-none mt-1">{c.total}</p>
+                <div className="flex items-center gap-2 mt-2 text-[10px]">
+                  <span className="text-[#39FF14] font-mono">
+                    <span className="inline-block w-1.5 h-1.5 rounded-full bg-[#39FF14] mr-1"></span>
+                    {c.novo} novo{c.novo !== 1 ? 's' : ''}
+                  </span>
+                  <span className="text-[#FFB800] font-mono">
+                    <span className="inline-block w-1.5 h-1.5 rounded-full bg-[#FFB800] mr-1"></span>
+                    {c.reforma} reforma{c.reforma !== 1 ? 's' : ''}
+                  </span>
+                </div>
+              </button>
+            );
+          })}
+        </div>
+      </motion.div>
 
       {/* Toolbar */}
       <div className="glass-panel rounded-2xl p-4 mb-4">
