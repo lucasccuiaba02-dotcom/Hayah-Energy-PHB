@@ -91,12 +91,22 @@ def build_requisition_pdf(project: dict, signature_name: str, notes: str, requis
             qbx = float(m.get("qty_written_off", 0) or 0)
             qent = float(m.get("qty_delivered", 0) or 0)
             tot_s += qs; tot_sep += qsep; tot_bx += qbx; tot_ent += qent
-            rows.append([
-                Paragraph(str(m.get("code", "") or "-"), styles["Small"]),
-                Paragraph(str(m.get("item", "")), styles["Small"]),
-                (m.get("unit", "un") or "un").upper(),
-                f"{qs:g}", f"{qsep:g}", f"{qbx:g}", f"{qent:g}",
-            ])
+        # Material (linha 96): descrição robusta — aceita vários nomes de campo
+        desc = (
+            m.get("description")
+            or m.get("descricao")
+            or m.get("item")
+            or m.get("name")
+            or m.get("material_name")
+            or "—"
+        )
+        code_val = m.get("code") or m.get("codigo") or m.get("code_material") or "—"
+        rows.append([
+            Paragraph(str(code_val), styles["Small"]),
+            Paragraph(str(desc), styles["Small"]),
+            (m.get("unit", "un") or "un").upper(),
+            f"{qs:g}", f"{qsep:g}", f"{qbx:g}", f"{qent:g}",
+        ])
         rows.append(["", "TOTAIS", "", f"{tot_s:g}", f"{tot_sep:g}", f"{tot_bx:g}", f"{tot_ent:g}"])
 
         mat_tbl = Table(rows, colWidths=[22 * mm, 55 * mm, 12 * mm, 22 * mm, 20 * mm, 20 * mm, 22 * mm])

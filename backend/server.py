@@ -1978,11 +1978,29 @@ async def export_excel(
     ws = wb.active
     ws.title = report_type.capitalize()
     
-    headers = [
-        "Nome", "Tipo", "Equipe", "Localidade", "Início", "Fim",
-        "Valor Programado", "Mão de Obra", "Material", "Prod. Realizada",
-        "Faturamento", "Status Execução", "Material", "Linha Viva", "Desligamento", "Prioridade"
-    ]
+    # Fev/2026 · colunas dinâmicas por tipo de relatório
+    if report_type == "carteira":
+        # Carteira: incluir Data Recebimento e Data Vencimento explicitamente
+        headers = [
+            "Código", "Nome", "Tipo", "Equipe", "Localidade",
+            "Data Recebimento", "Início Programado", "Data Vencimento (Fim)",
+            "Valor Programado", "Prod. Realizada", "Faturamento",
+            "Status Execução", "Status Faturamento", "Material", "Prioridade", "Observações",
+        ]
+    elif report_type == "programacao":
+        # Programação: incluir Observações (motivo cancelamento / suspensão / desligamento)
+        headers = [
+            "Código", "Nome", "Tipo", "Equipe", "Localidade", "Início", "Fim",
+            "Valor Programado", "Meta Diária", "Prod. Realizada", "Faturamento",
+            "Status Execução", "Motivo Cancelamento/Suspensão", "Desligamento",
+            "Material", "Linha Viva", "Prioridade", "Observações Gerais",
+        ]
+    else:
+        headers = [
+            "Nome", "Tipo", "Equipe", "Localidade", "Início", "Fim",
+            "Valor Programado", "Mão de Obra", "Material", "Prod. Realizada",
+            "Faturamento", "Status Execução", "Material", "Linha Viva", "Desligamento", "Prioridade"
+        ]
     ws.append(headers)
     header_fill = PatternFill(start_color="000000", end_color="000000", fill_type="solid")
     header_font = Font(bold=True, color="E0FF00")
@@ -1992,24 +2010,76 @@ async def export_excel(
         cell.alignment = Alignment(horizontal="center")
     
     for p in projects:
-        ws.append([
-            p.get("name", ""),
-            PROJECT_TYPE_LABELS.get(p.get("project_type"), p.get("project_type", "")),
-            p.get("team_name", "") or "-",
-            p.get("location", "") or "-",
-            (p.get("start_date") or "")[:10],
-            (p.get("end_date") or "")[:10],
-            p.get("programmed_value", 0),
-            p.get("labor_cost", 0),
-            p.get("material_cost", 0),
-            p.get("actual_value", 0),
-            p.get("billing_value", 0),
-            EXECUTION_STATUS_LABELS.get(p.get("execution_status"), p.get("execution_status", "")),
-            {"complete": "Total", "partial": "Parcial", "pending": "Pendente"}.get(p.get("material_status"), p.get("material_status", "")),
-            "Sim" if p.get("requires_hot_line") else "Não",
-            p.get("shutdown_info", "") or "-",
-            {"high": "Alta", "medium": "Média", "low": "Baixa"}.get(p.get("priority"), p.get("priority", "")),
-        ])
+        exec_lbl = EXECUTION_STATUS_LABELS.get(p.get("execution_status"), p.get("execution_status", ""))
+        material_lbl = {"complete": "Total", "partial": "Parcial", "pending": "Pendente"}.get(p.get("material_status"), p.get("material_status", ""))
+        prio_lbl = {"high": "Alta", "medium": "Média", "low": "Baixa"}.get(p.get("priority"), p.get("priority", ""))
+        cancel_reason = (p.get("cancel_reason") or "").strip()
+        shutdown_info = (p.get("shutdown_info") or "").strip()
+        notes = (p.get("notes") or "").strip()
+        obs_geral = " | ".join([x for x in [cancel_reason, shutdown_info, notes] if x]) or "-"
+
+        if report_type == "carteira":
+            billing_stage_label = p.get("billing_stage", "") or "-"
+            ws.append([
+                p.get("project_code", "") or "-",
+                p.get("name", ""),
+                PROJECT_TYPE_LABELS.get(p.get("project_type"), p.get("project_type", "")),
+                p.get("team_name", "") or "-",
+                p.get("location", "") or "-",
+                (p.get("received_date") or "")[:10] or "-",
+                (p.get("start_date") or "")[:10] or "-",
+                (p.get("end_date") or "")[:10] or "-",
+                p.get("programmed_value", 0),
+                p.get("actual_value", 0),
+                p.get("billing_value", 0),
+                exec_lbl,
+                billing_stage_label,
+                material_lbl,
+                prio_lbl,
+                obs_geral,
+            ])
+        elif report_type == "programacao":
+            # Observação motivo: sai preenchido especialmente para canceladas/suspensas
+            motivo = cancel_reason if p.get("execution_status") in ("cancelado", "suspenso") else "-"
+            ws.append([
+                p.get("project_code", "") or "-",
+                p.get("name", ""),
+                PROJECT_TYPE_LABELS.get(p.get("project_type"), p.get("project_type", "")),
+                p.get("team_name", "") or "-",
+                p.get("location", "") or "-",
+                (p.get("start_date") or "")[:10],
+                (p.get("end_date") or "")[:10],
+                p.get("programmed_value", 0),
+                p.get("daily_goal", 0),
+                p.get("actual_value", 0),
+                p.get("billing_value", 0),
+                exec_lbl,
+                motivo,
+                shutdown_info or "-",
+                material_lbl,
+                "Sim" if p.get("requires_hot_line") else "Não",
+                prio_lbl,
+                notes or "-",
+            ])
+        else:
+            ws.append([
+                p.get("name", ""),
+                PROJECT_TYPE_LABELS.get(p.get("project_type"), p.get("project_type", "")),
+                p.get("team_name", "") or "-",
+                p.get("location", "") or "-",
+                (p.get("start_date") or "")[:10],
+                (p.get("end_date") or "")[:10],
+                p.get("programmed_value", 0),
+                p.get("labor_cost", 0),
+                p.get("material_cost", 0),
+                p.get("actual_value", 0),
+                p.get("billing_value", 0),
+                exec_lbl,
+                material_lbl,
+                "Sim" if p.get("requires_hot_line") else "Não",
+                shutdown_info or "-",
+                prio_lbl,
+            ])
     
     # Auto-size columns
     for col in ws.columns:

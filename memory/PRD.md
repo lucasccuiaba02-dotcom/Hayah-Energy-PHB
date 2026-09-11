@@ -40,6 +40,12 @@ Dashboard, **Buscar Obras**, Operacional, Carteira, Programação, Calendário, 
 
 ## Novidades Fev/2026 (Ondas)
 
+- **Fase B · Faturamento + Fase D · Relatórios Excel + PDF bug (iter26)**:
+  - **Faturamento (esteira)**: novo botão preset `Ciclo 15 → 15` (fechamento mensal Hayah — dia 15 do mês anterior até 15 do atual, auto-calculado pelo dia atual). Data-testid `fat-range-15to15`. Se hoje > dia 15, ciclo pula para 15 atual → 15 do próximo mês. Também adicionado campo de pesquisa `fat-search` (busca por código, nome ou equipe) com filtro cliente que percorre todos os estágios do pipeline. Botão `fat-search-clear` para limpar.
+  - **Excel Programação** (`?report_type=programacao`): 18 colunas incluindo "Motivo Cancelamento/Suspensão" (preenche o `cancel_reason` para obras cancelado/suspenso, "-" caso contrário), "Desligamento" (shutdown_info) e "Observações Gerais" (notes). Reordenado para começar com Código.
+  - **Excel Carteira** (`?report_type=carteira`): 16 colunas incluindo "Data Recebimento" (`received_date`), "Data Vencimento (Fim)" (`end_date`), "Status Faturamento" (billing_stage) e "Observações" (cancel_reason + shutdown + notes concatenados).
+  - **Bug PDF Requisição Material**: campo descrição não aparecia porque o generator lia `m.get("item")` mas o modelo usa `description`. Refactor para fallback robusto: `description → descricao → item → name → material_name`. Idem para código: `code → codigo → code_material`. Sai `—` se todos vazios.
+
 - **Fase A · Bugs P0 (iter25)** — 4 correções de comportamento pedidas pelo gerente:
   1. **Dashboard "Obras vencidas"** agora exclui `cancelado`, `suspenso`, `executada`, `concluido` (era só os 3 primeiros — `suspenso` estava contando errado como vencida). Também `no_prazo` e `vencendo_amanha` recebem o mesmo filtro `INACTIVE_STATUS`.
   2. **Faturamento (esteira) `/api/faturamento/pipeline`** — query passa a filtrar `execution_status not in [cancelado, suspenso]` na origem. Obras como "00943" (canceladas) NÃO aparecem mais na esteira.

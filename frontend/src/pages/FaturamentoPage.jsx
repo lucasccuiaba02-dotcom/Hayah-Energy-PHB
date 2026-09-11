@@ -44,12 +44,40 @@ const dateNDaysAgo = (n) => {
   return d.toISOString().slice(0, 10);
 };
 
+// Ciclo 15 do mês anterior → 15 do mês atual (fechamento mensal Hayah)
+const cycle15To15 = () => {
+  const now = new Date();
+  const day = now.getDate();
+  // Se hoje é <= 15, o ciclo atual é: 15 do mês -1 → 15 do mês atual
+  // Se hoje é > 15, o ciclo atual é: 15 do mês atual → 15 do mês +1
+  let startY, startM, endY, endM;
+  if (day <= 15) {
+    startY = now.getFullYear();
+    startM = now.getMonth() - 1;
+    if (startM < 0) { startM = 11; startY -= 1; }
+    endY = now.getFullYear();
+    endM = now.getMonth();
+  } else {
+    startY = now.getFullYear();
+    startM = now.getMonth();
+    endY = now.getFullYear();
+    endM = now.getMonth() + 1;
+    if (endM > 11) { endM = 0; endY += 1; }
+  }
+  const pad = (n) => String(n).padStart(2, '0');
+  return {
+    start: `${startY}-${pad(startM + 1)}-15`,
+    end: `${endY}-${pad(endM + 1)}-15`,
+  };
+};
+
 export const FaturamentoPage = () => {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [range, setRange] = useState('30');
   const [startDate, setStartDate] = useState(dateNDaysAgo(30));
   const [endDate, setEndDate] = useState(todayISO());
+  const [search, setSearch] = useState('');
   const [movingId, setMovingId] = useState(null);
   const [detail, setDetail] = useState(null);
   const [soundOn, setSoundOn] = useState(() => localStorage.getItem('hayah_backlog_sound') !== '0');
@@ -86,6 +114,10 @@ export const FaturamentoPage = () => {
     if (days === 'all') {
       setStartDate('');
       setEndDate('');
+    } else if (days === '15to15') {
+      const c = cycle15To15();
+      setStartDate(c.start);
+      setEndDate(c.end);
     } else {
       setStartDate(dateNDaysAgo(days));
       setEndDate(todayISO());
@@ -132,7 +164,21 @@ export const FaturamentoPage = () => {
   };
 
   const stages = data?.stages || [];
-  const pipeline = data?.pipeline || {};
+  const rawPipeline = data?.pipeline || {};
+  // Fev/2026 · filtro cliente por código/nome
+  const pipeline = useMemo(() => {
+    const q = (search || '').trim().toLowerCase();
+    if (!q) return rawPipeline;
+    const out = {};
+    Object.keys(rawPipeline).forEach((k) => {
+      out[k] = (rawPipeline[k] || []).filter((it) =>
+        (it.project_code || '').toLowerCase().includes(q) ||
+        (it.name || '').toLowerCase().includes(q) ||
+        (it.team_name || '').toLowerCase().includes(q)
+      );
+    });
+    return out;
+  }, [rawPipeline, search]);
   const pipelineRef = useRef(null);
   const [canScrollLeft, setCanScrollLeft] = useState(false);
   const [canScrollRight, setCanScrollRight] = useState(false);
@@ -187,10 +233,18 @@ export const FaturamentoPage = () => {
           <KpiCard testid="fat-kpi-paid" label="Pago" value={formatCurrency(data?.paid_value || 0)} sub="dinheiro em caixa" color="#00A050" icon={DollarSign} />
         </div>
 
-        {/* Filtro por data */}
+        {/* Filtro por data + Ciclo 15→15 + Busca */}
         <div className="glass-panel rounded-2xl p-3 flex items-center gap-2 flex-wrap">
           <Filter className="w-4 h-4 text-[#E0FF00]" />
           <span className="text-[10px] tracking-[0.2em] uppercase font-bold text-zinc-500">Ciclo</span>
+          <button
+            data-testid="fat-range-15to15"
+            onClick={() => applyRangePreset('15to15')}
+            className={`text-[11px] font-bold px-3 py-1.5 rounded-full inline-flex items-center gap-1 ${range === '15to15' ? 'bg-[#39FF14] text-black' : 'bg-[#39FF14]/10 border border-[#39FF14]/40 text-[#39FF14] hover:bg-[#39FF14]/20'}`}
+            title="Ciclo mensal Hayah — dia 15 do mês anterior até 15 do atual"
+          >
+            <Calendar className="w-3 h-3" /> 15 → 15
+          </button>
           {[
             { l: '7d', d: 7 },
             { l: '15d', d: 15 },
@@ -214,6 +268,26 @@ export const FaturamentoPage = () => {
             <span className="text-zinc-500 text-xs">→</span>
             <input data-testid="fat-end" type="date" value={endDate} onChange={(e) => { setEndDate(e.target.value); setRange('custom'); }} className="bg-zinc-950/90 border border-white/10 rounded-lg px-2 py-1 text-xs text-white font-mono" />
           </div>
+        </div>
+
+        {/* Campo de pesquisa por código / nome / equipe */}
+        <div className="mt-2 relative">
+          <input
+            data-testid="fat-search"
+            type="text"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="🔍 Pesquisar por código, nome ou equipe…"
+            className="w-full bg-zinc-950/90 border border-white/10 rounded-lg pl-3 pr-8 py-2 text-sm text-white placeholder:text-zinc-500 focus:border-[#00F0FF] focus:outline-none"
+          />
+          {search && (
+            <button
+              data-testid="fat-search-clear"
+              onClick={() => setSearch('')}
+              className="absolute right-2 top-1/2 -translate-y-1/2 w-6 h-6 rounded-full bg-white/5 hover:bg-white/10 text-zinc-500 hover:text-white text-xs"
+              title="Limpar busca"
+            >✕</button>
+          )}
         </div>
 
         {/* Lead Time indicators (avg days by transition bucket) */}
