@@ -1943,6 +1943,193 @@ async def get_advanced_analytics(current_user: dict = Depends(get_current_user))
         "team_performance": list(team_perf.values()),
     }
 
+
+# Fev/2026 · KPIs executivos para o gerente na aba Análise ===================
+@api_router.get("/analytics/manager-kpis")
+async def manager_kpis(
+    current_user: dict = Depends(get_current_user),
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    team_id: Optional[str] = None,
+):
+    """Agregações executivas para o dashboard gerencial de Análise:
+    - Financeiro: aderência ao programa, ticket médio, % faturado, backlog
+    - Operacional: ativas, concluídas, atrasadas, paradas > 15d
+    - MoM: comparativo mês atual vs mês anterior (produção realizada)
+    - Highlights: melhor/pior equipe (produtividade), tipo mais rentável
+    - Perdas: horas improdutivas + dias de indisponibilidade no período
+    """
+    from datetime import timedelta as _td, datetime as _dt, timezone as _tz
+    from collections import defaultdict as _dd
+    now = _dt.now(_tz.utc)
+    today = now.strftime("%Y-%m-%d")
+
+    # Base project query
+    q: dict = {"user_id": current_user["_id"]}
+    if team_id:
+        q["team_id"] = team_id
+    projects = await db.projects.find(q).to_list(5000)
+
+    def _dstr(v): return (v or "")[:10]
+    def _in_range(iso: str) -> bool:
+        if not iso:
+            return False
+        if start_date and iso < start_date:
+            return False
+        if end_date and iso > end_date:
+            return False
+        return True
+
+    # Se filtro de data foi passado, restringe universo por start_date da obra
+    if start_date or end_date:
+        projects = [p for p in projects if _in_range(_dstr(p.get("start_date")))]
+
+    INACTIVE = ("cancelado", "suspenso")
+    active = [p for p in projects if p.get("execution_status") not in INACTIVE]
+    completed = [p for p in projects if p.get("execution_status") in ("executada", "concluido")]
+    overdue = [p for p in projects if p.get("end_date") and _dstr(p["end_date"]) < today
+               and p.get("execution_status") not in ("executada", "concluido", *INACTIVE)]
+
+    total_programmed = sum(float(p.get("programmed_value") or 0) for p in active)
+    total_actual = sum(float(p.get("actual_value") or 0) for p in active)
+    total_billing = sum(float(p.get("billing_value") or 0) for p in active)
+
+    adherence_pct = round((total_actual / total_programmed) * 100, 1) if total_programmed else 0.0
+    billing_pct = round((total_billing / total_actual) * 100, 1) if total_actual else 0.0
+    completion_pct = round((len(completed) / len(projects)) * 100, 1) if projects else 0.0
+    avg_ticket = round(total_programmed / len(active), 2) if active else 0.0
+
+    # Prazo médio (dias) para concluídas
+    def _days(a, b):
+        try:
+            da = _dt.fromisoformat(_dstr(a))
+            db_ = _dt.fromisoformat(_dstr(b))
+            return max(0, (db_ - da).days)
+        except Exception:
+            return None
+    lead_days_list = []
+    for p in completed:
+        d = _days(p.get("start_date"), p.get("execution_finished_at") or p.get("end_date"))
+        if d is not None:
+            lead_days_list.append(d)
+    avg_lead_days = round(sum(lead_days_list) / len(lead_days_list), 1) if lead_days_list else 0.0
+
+    # Backlog faturamento (parado > 15 dias) — reutiliza scanner existente
+    try:
+        stuck = await _scan_stuck_billing_projects(threshold_days=15)
+        # se team_id filtrar
+        if team_id:
+            stuck = [s for s in stuck if s.get("team_name") and any(t.get("id") == team_id and t.get("name") == s.get("team_name") for t in [])]
+        backlog_count = len(stuck)
+        backlog_value = sum(float(s.get("actual_value") or 0) for s in stuck)
+    except Exception:
+        backlog_count = 0
+        backlog_value = 0.0
+
+    # MoM: produção realizada do mês atual vs mês anterior (start_date)
+    cur_ym = now.strftime("%Y-%m")
+    prev_month = (now.replace(day=1) - _td(days=1))
+    prev_ym = prev_month.strftime("%Y-%m")
+    all_projects = projects if not (start_date or end_date) else await db.projects.find({"user_id": current_user["_id"]}).to_list(5000)
+    cur_actual = sum(float(p.get("actual_value") or 0) for p in all_projects
+                     if _dstr(p.get("start_date")).startswith(cur_ym) and p.get("execution_status") not in INACTIVE)
+    prev_actual = sum(float(p.get("actual_value") or 0) for p in all_projects
+                      if _dstr(p.get("start_date")).startswith(prev_ym) and p.get("execution_status") not in INACTIVE)
+    mom_delta_pct = round(((cur_actual - prev_actual) / prev_actual) * 100, 1) if prev_actual else (100.0 if cur_actual else 0.0)
+
+    # Best/worst team (por produtividade actual/programmed)
+    team_map: dict = _dd(lambda: {"team": "", "programmed": 0.0, "actual": 0.0, "count": 0})
+    for p in active:
+        tn = p.get("team_name") or "Sem equipe"
+        team_map[tn]["team"] = tn
+        team_map[tn]["programmed"] += float(p.get("programmed_value") or 0)
+        team_map[tn]["actual"] += float(p.get("actual_value") or 0)
+        team_map[tn]["count"] += 1
+    teams_ranked = []
+    for t in team_map.values():
+        if t["programmed"] > 0:
+            teams_ranked.append({
+                "name": t["team"],
+                "productivity_pct": round(t["actual"] / t["programmed"] * 100, 1),
+                "actual": t["actual"], "programmed": t["programmed"], "count": t["count"],
+            })
+    teams_ranked.sort(key=lambda x: x["productivity_pct"], reverse=True)
+    best_team = teams_ranked[0] if teams_ranked else None
+    worst_team = teams_ranked[-1] if len(teams_ranked) > 1 else None
+
+    # Tipo mais rentável (por soma de billing_value)
+    type_labels = PROJECT_TYPE_LABELS
+    type_map: dict = _dd(lambda: {"type": "", "billing": 0.0, "actual": 0.0, "count": 0})
+    for p in active:
+        pt = p.get("project_type", "anexo_iv")
+        label = type_labels.get(pt, pt)
+        type_map[label]["type"] = label
+        type_map[label]["billing"] += float(p.get("billing_value") or 0)
+        type_map[label]["actual"] += float(p.get("actual_value") or 0)
+        type_map[label]["count"] += 1
+    types_ranked = sorted(type_map.values(), key=lambda x: x["billing"], reverse=True)
+    top_type = types_ranked[0] if types_ranked and types_ranked[0]["billing"] > 0 else None
+
+    # Perdas (improdutividade + indisponibilidade) no período
+    uq: dict = {"user_id": current_user["_id"]}
+    if start_date or end_date:
+        rng = {}
+        if start_date: rng["$gte"] = start_date
+        if end_date: rng["$lte"] = end_date
+        uq["date"] = rng
+    unprod_docs = await db.team_unproductivity.find(uq).to_list(5000)
+    unavail_docs = await db.team_unavailability.find(uq).to_list(5000)
+    if team_id:
+        unprod_docs = [d for d in unprod_docs if d.get("team_id") == team_id]
+        unavail_docs = [d for d in unavail_docs if d.get("team_id") == team_id]
+    unprod_hours = round(sum(float(d.get("hours_lost") or 0) for d in unprod_docs), 1)
+    unavail_days = len(unavail_docs)
+
+    # Custo estimado das perdas (constantes já usadas nas outras páginas)
+    HOUR_COST = 100.0
+    DAY_COST = 800.0
+    loss_cost = round(unprod_hours * HOUR_COST + unavail_days * DAY_COST, 2)
+
+    return {
+        "financial": {
+            "total_programmed": total_programmed,
+            "total_actual": total_actual,
+            "total_billing": total_billing,
+            "adherence_pct": adherence_pct,        # produção realizada / programado
+            "billing_pct": billing_pct,            # faturado / realizado
+            "avg_ticket": avg_ticket,
+            "backlog_count": backlog_count,
+            "backlog_value": backlog_value,
+        },
+        "operational": {
+            "total": len(projects),
+            "active": len(active),
+            "completed": len(completed),
+            "overdue": len(overdue),
+            "completion_pct": completion_pct,
+            "avg_lead_days": avg_lead_days,
+        },
+        "mom": {
+            "current_month": cur_ym,
+            "previous_month": prev_ym,
+            "current_actual": cur_actual,
+            "previous_actual": prev_actual,
+            "delta_pct": mom_delta_pct,
+        },
+        "highlights": {
+            "best_team": best_team,
+            "worst_team": worst_team,
+            "top_type": top_type,
+            "teams_ranked": teams_ranked,
+        },
+        "losses": {
+            "unproductive_hours": unprod_hours,
+            "unavailable_days": unavail_days,
+            "estimated_cost": loss_cost,
+        },
+    }
+
+
 # Excel export
 from fastapi.responses import StreamingResponse
 

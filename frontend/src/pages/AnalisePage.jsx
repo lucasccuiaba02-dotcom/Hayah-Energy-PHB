@@ -6,6 +6,10 @@ import { ProjectFilters } from '../components/ProjectFilters';
 import { SearchBar } from '../components/SearchBar';
 import { PROJECT_TYPE_LABEL, formatCurrency } from '../lib/constants';
 import {
+  TrendingUp, TrendingDown, Target, Clock, DollarSign, AlertTriangle,
+  CheckCircle2, Zap, Users, Layers, Timer, ArrowUpRight, ArrowDownRight,
+} from 'lucide-react';
+import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
   PieChart, Pie, Cell, Legend, LineChart, Line, ComposedChart, Area, AreaChart,
 } from 'recharts';
@@ -48,6 +52,7 @@ const CustomTooltip = ({ active, payload, label }) => {
 export const AnalisePage = () => {
   const [analytics, setAnalytics] = useState(null);
   const [advanced, setAdvanced] = useState(null);
+  const [managerKpis, setManagerKpis] = useState(null);
   const [teams, setTeams] = useState([]);
   const [filters, setFilters] = useState({ startDate: '', endDate: '', teamId: '', minValue: '', maxValue: '' });
   const [topExpensive, setTopExpensive] = useState([]);
@@ -84,6 +89,7 @@ export const AnalisePage = () => {
     if (filters.endDate) params.append('end_date', filters.endDate);
     if (filters.teamId) params.append('team_id', filters.teamId);
     axios.get(`${API}/analytics/production?${params.toString()}`).then(({ data }) => setAnalytics(data));
+    axios.get(`${API}/analytics/manager-kpis?${params.toString()}`).then(({ data }) => setManagerKpis(data)).catch(() => setManagerKpis(null));
   }, [filters]);
 
   return (
@@ -97,6 +103,139 @@ export const AnalisePage = () => {
         onReset={() => setFilters({ startDate: '', endDate: '', teamId: '', minValue: '', maxValue: '' })}
         showValueFilter={true}
       />
+
+      {/* Executive KPIs (Fev/2026) — visão gerencial no topo */}
+      {managerKpis && (
+        <div data-testid="manager-kpis" className="mb-6 space-y-4">
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+            <KpiCard
+              testid="kpi-adherence"
+              icon={<Target className="w-4 h-4" />}
+              label="Aderência ao Programa"
+              value={`${managerKpis.financial.adherence_pct.toFixed(1)}%`}
+              hint="Produção realizada ÷ programado"
+              color={managerKpis.financial.adherence_pct >= 95 ? '#39FF14' : managerKpis.financial.adherence_pct >= 80 ? '#E0FF00' : '#FF5E00'}
+            />
+            <KpiCard
+              testid="kpi-billing-pct"
+              icon={<DollarSign className="w-4 h-4" />}
+              label="% Faturado"
+              value={`${managerKpis.financial.billing_pct.toFixed(1)}%`}
+              hint="Faturado ÷ realizado"
+              color={managerKpis.financial.billing_pct >= 80 ? '#39FF14' : managerKpis.financial.billing_pct >= 50 ? '#E0FF00' : '#FF5E00'}
+            />
+            <KpiCard
+              testid="kpi-avg-ticket"
+              icon={<Layers className="w-4 h-4" />}
+              label="Ticket Médio"
+              value={formatCurrency(managerKpis.financial.avg_ticket)}
+              hint={`${managerKpis.operational.active} obras ativas`}
+              color="#00F0FF"
+            />
+            <KpiCard
+              testid="kpi-completion"
+              icon={<CheckCircle2 className="w-4 h-4" />}
+              label="Taxa de Conclusão"
+              value={`${managerKpis.operational.completion_pct.toFixed(1)}%`}
+              hint={`${managerKpis.operational.completed}/${managerKpis.operational.total} obras`}
+              color={managerKpis.operational.completion_pct >= 70 ? '#39FF14' : '#E0FF00'}
+            />
+            <KpiCard
+              testid="kpi-lead-days"
+              icon={<Timer className="w-4 h-4" />}
+              label="Prazo Médio"
+              value={`${managerKpis.operational.avg_lead_days.toFixed(0)}d`}
+              hint="Início → conclusão"
+              color="#A855F7"
+            />
+            <KpiCard
+              testid="kpi-mom-delta"
+              icon={managerKpis.mom.delta_pct >= 0 ? <ArrowUpRight className="w-4 h-4" /> : <ArrowDownRight className="w-4 h-4" />}
+              label="Produção MoM"
+              value={`${managerKpis.mom.delta_pct >= 0 ? '+' : ''}${managerKpis.mom.delta_pct.toFixed(1)}%`}
+              hint={`${managerKpis.mom.current_month} vs ${managerKpis.mom.previous_month}`}
+              color={managerKpis.mom.delta_pct >= 0 ? '#39FF14' : '#FF003C'}
+            />
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+            {/* Alertas Operacionais */}
+            <motion.div
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              data-testid="alerts-panel"
+              className="glass-panel rounded-2xl p-5 border border-[#FF003C]/25"
+            >
+              <div className="flex items-center gap-2 mb-3">
+                <AlertTriangle className="w-4 h-4 text-[#FF003C]" />
+                <p className="text-[10px] tracking-[0.2em] uppercase font-bold text-[#FF003C]">Alertas Operacionais</p>
+              </div>
+              <div className="space-y-2.5">
+                <AlertRow
+                  testid="alert-overdue"
+                  label="Obras vencidas"
+                  count={managerKpis.operational.overdue}
+                  color="#FF003C"
+                />
+                <AlertRow
+                  testid="alert-backlog"
+                  label="Paradas no faturamento (>15d)"
+                  count={managerKpis.financial.backlog_count}
+                  extra={managerKpis.financial.backlog_value > 0 && formatCurrency(managerKpis.financial.backlog_value)}
+                  color="#FF5E00"
+                />
+                <AlertRow
+                  testid="alert-losses"
+                  label="Custo de perdas no período"
+                  count={managerKpis.losses.unproductive_hours > 0 || managerKpis.losses.unavailable_days > 0 ? formatCurrency(managerKpis.losses.estimated_cost) : '—'}
+                  extra={`${managerKpis.losses.unproductive_hours}h + ${managerKpis.losses.unavailable_days}d`}
+                  color="#E0FF00"
+                  noBadge
+                />
+              </div>
+            </motion.div>
+
+            {/* Destaques de Performance */}
+            <motion.div
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              data-testid="highlights-panel"
+              className="glass-panel rounded-2xl p-5 border border-[#39FF14]/25 lg:col-span-2"
+            >
+              <div className="flex items-center gap-2 mb-3">
+                <TrendingUp className="w-4 h-4 text-[#39FF14]" />
+                <p className="text-[10px] tracking-[0.2em] uppercase font-bold text-[#39FF14]">Destaques do Período</p>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <HighlightCard
+                  testid="highlight-best-team"
+                  icon={<Users className="w-3.5 h-3.5" />}
+                  label="Melhor Equipe"
+                  primary={managerKpis.highlights.best_team?.name || '—'}
+                  secondary={managerKpis.highlights.best_team ? `${managerKpis.highlights.best_team.productivity_pct}% de aderência` : 'Sem dados'}
+                  color="#39FF14"
+                />
+                <HighlightCard
+                  testid="highlight-worst-team"
+                  icon={<TrendingDown className="w-3.5 h-3.5" />}
+                  label="Precisa Atenção"
+                  primary={managerKpis.highlights.worst_team?.name || '—'}
+                  secondary={managerKpis.highlights.worst_team ? `${managerKpis.highlights.worst_team.productivity_pct}% de aderência` : 'Sem dados'}
+                  color="#FF5E00"
+                />
+                <HighlightCard
+                  testid="highlight-top-type"
+                  icon={<Zap className="w-3.5 h-3.5" />}
+                  label="Tipo Mais Rentável"
+                  primary={managerKpis.highlights.top_type?.type || '—'}
+                  secondary={managerKpis.highlights.top_type ? `${formatCurrency(managerKpis.highlights.top_type.billing)} faturado` : 'Sem dados'}
+                  color="#E0FF00"
+                />
+              </div>
+            </motion.div>
+          </div>
+        </div>
+      )}
 
       {/* Monthly Production */}
       <motion.div
@@ -369,3 +508,61 @@ export const AnalisePage = () => {
     </AppLayout>
   );
 };
+
+// ─── Componentes auxiliares dos KPIs executivos ───────────────────────────────
+const KpiCard = ({ testid, icon, label, value, hint, color }) => (
+  <motion.div
+    initial={{ opacity: 0, y: 6 }}
+    animate={{ opacity: 1, y: 0 }}
+    data-testid={testid}
+    className="glass-panel rounded-2xl p-4 border border-white/10 hover:border-white/20 transition-all"
+  >
+    <div className="flex items-center gap-2 mb-2">
+      <div
+        className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0"
+        style={{ backgroundColor: `${color}15`, color, border: `1px solid ${color}40` }}
+      >
+        {icon}
+      </div>
+      <p className="text-[9px] tracking-[0.2em] uppercase font-bold text-zinc-500 truncate">{label}</p>
+    </div>
+    <p className="font-heading font-black text-2xl tracking-tighter leading-none mb-1" style={{ color }}>
+      {value}
+    </p>
+    {hint && <p className="text-[10px] text-zinc-500 truncate">{hint}</p>}
+  </motion.div>
+);
+
+const AlertRow = ({ testid, label, count, extra, color, noBadge }) => (
+  <div data-testid={testid} className="flex items-center justify-between gap-3">
+    <div className="flex-1 min-w-0">
+      <p className="text-xs text-zinc-300 truncate">{label}</p>
+      {extra && <p className="text-[10px] font-mono text-zinc-500">{extra}</p>}
+    </div>
+    {noBadge ? (
+      <span className="font-mono font-bold text-lg" style={{ color }}>{count}</span>
+    ) : (
+      <span
+        className="font-mono font-black text-xl px-3 py-1 rounded-lg min-w-[3rem] text-center"
+        style={{ color, backgroundColor: `${color}15`, border: `1px solid ${color}40` }}
+      >
+        {count}
+      </span>
+    )}
+  </div>
+);
+
+const HighlightCard = ({ testid, icon, label, primary, secondary, color }) => (
+  <div
+    data-testid={testid}
+    className="rounded-xl p-3 border transition-all"
+    style={{ backgroundColor: `${color}08`, borderColor: `${color}30` }}
+  >
+    <div className="flex items-center gap-1.5 mb-1.5" style={{ color }}>
+      {icon}
+      <p className="text-[9px] tracking-[0.2em] uppercase font-bold">{label}</p>
+    </div>
+    <p className="text-white font-bold text-sm truncate mb-0.5" title={primary}>{primary}</p>
+    <p className="text-[10px] text-zinc-400">{secondary}</p>
+  </div>
+);
