@@ -21,6 +21,8 @@ import base64
 import uuid
 import io
 import httpx
+from PIL import Image, ImageDraw, ImageFont
+from zoneinfo import ZoneInfo
 
 from push_notifications import ensure_vapid_keys, broadcast_push
 from daily_log_pdf import build_daily_log_pdf
@@ -3179,18 +3181,25 @@ async def upload_equipamento_photo(
     content = await file.read()
     if len(content) > 10 * 1024 * 1024:
         raise HTTPException(status_code=400, detail="Foto maior que 10MB")
+
+    # Fev/2026 · watermark automático com patrimônio + data/hora Cuiabá
+    patrimonio = (equip.get("patrimonio") or "").strip() or "SEM PATRIMÔNIO"
+    tipo_lbl = {"transformador": "TRAFO", "religador": "REL", "regulador_tensao": "REG"}.get(equip.get("tipo", ""), "EQUIP")
+    watermarked_bytes, out_ct = _apply_photo_watermark(content, file.content_type or "image/jpeg", patrimonio, tipo_lbl)
+
     fname = file.filename or "foto.jpg"
-    ext = (fname.rsplit(".", 1)[-1] or "jpg").lower() if "." in fname else "jpg"
+    ext = "jpg"  # sempre JPEG após watermark
     path = f"{APP_NAME}/equipamentos/{current_user['_id']}/{uuid.uuid4()}.{ext}"
-    result = await storage_put(path, content, file.content_type or "image/jpeg")
+    result = await storage_put(path, watermarked_bytes, out_ct)
     photo = {
         "id": secrets.token_urlsafe(10),
         "filename": fname,
-        "size": result.get("size", len(content)),
-        "content_type": file.content_type or "image/jpeg",
+        "size": result.get("size", len(watermarked_bytes)),
+        "content_type": out_ct,
         "storage_path": result["path"],
         "uploaded_at": datetime.now(timezone.utc).isoformat(),
         "uploaded_by": current_user.get("name", ""),
+        "watermark": {"patrimonio": patrimonio, "tipo": tipo_lbl},
         "is_deleted": False,
     }
     await db.equipamentos.update_one(
@@ -3198,6 +3207,69 @@ async def upload_equipamento_photo(
         {"$push": {"photos": photo}}
     )
     return photo
+
+
+def _apply_photo_watermark(image_bytes: bytes, content_type: str, patrimonio: str, tipo_lbl: str) -> tuple[bytes, str]:
+    """Aplica um carimbo semi-transparente no rodapé da foto com patrimônio + data/hora Cuiabá + tipo.
+    Fev/2026 — para relatório TCP e rastreio."""
+    try:
+        img = Image.open(io.BytesIO(image_bytes))
+        # Corrigir orientação EXIF (fotos de celular vêm rotacionadas)
+        try:
+            from PIL import ImageOps
+            img = ImageOps.exif_transpose(img)
+        except Exception:
+            pass
+        img = img.convert("RGB")
+        w, h = img.size
+
+        # Escala do carimbo baseada na largura (11% da largura)
+        band_height = max(60, int(h * 0.09))
+        font_size_big = max(20, int(band_height * 0.42))
+        font_size_small = max(14, int(band_height * 0.28))
+
+        # Fontes — fallback default se não achar DejaVu
+        try:
+            font_big = ImageFont.truetype("DejaVuSans-Bold.ttf", font_size_big)
+            font_small = ImageFont.truetype("DejaVuSans.ttf", font_size_small)
+        except Exception:
+            font_big = ImageFont.load_default()
+            font_small = ImageFont.load_default()
+
+        # Overlay semi-transparente no rodapé
+        overlay = Image.new("RGBA", img.size, (0, 0, 0, 0))
+        draw = ImageDraw.Draw(overlay)
+        draw.rectangle([(0, h - band_height), (w, h)], fill=(0, 0, 0, 180))
+
+        # Texto
+        cuiaba_now = datetime.now(ZoneInfo("America/Cuiaba"))
+        ts_str = cuiaba_now.strftime("%d/%m/%Y %H:%M")
+        header = f"HAYAH ENERGY · {tipo_lbl} · PAT {patrimonio}"
+        footer = f"{ts_str} · America/Cuiaba"
+
+        pad_x = int(w * 0.02)
+        y0 = h - band_height + int(band_height * 0.10)
+        y1 = h - band_height + int(band_height * 0.55)
+
+        draw.text((pad_x, y0), header, font=font_big, fill=(224, 255, 0, 255))
+        draw.text((pad_x, y1), footer, font=font_small, fill=(255, 255, 255, 220))
+
+        # Selo lateral direito com hora grande para leitura rápida
+        try:
+            time_only = cuiaba_now.strftime("%H:%M")
+            tw = draw.textlength(time_only, font=font_big) if hasattr(draw, "textlength") else font_big.getlength(time_only)
+            draw.text((w - int(tw) - pad_x, (y0 + y1) // 2 - font_size_big // 2), time_only, font=font_big, fill=(0, 240, 255, 255))
+        except Exception:
+            pass
+
+        img = img.convert("RGBA")
+        img = Image.alpha_composite(img, overlay).convert("RGB")
+        out = io.BytesIO()
+        img.save(out, format="JPEG", quality=88, optimize=True)
+        return out.getvalue(), "image/jpeg"
+    except Exception as e:
+        logger.warning(f"watermark failed, storing original: {e}")
+        return image_bytes, content_type
 
 
 @api_router.get("/equipamentos/{equip_id}/photos/{photo_id}")

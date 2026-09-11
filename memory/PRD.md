@@ -40,6 +40,9 @@ Dashboard, **Buscar Obras**, Operacional, Carteira, Programação, Calendário, 
 
 ## Novidades Fev/2026 (Ondas)
 
+- **Foto de Equipamento com Watermark automático (iter29)**:
+  Cada upload em `POST /api/equipamentos/{id}/photos` agora recebe carimbo automático via Pillow antes de ser gravado no Object Storage. Layout: barra preta semi-transparente no rodapé com "HAYAH ENERGY · TRAFO/REL/REG · PAT {patrimonio}" em amarelo Hayah + data/hora Cuiabá em branco + hora grande em ciano no canto direito. Escala automática (banda = 9% da altura, fonte maior = 42% da banda). Corrige orientação EXIF de fotos de celular via `ImageOps.exif_transpose`. Sempre reencoda como JPEG q=88 (menor + consistente). Se PIL falhar por algum motivo, salva original (fallback silencioso). Campo `watermark: {patrimonio, tipo}` fica no photo doc para auditoria. Testado E2E: create equip → upload foto 1600x900 → download → PIL abre size correta → cleanup.
+
 - **Fase E-3 · Painel Equipamentos Fixos no Estoque (iter28)**:
   Nova seção `data-testid="equipamentos-panel"` na página `/estoque` (entre KPIs e Toolbar). Mostra 3 cards coloridos (transformador amarelo, religador ciano, regulador de tensão laranja) com contador total + breakdown novo/reforma cada. Clicando em cada card navega para `/equipamentos?tipo={tipo}`. Botão "Ver todos" (`equipamentos-panel-open`) leva à página completa. Fetch automático via `GET /api/equipamentos` no mount.
 
