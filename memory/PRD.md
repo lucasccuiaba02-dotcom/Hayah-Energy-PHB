@@ -40,6 +40,13 @@ Dashboard, **Buscar Obras**, Operacional, Carteira, Programação, Calendário, 
 
 ## Novidades Fev/2026 (Ondas)
 
+- **Fase A · Bugs P0 (iter25)** — 4 correções de comportamento pedidas pelo gerente:
+  1. **Dashboard "Obras vencidas"** agora exclui `cancelado`, `suspenso`, `executada`, `concluido` (era só os 3 primeiros — `suspenso` estava contando errado como vencida). Também `no_prazo` e `vencendo_amanha` recebem o mesmo filtro `INACTIVE_STATUS`.
+  2. **Faturamento (esteira) `/api/faturamento/pipeline`** — query passa a filtrar `execution_status not in [cancelado, suspenso]` na origem. Obras como "00943" (canceladas) NÃO aparecem mais na esteira.
+  3. **Retorno de Programação `/api/programacao/pending-returns`** reescrito: novo parâmetro `mode` (padrão retorna TODAS obras com data programada <= hoje sem retorno, ordenadas do mais antigo para o mais recente); parâmetro `date` continua funcionando para filtrar 1 dia específico. Expande `schedule_entries` — cada `(project, target_date)` pendente vira uma linha. Frontend `RetornoProgramacaoModal` agora tem toggle "Todos pendentes / Data específica" e agrupa por data com badge estilo sticky no topo (`retorno-group-{date}`).
+  4. **Estoque "Itens em Alerta"** — KPI virou clicável (data-testid `est-kpi-low-stock`), ao clicar aciona `setLowStock(true)` filtrando a tabela para mostrar apenas estoque físico ≤ mínimo. Componente `KpiCard` ganhou prop `onClick`.
+  Validado via curl E2E: criar obra `TSTCAN` cancelada em estágio de faturamento com data passada → nem aparece no pipeline, nem em vencidas, nem em pending-returns.
+
 - **Onda P0 crítica (iter24) — Bug multi-tenant que sumia dados** 🚨:
   1. **Root cause**: `get_current_user` sobrescrevia `_id` do usuário pelo `owner_id` de forma agressiva. Quando um usuário admin era re-aprovado por engano com `role="user"`, seu `owner_id` era setado para outro admin e seus próprios projetos/equipes ficavam invisíveis (o usuário acreditava que os dados sumiram).
   2. **Fix em `get_current_user` (server.py:171)**: (a) admins nunca herdam workspace de outro — se detectar admin com `owner_id` setado, auto-limpa e prossegue com dados próprios; (b) usuários regulares que tenham dados próprios (`projects.user_id == actor_id`) são auto-promovidos para admin com `owner_id=None` e `permissions=ALL_PERMISSIONS` — usuário recupera acesso sozinho no próximo request autenticado.

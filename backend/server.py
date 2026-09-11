@@ -916,21 +916,50 @@ async def register_daily_return(body: DailyReturnBody, current_user: dict = Depe
     return {"status": "ok", "executed": body.executed, "new_status": update["$set"].get("execution_status")}
 
 @api_router.get("/programacao/pending-returns")
-async def pending_returns(current_user: dict = Depends(get_current_user), date: str = ""):
-    """Retorna projetos programados para uma data que ainda não têm retorno registrado."""
+async def pending_returns(current_user: dict = Depends(get_current_user), date: str = "", mode: str = ""):
+    """Retorna projetos programados que ainda não têm retorno registrado.
+    - mode='all' (default se date vazio): TODAS as obras programadas em dias <= hoje sem retorno,
+      ordenadas por data (mais antigo primeiro) — cada linha (project, target_date).
+    - date='YYYY-MM-DD': só as programadas naquela data específica sem retorno."""
     from datetime import timedelta as td
-    target = date or (datetime.now(timezone.utc) - td(days=1)).strftime("%Y-%m-%d")
-    projects = await db.projects.find({
+    today_s = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    # Buscar todas obras programadas (para expandir schedule_entries)
+    all_scheduled = await db.projects.find({
         "user_id": current_user["_id"],
         "is_scheduled": True,
-        "start_date": {"$regex": f"^{target}"},
-    }).to_list(500)
-    result = []
-    for p in projects:
-        returns = p.get("daily_returns", [])
-        has_return = any(r.get("date") == target for r in returns)
-        if not has_return and p.get("execution_status") not in ("concluido", "cancelado"):
-            result.append(build_project_response(p).model_dump() | {"target_date": target})
+        "execution_status": {"$nin": ["concluido", "cancelado", "suspenso"]},
+    }).to_list(2000)
+
+    result: list = []
+    for p in all_scheduled:
+        # Enumerar datas programadas: schedule_entries[].date se houver, senão start_date
+        entries = p.get("schedule_entries") or []
+        dates: list = []
+        if entries:
+            for e in entries:
+                d = (e.get("date") or "")[:10]
+                if d: dates.append(d)
+        else:
+            d = (p.get("start_date") or "")[:10]
+            if d: dates.append(d)
+        # Datas com retorno já registrado
+        returns = p.get("daily_returns", []) or []
+        done_dates = {r.get("date") for r in returns if r.get("date")}
+        for d in dates:
+            # Filtragem por date param OU por modo "all_pending" (default): d <= today
+            if date:
+                if d != date:
+                    continue
+            else:
+                # modo padrão: obras de dias anteriores/hoje sem retorno
+                if d > today_s:
+                    continue
+            if d in done_dates:
+                continue
+            item = build_project_response(p).model_dump() | {"target_date": d}
+            result.append(item)
+    # Ordenar por data ascendente (mais antigo primeiro para forçar preenchimento)
+    result.sort(key=lambda x: (x.get("target_date", ""), x.get("project_code", "")))
     return result
 
 # ============ Dashboard KPIs ============
@@ -944,11 +973,13 @@ async def dashboard_kpis(current_user: dict = Depends(get_current_user)):
     projects = await db.projects.find({"user_id": current_user["_id"]}).to_list(5000)
 
     def date_str(v): return (v or "")[:10]
+    INACTIVE_STATUS = ("executada", "concluido", "cancelado", "suspenso")
     in_andamento = [p for p in projects if p.get("execution_status") in ("programado", "em_execucao")]
     concluidas_mes = [p for p in projects if p.get("execution_status") in ("executada", "concluido") and date_str(p.get("execution_finished_at") or p.get("end_date") or "") >= month_start]
-    atrasadas = [p for p in projects if p.get("end_date") and date_str(p["end_date"]) < today and p.get("execution_status") not in ("executada", "concluido", "cancelado")]
-    no_prazo = [p for p in projects if p.get("end_date") and date_str(p["end_date"]) >= today and p.get("execution_status") not in ("cancelado",)]
-    vencendo_amanha = [p for p in projects if p.get("end_date") and date_str(p["end_date"]) == tomorrow and p.get("execution_status") not in ("executada", "concluido", "cancelado")]
+    # Vencidas/atrasadas: excluir obras INATIVAS (executadas, concluídas, canceladas, suspensas)
+    atrasadas = [p for p in projects if p.get("end_date") and date_str(p["end_date"]) < today and p.get("execution_status") not in INACTIVE_STATUS]
+    no_prazo = [p for p in projects if p.get("end_date") and date_str(p["end_date"]) >= today and p.get("execution_status") not in ("cancelado", "suspenso")]
+    vencendo_amanha = [p for p in projects if p.get("end_date") and date_str(p["end_date"]) == tomorrow and p.get("execution_status") not in INACTIVE_STATUS]
     vencidas = atrasadas
 
     total = len(projects)
@@ -1524,8 +1555,13 @@ async def billing_pipeline(
     end_date: Optional[str] = None,
     current_user: dict = Depends(get_current_user),
 ):
-    """Pipeline (esteira) grouped by billing_stage. Filter by billing_stage-change date (from billing_history)."""
-    query: dict = {"user_id": current_user["_id"], "billing_stage": {"$ne": ""}}
+    """Pipeline (esteira) grouped by billing_stage. Filter by billing_stage-change date (from billing_history).
+    Obras canceladas/suspensas não aparecem — são obras inativas."""
+    query: dict = {
+        "user_id": current_user["_id"],
+        "billing_stage": {"$ne": ""},
+        "execution_status": {"$nin": ["cancelado", "suspenso"]},
+    }
     projects = await db.projects.find(query).to_list(2000)
 
     def entered_stage_at(p: dict) -> str:

@@ -16,12 +16,13 @@ const API = `${BACKEND_URL}/api`;
 const fmtPct = (v) => `${(Number(v || 0) * 100).toFixed(1)}%`;
 const numFmt = (v) => Number(v || 0).toLocaleString('pt-BR', { maximumFractionDigits: 2 });
 
-const KpiCard = ({ icon: Icon, label, value, hint, color = '#E0FF00', testid, warn = false }) => (
+const KpiCard = ({ icon: Icon, label, value, hint, color = '#E0FF00', testid, warn = false, onClick }) => (
   <motion.div
     initial={{ opacity: 0, y: 8 }}
     animate={{ opacity: 1, y: 0 }}
     data-testid={testid}
-    className="glass-panel rounded-2xl p-4 border"
+    onClick={onClick}
+    className={`glass-panel rounded-2xl p-4 border ${onClick ? 'cursor-pointer hover:border-opacity-80 hover:bg-white/[0.02] transition' : ''}`}
     style={{ borderColor: warn ? '#FF003C55' : `${color}30` }}
   >
     <div className="flex items-center gap-2 mb-2">
@@ -352,9 +353,10 @@ export const EstoquePage = () => {
           icon={AlertTriangle}
           label="Itens em Alerta"
           value={numFmt(kpis?.low_stock_count || 0)}
-          hint={`${kpis?.families_count || 0} famílias · ${kpis?.groups_count || 0} grupos`}
+          hint={`${kpis?.families_count || 0} famílias · ${kpis?.groups_count || 0} grupos · Clique para filtrar`}
           color="#FF003C"
           warn={(kpis?.low_stock_count || 0) > 0}
+          onClick={() => setLowStock(true)}
         />
       </div>
 
