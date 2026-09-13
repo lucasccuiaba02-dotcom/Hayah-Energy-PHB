@@ -8,6 +8,7 @@ import { PROJECT_TYPE_LABEL, formatCurrency } from '../lib/constants';
 import {
   TrendingUp, TrendingDown, Target, Clock, DollarSign, AlertTriangle,
   CheckCircle2, Zap, Users, Layers, Timer, ArrowUpRight, ArrowDownRight,
+  RotateCcw, CalendarX,
 } from 'lucide-react';
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
@@ -201,8 +202,8 @@ export const AnalisePage = () => {
                 <AlertRow
                   testid="alert-losses"
                   label="Custo de perdas no período"
-                  count={managerKpis.losses.unproductive_hours > 0 || managerKpis.losses.unavailable_days > 0 ? formatCurrency(managerKpis.losses.estimated_cost) : '—'}
-                  extra={`${managerKpis.losses.unproductive_hours}h + ${managerKpis.losses.unavailable_days}d`}
+                  count={managerKpis.losses.estimated_cost > 0 ? formatCurrency(managerKpis.losses.estimated_cost) : '—'}
+                  extra={`${managerKpis.losses.unproductive_hours}h + ${managerKpis.losses.unavailable_days}d + ${managerKpis.losses.reschedule_count || 0} retornos`}
                   color="#E0FF00"
                   noBadge
                   drillTo="/improdutividade"
@@ -252,6 +253,58 @@ export const AnalisePage = () => {
               </div>
             </motion.div>
           </div>
+
+          {/* Prejuízos Operacionais — detalhamento (Fev/2026) */}
+          <motion.div
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            data-testid="losses-panel"
+            className="glass-panel rounded-2xl p-5 border border-[#FF5E00]/25"
+          >
+            <div className="flex items-center gap-2 mb-3">
+              <TrendingDown className="w-4 h-4 text-[#FF5E00]" />
+              <p className="text-[10px] tracking-[0.2em] uppercase font-bold text-[#FF5E00]">Prejuízos Operacionais</p>
+              <span className="ml-auto text-[10px] font-mono text-zinc-500">R$ 100/h · R$ 800/dia · valor programado não realizado</span>
+            </div>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+              <LossCard
+                testid="loss-improdutividade"
+                icon={<Clock className="w-4 h-4" />}
+                label="Improdutividade"
+                primary={formatCurrency(managerKpis.losses.unproductive_cost || 0)}
+                secondary={`${managerKpis.losses.unproductive_hours}h perdidas`}
+                color="#FF5E00"
+                drillTo="/improdutividade"
+              />
+              <LossCard
+                testid="loss-indisponibilidade"
+                icon={<CalendarX className="w-4 h-4" />}
+                label="Indisponibilidade"
+                primary={formatCurrency(managerKpis.losses.unavailable_cost || 0)}
+                secondary={`${managerKpis.losses.unavailable_days} dia(s) parados`}
+                color="#00F0FF"
+                drillTo="/indisponibilidade"
+              />
+              <LossCard
+                testid="loss-retornos"
+                icon={<RotateCcw className="w-4 h-4" />}
+                label="Retornos de Programação"
+                primary={formatCurrency(managerKpis.losses.reschedule_lost_value || 0)}
+                secondary={`${managerKpis.losses.reschedule_count || 0} obras não executadas${managerKpis.losses.reschedule_events ? ` · ${managerKpis.losses.reschedule_events} reagendamentos` : ''}`}
+                color="#E0FF00"
+                drillTo="/carteira?filter=reprogramar"
+              />
+              <LossCard
+                testid="loss-total"
+                icon={<AlertTriangle className="w-4 h-4" />}
+                label="Prejuízo Total"
+                primary={formatCurrency(managerKpis.losses.estimated_cost || 0)}
+                secondary="Soma estimada do período"
+                color="#FF003C"
+                emphasize
+              />
+            </div>
+          </motion.div>
         </div>
       )}
 
@@ -327,7 +380,11 @@ export const AnalisePage = () => {
               </BarChart>
             </ResponsiveContainer>
           ) : (
-            <div className="h-64 flex items-center justify-center text-zinc-600 text-sm">Sem dados</div>
+            <div className="h-64 flex flex-col items-center justify-center text-center gap-2 px-6">
+              <Users className="w-8 h-8 text-zinc-700" />
+              <p className="text-zinc-500 text-sm">Nenhuma equipe ativa com dados</p>
+              <p className="text-[10px] text-zinc-600 max-w-xs">Cadastre membros ou supervisor na aba <span className="text-[#E0FF00] font-bold">Equipes</span> para aparecer aqui.</p>
+            </div>
           )}
         </motion.div>
 
@@ -633,6 +690,38 @@ const HighlightCard = ({ testid, icon, label, primary, secondary, color, drillTo
       </div>
       <p className="text-white font-bold text-sm truncate mb-0.5" title={primary}>{primary}</p>
       <p className="text-[10px] text-zinc-400">{secondary}</p>
+    </div>
+  );
+};
+
+// Fev/2026 · Cartão de prejuízo operacional detalhado
+const LossCard = ({ testid, icon, label, primary, secondary, color, drillTo, emphasize }) => {
+  const clickable = !!drillTo;
+  return (
+    <div
+      data-testid={testid}
+      onClick={clickable ? () => openDrill(drillTo) : undefined}
+      role={clickable ? 'button' : undefined}
+      tabIndex={clickable ? 0 : undefined}
+      onKeyDown={clickable ? (e) => { if (e.key === 'Enter') openDrill(drillTo); } : undefined}
+      className={`rounded-xl p-3 border transition-all group ${clickable ? 'cursor-pointer hover:-translate-y-0.5' : ''}`}
+      style={{
+        backgroundColor: emphasize ? `${color}18` : `${color}0A`,
+        borderColor: emphasize ? `${color}80` : `${color}40`,
+      }}
+      title={clickable ? 'Abrir detalhes em nova aba' : undefined}
+    >
+      <div className="flex items-center justify-between mb-1.5" style={{ color }}>
+        <div className="flex items-center gap-1.5">
+          {icon}
+          <p className="text-[9px] tracking-[0.2em] uppercase font-bold">{label}</p>
+        </div>
+        {clickable && <ArrowUpRight className="w-3 h-3 opacity-40 group-hover:opacity-100 transition-opacity" data-testid={`${testid}-drill`} />}
+      </div>
+      <p className={`font-heading font-black tracking-tighter leading-none mb-1 ${emphasize ? 'text-2xl' : 'text-xl'}`} style={{ color }}>
+        {primary}
+      </p>
+      <p className="text-[10px] text-zinc-400 truncate" title={secondary}>{secondary}</p>
     </div>
   );
 };

@@ -30,6 +30,11 @@ Dashboard, **Buscar Obras**, Operacional, Carteira, Programação, Calendário, 
 - Emails/Push: mantidos
 
 ## Feito em Fev/2026 (últimas iterações)
+- **[13/Fev/2026] Análise: Prejuízos Operacionais + Filtro de equipes cadastradas**
+  - Backend `/analytics/manager-kpis`: novos campos `losses.unproductive_cost`, `losses.unavailable_cost`, `losses.reschedule_count`, `losses.reschedule_events`, `losses.reschedule_lost_value`
+  - Backend `/analytics/advanced` e `manager-kpis`: só considera equipes cadastradas na aba Equipes **E** com ≥1 membro OU supervisor (filtra placeholders "Equipe 1/2/3" vazios e "Sem equipe")
+  - Frontend `AnalisePage.jsx`: nova seção "Prejuízos Operacionais" com 4 cards — Improdutividade (R$ 100/h), Indisponibilidade (R$ 800/dia), Retornos de Programação (valor programado não realizado), Prejuízo Total
+  - Empty state do gráfico de Produtividade por Equipe orienta cadastrar membros/supervisor na aba Equipes
 - **[13/Fev/2026] Service Worker v3 — App shell offline completo**
   - `public/sw.js` reescrito: precache do shell (`/`, `/index.html`, `/manifest.json`), network-first para navegação com fallback ao shell cacheado, stale-while-revalidate para assets estáticos, cache-first para imagens, network-first + fallback JSON para `/api/*`
   - Cache versionado (`hayah-v3-2026-02-*`) com limpeza automática de versões antigas

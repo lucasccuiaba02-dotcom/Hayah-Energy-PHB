@@ -1906,6 +1906,19 @@ async def get_schedule_stats(
 @api_router.get("/analytics/advanced")
 async def get_advanced_analytics(current_user: dict = Depends(get_current_user)):
     projects = await db.projects.find({"user_id": current_user["_id"]}).to_list(1000)
+    # Fev/2026 · Apenas equipes cadastradas — filtra "Sem equipe" e nomes obsoletos
+    # Considera "equipe ativa" apenas quando tem pelo menos 1 membro OU supervisor definido
+    # (evita placeholders vazios tipo "Equipe 1/2/3" aparecerem na análise)
+    teams_docs = await db.teams.find({"user_id": current_user["_id"]}).to_list(1000)
+    def _is_active_team(t):
+        members = t.get("members") or []
+        supervisor = (t.get("supervisor") or "").strip()
+        return bool(members) or bool(supervisor)
+    registered_names = {
+        t.get("name", "").strip()
+        for t in teams_docs
+        if t.get("name") and _is_active_team(t)
+    }
     
     # Monthly production
     from collections import defaultdict
@@ -1922,10 +1935,12 @@ async def get_advanced_analytics(current_user: dict = Depends(get_current_user))
         {"month": m, **v} for m, v in sorted(monthly.items())
     ]
     
-    # Productivity by team (actual / programmed)
+    # Productivity by team (actual / programmed) — SÓ EQUIPES CADASTRADAS
     team_perf = {}
     for p in projects:
-        team_name = p.get("team_name") or "Sem equipe"
+        team_name = (p.get("team_name") or "").strip()
+        if not team_name or team_name not in registered_names:
+            continue
         if team_name not in team_perf:
             team_perf[team_name] = {"team": team_name, "programmed": 0, "actual": 0, "billing": 0, "labor": 0, "material": 0, "count": 0}
         team_perf[team_name]["programmed"] += p.get("programmed_value", 0)
@@ -2037,10 +2052,22 @@ async def manager_kpis(
                       if _dstr(p.get("start_date")).startswith(prev_ym) and p.get("execution_status") not in INACTIVE)
     mom_delta_pct = round(((cur_actual - prev_actual) / prev_actual) * 100, 1) if prev_actual else (100.0 if cur_actual else 0.0)
 
-    # Best/worst team (por produtividade actual/programmed)
+    # Best/worst team (por produtividade actual/programmed) — SÓ EQUIPES CADASTRADAS E ATIVAS
+    teams_docs = await db.teams.find({"user_id": current_user["_id"]}).to_list(1000)
+    def _is_active_team(t):
+        members = t.get("members") or []
+        supervisor = (t.get("supervisor") or "").strip()
+        return bool(members) or bool(supervisor)
+    registered_names = {
+        t.get("name", "").strip()
+        for t in teams_docs
+        if t.get("name") and _is_active_team(t)
+    }
     team_map: dict = _dd(lambda: {"team": "", "programmed": 0.0, "actual": 0.0, "count": 0})
     for p in active:
-        tn = p.get("team_name") or "Sem equipe"
+        tn = (p.get("team_name") or "").strip()
+        if not tn or tn not in registered_names:
+            continue
         team_map[tn]["team"] = tn
         team_map[tn]["programmed"] += float(p.get("programmed_value") or 0)
         team_map[tn]["actual"] += float(p.get("actual_value") or 0)
@@ -2088,7 +2115,37 @@ async def manager_kpis(
     # Custo estimado das perdas (constantes já usadas nas outras páginas)
     HOUR_COST = 100.0
     DAY_COST = 800.0
-    loss_cost = round(unprod_hours * HOUR_COST + unavail_days * DAY_COST, 2)
+    unprod_cost = round(unprod_hours * HOUR_COST, 2)
+    unavail_cost = round(unavail_days * DAY_COST, 2)
+
+    # Fev/2026 · Retorno de Programação NÃO executada
+    # Obras marcadas como a_reprogramar / cancelado / suspenso no período (start_date dentro do filtro)
+    # Prejuízo = soma do valor PROGRAMADO que não foi realizado (programmed - actual, floored a 0)
+    RETURN_STATUSES = ("a_reprogramar", "cancelado", "suspenso")
+    reschedule_projects = [
+        p for p in projects
+        if p.get("execution_status") in RETURN_STATUSES
+    ]
+    reschedule_count = len(reschedule_projects)
+    reschedule_lost_value = 0.0
+    for p in reschedule_projects:
+        prog = float(p.get("programmed_value") or 0)
+        act = float(p.get("actual_value") or 0)
+        reschedule_lost_value += max(0.0, prog - act)
+    reschedule_lost_value = round(reschedule_lost_value, 2)
+
+    # Reagendamentos (histórico) — cada reprogramação de data também é um retorno operacional
+    reschedule_events = 0
+    for p in projects:
+        for h in (p.get("reschedule_history") or []):
+            h_date = (h.get("date") or "")[:10] if isinstance(h, dict) else ""
+            if start_date and h_date and h_date < start_date:
+                continue
+            if end_date and h_date and h_date > end_date:
+                continue
+            reschedule_events += 1
+
+    loss_cost = round(unprod_cost + unavail_cost + reschedule_lost_value, 2)
 
     return {
         "financial": {
@@ -2124,7 +2181,12 @@ async def manager_kpis(
         },
         "losses": {
             "unproductive_hours": unprod_hours,
+            "unproductive_cost": unprod_cost,
             "unavailable_days": unavail_days,
+            "unavailable_cost": unavail_cost,
+            "reschedule_count": reschedule_count,
+            "reschedule_events": reschedule_events,
+            "reschedule_lost_value": reschedule_lost_value,
             "estimated_cost": loss_cost,
         },
     }
