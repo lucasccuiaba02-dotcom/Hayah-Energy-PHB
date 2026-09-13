@@ -37,13 +37,50 @@ export const syncQueue = async (axios, API) => {
 };
 
 export const registerServiceWorker = () => {
-  if ('serviceWorker' in navigator) {
-    window.addEventListener('load', () => {
-      navigator.serviceWorker
-        .register('/sw.js')
-        .catch((err) => console.error('SW registration failed:', err));
+  if (!('serviceWorker' in navigator)) return;
+  window.addEventListener('load', () => {
+    navigator.serviceWorker
+      .register('/sw.js')
+      .then((reg) => {
+        // Verifica atualizações a cada 30 minutos
+        setInterval(() => { try { reg.update(); } catch (_) {} }, 30 * 60 * 1000);
+        // Ativa novo SW automaticamente quando disponível
+        reg.addEventListener('updatefound', () => {
+          const nw = reg.installing;
+          if (!nw) return;
+          nw.addEventListener('statechange', () => {
+            if (nw.state === 'installed' && navigator.serviceWorker.controller) {
+              // Novo conteúdo disponível — instrui o SW novo a assumir imediatamente
+              try { nw.postMessage({ type: 'SKIP_WAITING' }); } catch (_) {}
+            }
+          });
+        });
+      })
+      .catch((err) => console.error('SW registration failed:', err));
+
+    // Recarrega uma única vez quando o controlador muda (novo SW ativado)
+    let refreshed = false;
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (refreshed) return;
+      refreshed = true;
+      // Não recarrega em telas críticas para não perder trabalho — só marca
+      try { window.dispatchEvent(new CustomEvent('sw-updated')); } catch (_) {}
     });
-  }
+
+    // Recebe mensagens do SW (navegação por push, sync)
+    navigator.serviceWorker.addEventListener('message', (event) => {
+      const msg = event.data || {};
+      if (msg.type === 'PUSH_NAV' && msg.url) {
+        try { window.location.href = msg.url; } catch (_) {}
+      }
+      if (msg.type === 'SYNC_REQUEST') {
+        try { window.dispatchEvent(new CustomEvent('hayah-sync-request')); } catch (_) {}
+      }
+      if (msg.type === 'SW_READY') {
+        try { window.dispatchEvent(new CustomEvent('sw-ready', { detail: msg })); } catch (_) {}
+      }
+    });
+  });
 };
 
 export const requestNotificationPermission = async () => {

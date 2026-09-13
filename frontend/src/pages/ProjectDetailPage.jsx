@@ -7,6 +7,7 @@ import { ArrowLeft, Zap, AlertTriangle, Package, CheckCircle2, Camera, X, MapPin
 import { HayahLogo } from '../components/HayahLogo';
 import { PROJECT_TYPE_LABEL, EXECUTION_STATUS_LABEL, formatCurrency, resolveMaterialCodeAndDesc } from '../lib/constants';
 import { APREditor } from '../components/APREditor';
+import { PinchZoomImage } from '../components/PinchZoomImage';
 import { enqueue, syncQueue } from '../lib/offline';
 import { enqueuePhoto, syncPhotoQueue, getQueuedPhotoCount } from '../lib/photoQueue';
 
@@ -899,15 +900,18 @@ export const ProjectDetailPage = () => {
               Baixar
             </a>
           </div>
-          <div className="flex-1 flex items-center justify-center p-2 overflow-auto" onClick={(e) => e.stopPropagation()}>
-            <img
-              data-testid="pd-lightbox-image"
+          <div className="flex-1 flex items-center justify-center p-2 overflow-hidden" onClick={(e) => e.stopPropagation()}>
+            <PinchZoomImage
+              testid="pd-lightbox-image"
               src={lightbox.list[lightbox.index]?.data_url}
               alt={lightbox.list[lightbox.index]?.label}
-              className="max-w-full max-h-[80vh] object-contain rounded-xl"
-              style={{ boxShadow: '0 0 40px rgba(224,255,0,0.15)' }}
+              resetKey={lightbox.index}
+              className="w-full h-full"
             />
           </div>
+          <p className="text-[10px] text-zinc-500 text-center pb-1" onClick={(e) => e.stopPropagation()}>
+            Pinça 2 dedos para zoom · Duplo-toque para 2.5× · Arraste para navegar
+          </p>
           {lightbox.list.length > 1 && (
             <div className="p-3 flex items-center justify-between gap-3 border-t border-white/10" onClick={(e) => e.stopPropagation()}>
               <button

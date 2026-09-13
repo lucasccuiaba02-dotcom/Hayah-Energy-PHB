@@ -30,6 +30,14 @@ Dashboard, **Buscar Obras**, Operacional, Carteira, Programação, Calendário, 
 - Emails/Push: mantidos
 
 ## Feito em Fev/2026 (últimas iterações)
+- **[13/Fev/2026] Service Worker v3 — App shell offline completo**
+  - `public/sw.js` reescrito: precache do shell (`/`, `/index.html`, `/manifest.json`), network-first para navegação com fallback ao shell cacheado, stale-while-revalidate para assets estáticos, cache-first para imagens, network-first + fallback JSON para `/api/*`
+  - Cache versionado (`hayah-v3-2026-02-*`) com limpeza automática de versões antigas
+  - `lib/offline.js`: registro com update automático + polling de update a cada 30 min + escuta mensagens de PUSH_NAV/SYNC_REQUEST
+  - `index.html`: manifest link, PWA meta tags (apple-mobile-web-app), theme-color
+  - **Testado**: app carrega 100% offline após primeira visita — banner "SEM SINAL" aparece, dashboard e sidebar continuam navegáveis, endpoints em cache retornam dados
+- **[13/Fev/2026] Lightbox de fotos em Equipamentos com Pinch Zoom**
+  - `EquipamentosPage.jsx`: adicionado estado `viewingIdx`, integrado `PinchZoomImage` com resetKey + testids para lightbox
 - Multi-data via `schedule_entries` + calendário mostra várias equipes/dia
 - Matriz Programação com datas nas COLUNAS, equipes nas LINHAS
 - Buscar Obras + Retorno de Programação + Indisponibilidade
@@ -40,7 +48,7 @@ Dashboard, **Buscar Obras**, Operacional, Carteira, Programação, Calendário, 
 
 ## Novidades Fev/2026 (Ondas)
 
-- **PDFs profissionais + Lightbox de fotos (iter37, 11/Fev/2026)** — 🖨️ visual formal para impressão + visualização de fotos:
+- **Pinch-Zoom nas fotos (iter38, 11/Fev/2026)** — 🔍 novo componente `components/PinchZoomImage.jsx` com pointer events unificados: pinça 2 dedos para zoom (1× a 6×), arraste para pan, duplo-toque alterna 1× ⇄ 2.5×, roda do mouse com Ctrl para desktop. HUD `{scale}x` amarelo no canto quando ampliado + botão `Ajustar` que reseta. Aplicado no `pd-lightbox` da aba Arquivos das obras + novo viewer em Equipamentos (`equip-photo-viewer`) — clique na thumb abre fullscreen com PinchZoomImage e navegação prev/next entre as 3 fotos. Dica de gesto exibida abaixo da imagem: "Pinça 2 dedos para zoom · Duplo-toque para 2.5× · Arraste para navegar".** — 🖨️ visual formal para impressão + visualização de fotos:
   1. **APR PDF reescrito** (`apr_pdf.py`): estilo engenharia elétrica — cabeçalho `HAYAH ENERGY` sobre fundo azul-marinho + tarja LINHA VIVA (vermelho) ou LINHA MORTA (verde). EPIs/EPCs selecionados agora aparecem com ícone `✓ verde` em bold + descrição destacada; itens não marcados ficam em cinza claro. Procedimentos: coluna dedicada SIM/NÃO/N/A com **célula colorida sólida** (verde-esmeralda / vermelho-tijolo / âmbar) só na resposta escolhida — impossível confundir na impressão. Assinatura do supervisor com fundo amarelo-claro para destaque. Rodapé com Pág. X + info completa.
   2. **Diário de Obra reescrito** (`daily_log_pdf.py`): também A4 branco profissional. Cabeçalho preto. Identificação em grid 2 colunas com labels chumbo. Checklist Operacional com badge colorido `✓ CONFERIDO` (verde) ou `✗ PENDENTE` (vermelho). Fotos em galeria 2×N com caption `PONTO · LABEL · timestamp`. Bloco de assinatura do encarregado no final.
   3. **Lightbox de fotos** (`ProjectDetailPage.jsx`): `<a href={data_url}>` não funcionava em muitos celulares (data URLs base64 gigantes travam o browser). Substituído por lightbox fullscreen: clicando na thumb abre `pd-lightbox` com foto grande, título (ponto+label), timestamp, botão `Baixar`, `← Anterior / Próxima →` para navegar entre todas as fotos ordenadas por ponto, e fechar por clique fora ou botão ✕. Funciona nativo no celular.

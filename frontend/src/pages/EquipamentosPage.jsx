@@ -6,6 +6,7 @@ import {
   Plus, X, Zap, Package, Upload, Edit3, Trash2, Camera, Search, Filter, Image as ImageIcon,
 } from 'lucide-react';
 import { AppLayout } from '../components/AppLayout';
+import { PinchZoomImage } from '../components/PinchZoomImage';
 import { todayISO } from '../lib/constants';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
@@ -175,6 +176,7 @@ const EquipModal = ({ open, initial, onClose, onSaved }) => {
 const PhotosModal = ({ open, equip, onClose, onChange }) => {
   const [photos, setPhotos] = useState(equip?.photos || []);
   const [uploading, setUploading] = useState(false);
+  const [viewingIdx, setViewingIdx] = useState(null);
   const fileRef = useRef(null);
   useEffect(() => { setPhotos(equip?.photos || []); }, [equip]);
   if (!open || !equip) return null;
@@ -223,9 +225,17 @@ const PhotosModal = ({ open, equip, onClose, onChange }) => {
           <button onClick={onClose} className="w-8 h-8 rounded-full bg-white/5 border border-white/10 text-zinc-400 hover:text-white">✕</button>
         </div>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-          {photos.map((p) => (
-            <div key={p.id} data-testid={`equip-photo-${p.id}`} className="relative rounded-lg overflow-hidden border border-white/10 aspect-square bg-black/40">
-              <img src={`${API}/equipamentos/${equip.id}/photos/${p.id}`} alt={p.filename} className="w-full h-full object-cover" />
+          {photos.map((p, idx) => (
+            <div key={p.id} data-testid={`equip-photo-${p.id}`} className="relative rounded-lg overflow-hidden border border-white/10 aspect-square bg-black/40 group">
+              <button
+                type="button"
+                data-testid={`equip-photo-view-${p.id}`}
+                onClick={() => setViewingIdx(idx)}
+                className="w-full h-full cursor-zoom-in"
+                title="Ampliar (pinça 2 dedos para zoom)"
+              >
+                <img src={`${API}/equipamentos/${equip.id}/photos/${p.id}`} alt={p.filename} className="w-full h-full object-cover" />
+              </button>
               <button data-testid={`equip-photo-del-${p.id}`} onClick={() => remove(p.id)} className="absolute top-2 right-2 w-7 h-7 rounded-full bg-[#FF003C]/80 hover:bg-[#FF003C] text-white flex items-center justify-center">
                 <Trash2 className="w-3 h-3" />
               </button>
@@ -246,6 +256,32 @@ const PhotosModal = ({ open, equip, onClose, onChange }) => {
           <input ref={fileRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={(e) => upload(e.target.files?.[0])} />
         </div>
       </motion.div>
+      {viewingIdx !== null && photos[viewingIdx] && (
+        <div
+          data-testid="equip-photo-lightbox"
+          className="fixed inset-0 z-[60] flex items-center justify-center bg-black/95 p-4"
+          onClick={(e) => { if (e.target === e.currentTarget) setViewingIdx(null); }}
+        >
+          <button
+            type="button"
+            data-testid="equip-photo-lightbox-close"
+            onClick={(e) => { e.stopPropagation(); setViewingIdx(null); }}
+            className="absolute top-4 right-4 w-10 h-10 rounded-full bg-white/10 hover:bg-white/20 text-white flex items-center justify-center border border-white/20 z-10"
+          >
+            ✕
+          </button>
+          <div className="absolute top-4 left-4 px-3 py-1.5 rounded-full bg-black/60 border border-white/20 text-[11px] text-zinc-300 font-mono z-10">
+            {viewingIdx + 1}/{photos.length} · pinça 2 dedos ou duplo-toque para zoom
+          </div>
+          <PinchZoomImage
+            src={`${API}/equipamentos/${equip.id}/photos/${photos[viewingIdx].id}`}
+            alt={photos[viewingIdx].filename}
+            className="w-full h-full"
+            resetKey={viewingIdx}
+            testid="equip-lightbox-img"
+          />
+        </div>
+      )}
     </div>
   );
 };
