@@ -267,6 +267,7 @@ class TeamCreate(BaseModel):
     members: List[str] = Field(default_factory=list)
     supervisor: str = ""
     member_count: int = 0
+    daily_target: float = 4000.0  # Meta diária por equipe (R$/dia) — Fev/2026
 
 class TeamResponse(BaseModel):
     id: str
@@ -274,6 +275,7 @@ class TeamResponse(BaseModel):
     members: List[str]
     supervisor: str = ""
     member_count: int = 0
+    daily_target: float = 4000.0
     created_at: str
 
 class ProjectCreate(BaseModel):
@@ -756,6 +758,85 @@ async def admin_reset_password(user_id: str, body: AdminResetPasswordBody, curre
     )
     return {"status": "reset", "session_version": new_sv, "user_id": user_id}
 
+
+# ============ Meta Contratual (Fev/2026) — configurável com histórico ============
+class ContractTargetBody(BaseModel):
+    target: float
+    month: str = "default"  # "YYYY-MM" ou "default" (global)
+    note: str = ""
+
+
+@api_router.get("/admin/contract-target")
+async def admin_get_contract_target(current_user: dict = Depends(require_admin)):
+    """Retorna configuração vigente + histórico completo por mês."""
+    from datetime import datetime as _dt, timezone as _tz
+    now = _dt.now(_tz.utc)
+    cur_ym = now.strftime("%Y-%m")
+
+    all_docs = await db.contract_targets.find({"user_id": current_user["_id"]}).sort("updated_at", -1).to_list(200)
+
+    def _fmt(d):
+        return {
+            "id": str(d["_id"]),
+            "month": d.get("month", "default"),
+            "target": float(d.get("target") or 0),
+            "note": d.get("note", ""),
+            "updated_by": d.get("updated_by", ""),
+            "updated_at": d.get("updated_at").isoformat() if hasattr(d.get("updated_at"), "isoformat") else str(d.get("updated_at", "")),
+        }
+
+    history = [_fmt(d) for d in all_docs]
+
+    # Vigente: mês atual > default > 336000
+    cur_doc = next((d for d in all_docs if d.get("month") == cur_ym), None)
+    default_doc = next((d for d in all_docs if d.get("month") == "default"), None)
+    active_target = float((cur_doc or default_doc or {}).get("target") or 336000.0)
+    active_source = "month" if cur_doc else ("default" if default_doc else "system_default")
+
+    return {
+        "active_target": active_target,
+        "active_source": active_source,
+        "current_month": cur_ym,
+        "system_default": 336000.0,
+        "history": history,
+    }
+
+
+@api_router.post("/admin/contract-target")
+async def admin_set_contract_target(body: ContractTargetBody, current_user: dict = Depends(require_admin)):
+    """Cria/atualiza a meta contratual do mês (ou default global)."""
+    if body.target <= 0:
+        raise HTTPException(status_code=400, detail="Meta deve ser maior que zero")
+    month_key = (body.month or "default").strip()
+    # valida formato "YYYY-MM" ou "default"
+    if month_key != "default":
+        try:
+            _dt_ = datetime.strptime(month_key, "%Y-%m")
+        except Exception:
+            raise HTTPException(status_code=400, detail="Formato inválido — use YYYY-MM ou 'default'")
+    doc = {
+        "user_id": current_user["_id"],
+        "month": month_key,
+        "target": float(body.target),
+        "note": body.note or "",
+        "updated_by": current_user.get("email", ""),
+        "updated_at": datetime.now(timezone.utc),
+    }
+    # upsert por (user_id, month) para manter apenas 1 registro por mês (idempotente)
+    await db.contract_targets.update_one(
+        {"user_id": current_user["_id"], "month": month_key},
+        {"$set": doc},
+        upsert=True,
+    )
+    return {"status": "ok", "month": month_key, "target": float(body.target)}
+
+
+@api_router.delete("/admin/contract-target/{item_id}")
+async def admin_delete_contract_target(item_id: str, current_user: dict = Depends(require_admin)):
+    """Remove um registro de meta contratual (permite reverter)."""
+    await db.contract_targets.delete_one({"_id": safe_object_id(item_id), "user_id": current_user["_id"]})
+    return {"status": "deleted"}
+
 # ============ Team Unavailability ============
 class TeamUnavailabilityBody(BaseModel):
     team_id: str
@@ -1085,6 +1166,7 @@ def build_team_response(team: dict) -> TeamResponse:
         members=team.get("members", []),
         supervisor=team.get("supervisor", ""),
         member_count=team.get("member_count", len(team.get("members", []))),
+        daily_target=float(team.get("daily_target") or 4000.0),
         created_at=team["created_at"].isoformat() if hasattr(team["created_at"], 'isoformat') else team["created_at"],
     )
 
@@ -1096,6 +1178,7 @@ async def create_team(team_data: TeamCreate, current_user: dict = Depends(get_cu
         "members": team_data.members,
         "supervisor": team_data.supervisor,
         "member_count": team_data.member_count or len(team_data.members),
+        "daily_target": float(team_data.daily_target or 4000.0),
         "created_at": datetime.now(timezone.utc),
         "user_id": current_user["_id"]
     }
@@ -1122,6 +1205,7 @@ async def update_team(team_id: str, team_data: TeamCreate, current_user: dict = 
         "members": team_data.members,
         "supervisor": team_data.supervisor,
         "member_count": team_data.member_count or len(team_data.members),
+        "daily_target": float(team_data.daily_target or 4000.0),
     }
     result = await db.teams.update_one(
         {"_id": safe_object_id(team_id), "user_id": current_user["_id"]},
@@ -2148,37 +2232,67 @@ async def manager_kpis(
 
     loss_cost = round(unprod_cost + unavail_cost + reschedule_lost_value, 2)
 
-    # Fev/2026 · Metas contratuais operacionais
-    MONTHLY_CONTRACT_TARGET = 336000.0   # R$ 336k / mês (meta contratual global)
-    TEAM_DAILY_TARGET = 4000.0            # R$ 4k / dia por equipe
-    active_teams_count = len(registered_names)
+    # Fev/2026 · Metas contratuais operacionais — agora configuráveis
+    DEFAULT_MONTHLY = 336000.0
+    DEFAULT_TEAM_DAILY = 4000.0
+    # Meta contratual: busca configuração do mês atual (fallback global do usuário → default)
+    ct_current = await db.contract_targets.find_one({"user_id": current_user["_id"], "month": cur_ym})
+    ct_global = await db.contract_targets.find_one({"user_id": current_user["_id"], "month": "default"})
+    MONTHLY_CONTRACT_TARGET = float((ct_current or ct_global or {}).get("target") or DEFAULT_MONTHLY)
+
+    # Meta diária somada = soma da daily_target de cada equipe ATIVA (cadastrada + com membros/supervisor)
+    active_teams_docs = [t for t in teams_docs if _is_active_team(t) and (t.get("name") or "").strip() in registered_names]
+    active_teams_count = len(active_teams_docs)
+    team_name_to_target = {
+        (t.get("name") or "").strip(): float(t.get("daily_target") or DEFAULT_TEAM_DAILY)
+        for t in active_teams_docs
+    }
+    daily_target_total = round(sum(team_name_to_target.values()), 2)
+    # Meta média por equipe (para exibir na UI)
+    team_daily_avg = round(daily_target_total / active_teams_count, 2) if active_teams_count else DEFAULT_TEAM_DAILY
+
     # Meta atingida no mês corrente (produção realizada)
     monthly_actual = float(cur_actual or 0)
     monthly_pct = round((monthly_actual / MONTHLY_CONTRACT_TARGET) * 100, 1) if MONTHLY_CONTRACT_TARGET else 0.0
     monthly_gap = round(max(0.0, MONTHLY_CONTRACT_TARGET - monthly_actual), 2)
-    # Meta diária somada (equipes ativas × R$ 4k)
-    daily_target_total = round(TEAM_DAILY_TARGET * active_teams_count, 2)
 
-    # Aderência à meta diária por equipe (produção realizada média / dias úteis)
-    # Simplificação: produção do mês / (equipe × dias úteis do mês atual)
+    # Aderência por equipe: produção realizada / (daily_target × dias úteis)
     from calendar import monthrange as _mrange
     _y, _m = now.year, now.month
     _dim = _mrange(_y, _m)[1]
-    # dias úteis aproximados (seg-sex)
     _business_days = sum(1 for _d in range(1, _dim + 1) if _dt(_y, _m, _d).weekday() < 5)
-    expected_monthly_per_team = TEAM_DAILY_TARGET * _business_days
     team_daily_perf = []
     for tn in registered_names:
         tp = team_map.get(tn) or {"actual": 0.0, "programmed": 0.0, "count": 0, "team": tn}
         team_actual = float(tp.get("actual") or 0)
-        pct_meta = round((team_actual / expected_monthly_per_team) * 100, 1) if expected_monthly_per_team else 0.0
+        t_daily = team_name_to_target.get(tn, DEFAULT_TEAM_DAILY)
+        expected_month = t_daily * _business_days
+        pct_meta = round((team_actual / expected_month) * 100, 1) if expected_month else 0.0
         team_daily_perf.append({
             "name": tn,
             "actual": team_actual,
-            "expected_monthly": round(expected_monthly_per_team, 2),
+            "daily_target": t_daily,
+            "expected_monthly": round(expected_month, 2),
             "meta_pct": pct_meta,
         })
     team_daily_perf.sort(key=lambda x: x["meta_pct"], reverse=True)
+
+    # Alerta de Meta: dispara quando <25% dos dias úteis restantes E <75% da meta atingida
+    today_dt = now.date()
+    business_days_passed = sum(
+        1 for _d in range(1, _dim + 1)
+        if _dt(_y, _m, _d).weekday() < 5 and _dt(_y, _m, _d).date() <= today_dt
+    )
+    business_days_remaining = max(0, _business_days - business_days_passed)
+    days_remaining_pct = round((business_days_remaining / _business_days) * 100, 1) if _business_days else 0.0
+    meta_alert_active = (days_remaining_pct < 25) and (monthly_pct < 75) and (business_days_remaining > 0)
+    meta_alert_severity = "critical" if monthly_pct < 50 else "warning"
+    meta_alert_message = (
+        f"Faltam apenas {business_days_remaining} dia(s) útil(is) para o fim do mês "
+        f"e você está em {monthly_pct:.1f}% da meta contratual. "
+        f"Recuperar R$ {monthly_gap:,.2f} exige R$ {(monthly_gap / max(1, business_days_remaining)):,.2f}/dia."
+        .replace(",", "X").replace(".", ",").replace("X", ".")
+    ) if meta_alert_active else ""
 
     return {
         "financial": {
@@ -2226,15 +2340,21 @@ async def manager_kpis(
         },
         "targets": {
             "monthly_contract": MONTHLY_CONTRACT_TARGET,
-            "team_daily": TEAM_DAILY_TARGET,
+            "team_daily": team_daily_avg,
             "active_teams_count": active_teams_count,
             "daily_target_total": daily_target_total,
             "monthly_actual": monthly_actual,
             "monthly_pct": monthly_pct,
             "monthly_gap": monthly_gap,
             "business_days_in_month": _business_days,
-            "expected_monthly_per_team": round(expected_monthly_per_team, 2),
+            "business_days_passed": business_days_passed,
+            "business_days_remaining": business_days_remaining,
             "team_daily_perf": team_daily_perf,
+        },
+        "alert": {
+            "meta_active": meta_alert_active,
+            "severity": meta_alert_severity,
+            "message": meta_alert_message,
         },
     }
 

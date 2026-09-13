@@ -114,6 +114,20 @@ export const EquipesPage = () => {
                 </div>
               )}
 
+              {t.daily_target > 0 && (
+                <div className="flex items-center justify-between p-3 rounded-lg bg-[#39FF14]/5 border border-[#39FF14]/20 mb-3">
+                  <div>
+                    <p className="text-[10px] tracking-[0.2em] uppercase font-bold text-[#39FF14]">Meta Diária</p>
+                    <p className="text-sm text-white font-mono font-bold" data-testid={`team-daily-target-${i}`}>
+                      R$ {Number(t.daily_target).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                    </p>
+                  </div>
+                  <p className="text-[10px] text-zinc-500 font-mono text-right">
+                    ≈ R$ {(Number(t.daily_target) * 22).toLocaleString('pt-BR', { maximumFractionDigits: 0 })}<br />/mês
+                  </p>
+                </div>
+              )}
+
               {t.members && t.members.length > 0 && (
                 <div>
                   <p className="text-[10px] tracking-[0.2em] uppercase font-bold text-zinc-500 mb-2">Membros</p>

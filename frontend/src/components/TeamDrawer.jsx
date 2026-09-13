@@ -5,14 +5,14 @@ import { X, Plus, Trash2, Edit2 } from 'lucide-react';
 export const TeamDrawer = ({ isOpen, onClose, onSave, team, teams, onDelete }) => {
   const [showForm, setShowForm] = useState(false);
   const [editingTeam, setEditingTeam] = useState(null);
-  const [formData, setFormData] = useState({ name: '', members: [], supervisor: '', member_count: 0 });
+  const [formData, setFormData] = useState({ name: '', members: [], supervisor: '', member_count: 0, daily_target: 4000 });
   const [memberInput, setMemberInput] = useState('');
 
   useEffect(() => {
     if (!isOpen) {
       setShowForm(false);
       setEditingTeam(null);
-      setFormData({ name: '', members: [], supervisor: '', member_count: 0 });
+      setFormData({ name: '', members: [], supervisor: '', member_count: 0, daily_target: 4000 });
       setMemberInput('');
     }
   }, [isOpen]);
@@ -24,13 +24,14 @@ export const TeamDrawer = ({ isOpen, onClose, onSave, team, teams, onDelete }) =
       members: t.members || [],
       supervisor: t.supervisor || '',
       member_count: t.member_count || (t.members || []).length,
+      daily_target: t.daily_target || 4000,
     });
     setShowForm(true);
   };
 
   const startCreate = () => {
     setEditingTeam(null);
-    setFormData({ name: '', members: [], supervisor: '', member_count: 0 });
+    setFormData({ name: '', members: [], supervisor: '', member_count: 0, daily_target: 4000 });
     setShowForm(true);
   };
 
@@ -52,6 +53,7 @@ export const TeamDrawer = ({ isOpen, onClose, onSave, team, teams, onDelete }) =
     await onSave({
       ...formData,
       member_count: parseInt(formData.member_count) || formData.members.length,
+      daily_target: parseFloat(formData.daily_target) || 4000,
     }, editingTeam);
     setShowForm(false);
     setEditingTeam(null);
@@ -202,6 +204,28 @@ export const TeamDrawer = ({ isOpen, onClose, onSave, team, teams, onDelete }) =
                       onChange={(e) => setFormData({ ...formData, member_count: e.target.value })}
                       className="w-full bg-zinc-950/90 border border-white/10 rounded-lg px-4 py-3 text-white focus:border-[#E0FF00] focus:outline-none transition-all font-mono"
                     />
+                  </div>
+
+                  <div>
+                    <label className="text-xs tracking-[0.2em] uppercase font-bold text-zinc-500 block mb-2">
+                      Meta Diária (R$/dia)
+                    </label>
+                    <div className="relative">
+                      <span className="absolute left-4 top-1/2 -translate-y-1/2 text-zinc-500 font-mono text-sm pointer-events-none">R$</span>
+                      <input
+                        data-testid="team-daily-target-input"
+                        type="number"
+                        min="0"
+                        step="100"
+                        value={formData.daily_target}
+                        onChange={(e) => setFormData({ ...formData, daily_target: e.target.value })}
+                        className="w-full bg-zinc-950/90 border border-white/10 rounded-lg pl-11 pr-4 py-3 text-white focus:border-[#39FF14] focus:outline-none transition-all font-mono"
+                        placeholder="4000"
+                      />
+                    </div>
+                    <p className="text-[10px] text-zinc-600 mt-1.5">
+                      Turmas maiores/menores podem ter meta diferente de R$ 4.000. Usado no cálculo de aderência e prejuízo.
+                    </p>
                   </div>
 
                   <div>

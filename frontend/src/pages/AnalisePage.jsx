@@ -108,6 +108,35 @@ export const AnalisePage = () => {
       {/* Executive KPIs (Fev/2026) — visão gerencial no topo */}
       {managerKpis && (
         <div data-testid="manager-kpis" className="mb-6 space-y-4">
+          {/* Alerta de Meta (Fev/2026) — dispara quando <25% dos dias úteis restantes E <75% da meta */}
+          {managerKpis.alert && managerKpis.alert.meta_active && (
+            <motion.div
+              initial={{ opacity: 0, y: -8 }}
+              animate={{ opacity: 1, y: 0 }}
+              data-testid="meta-alert-banner"
+              className="rounded-2xl p-4 border-2 flex items-start gap-3"
+              style={{
+                borderColor: managerKpis.alert.severity === 'critical' ? '#FF003C' : '#FF5E00',
+                background: managerKpis.alert.severity === 'critical'
+                  ? 'linear-gradient(90deg, rgba(255,0,60,0.12), rgba(255,94,0,0.08))'
+                  : 'linear-gradient(90deg, rgba(255,94,0,0.12), rgba(224,255,0,0.05))',
+              }}
+            >
+              <AlertTriangle
+                className="w-6 h-6 flex-shrink-0 mt-0.5"
+                style={{ color: managerKpis.alert.severity === 'critical' ? '#FF003C' : '#FF5E00' }}
+              />
+              <div className="flex-1 min-w-0">
+                <p
+                  className="text-xs tracking-[0.2em] uppercase font-black mb-1"
+                  style={{ color: managerKpis.alert.severity === 'critical' ? '#FF003C' : '#FF5E00' }}
+                >
+                  {managerKpis.alert.severity === 'critical' ? '⚠ Meta em Risco Crítico' : '⚠ Meta em Risco'}
+                </p>
+                <p className="text-white text-sm font-bold">{managerKpis.alert.message}</p>
+              </div>
+            </motion.div>
+          )}
           {/* Meta Contratual (Fev/2026) — barra de progresso destacada */}
           {managerKpis.targets && (
             <motion.div

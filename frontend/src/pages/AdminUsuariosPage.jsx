@@ -2,9 +2,10 @@ import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import axios from 'axios';
 import { toast } from 'sonner';
-import { Shield, CheckCircle2, XCircle, Trash2, Save, Clock, LogOut, KeyRound } from 'lucide-react';
+import { Shield, CheckCircle2, XCircle, Trash2, Save, Clock, LogOut, KeyRound, Target, History, DollarSign } from 'lucide-react';
 import { AppLayout } from '../components/AppLayout';
 import { PERMISSION_TABS } from '../lib/constants';
+import { ContractTargetSection } from '../components/ContractTargetSection';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -187,6 +188,9 @@ export const AdminUsuariosPage = () => {
         <p className="text-zinc-500">Carregando...</p>
       ) : (
         <div className="space-y-6">
+          {/* Meta Contratual configurável (Fev/2026) */}
+          <ContractTargetSection />
+
           {pending.length > 0 && (
             <section>
               <div className="flex items-center gap-2 mb-3">

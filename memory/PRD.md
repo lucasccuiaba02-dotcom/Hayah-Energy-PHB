@@ -30,6 +30,11 @@ Dashboard, **Buscar Obras**, Operacional, Carteira, Programação, Calendário, 
 - Emails/Push: mantidos
 
 ## Feito em Fev/2026 (últimas iterações)
+- **[13/Fev/2026] Meta configurável por equipe + Meta contratual editável no Admin + Alerta automático**
+  - **Meta por Equipe**: campo `daily_target` (R$/dia) em `Team` model + endpoints POST/PUT + `TeamDrawer` com input dedicado (default R$ 4.000) + card em `EquipesPage` mostrando meta diária e projeção mensal (×22 dias)
+  - **Meta Contratual no Admin**: nova collection `contract_targets` (mês específico ou "default" global) + 3 endpoints (`GET/POST/DELETE /admin/contract-target`) + componente `ContractTargetSection.jsx` na `AdminUsuariosPage` com formulário de edição, badge da meta vigente + fallback (mês → global → sistema R$ 336k) e histórico completo com botão de remover
+  - **Alerta de Meta**: computado on-the-fly em `manager-kpis` — dispara quando `<25%` dos dias úteis restantes E `<75%` da meta atingida. Severidade `critical` (<50%) ou `warning`. Banner destacado no topo da AnalisePage com mensagem calculando quanto/dia é preciso para recuperar
+  - Backend `manager-kpis`: `daily_target_total` = soma dinâmica das metas por equipe ativa; `expected_monthly` por equipe usa `team.daily_target × 22 dias úteis`
 - **[13/Fev/2026] Meta contratual R$ 336k/mês + Meta diária R$ 4k/equipe**
   - Backend: constantes `MONTHLY_CONTRACT_TARGET=336000` e `TEAM_DAILY_TARGET=4000`
   - Novo campo `targets` em `/analytics/manager-kpis` com `monthly_pct`, `monthly_gap`, `daily_target_total`, `business_days_in_month`, `expected_monthly_per_team`, `team_daily_perf[]`
