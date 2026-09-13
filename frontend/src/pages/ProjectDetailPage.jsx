@@ -41,6 +41,8 @@ export const ProjectDetailPage = () => {
   // Fev/2026 · Preview modal pós-captura
   const [previewSrc, setPreviewSrc] = useState(null);
   const [previewFile, setPreviewFile] = useState(null);
+  // Fev/2026 · Lightbox para visualizar fotos existentes em tela cheia
+  const [lightbox, setLightbox] = useState(null); // {index, list}
   // Fev/2026 · Fotos aguardando sync no IndexedDB (modo offline)
   const [pendingPhotos, setPendingPhotos] = useState(0);
   // Fev/2026 · APR (Análise Preliminar de Risco)
@@ -828,21 +830,26 @@ export const ProjectDetailPage = () => {
                       </span>
                     </div>
                     <div className="grid grid-cols-3 gap-2">
-                      {photosByPoint[pk].map((ph) => (
-                        <a
-                          key={ph.id}
-                          href={ph.data_url}
-                          target="_blank"
-                          rel="noreferrer"
-                          data-testid={`pd-arq-photo-${ph.id}`}
-                          className="relative rounded-lg overflow-hidden border border-white/10 group"
-                        >
-                          <img src={ph.data_url} alt={ph.label} className="w-full h-24 object-cover group-hover:opacity-90" />
-                          <p className="absolute bottom-1 left-1 text-[9px] text-white font-bold uppercase px-1.5 py-0.5 rounded bg-black/60">
-                            {ph.label}
-                          </p>
-                        </a>
-                      ))}
+                      {photosByPoint[pk].map((ph, phIdx) => {
+                        // Fev/2026 · lista plana ordenada dos pontos + índice global para o lightbox
+                        const flat = pointKeys.flatMap((k) => photosByPoint[k]);
+                        const globalIdx = flat.findIndex((x) => x.id === ph.id);
+                        return (
+                          <button
+                            type="button"
+                            key={ph.id}
+                            onClick={() => setLightbox({ index: globalIdx, list: flat })}
+                            data-testid={`pd-arq-photo-${ph.id}`}
+                            className="relative rounded-lg overflow-hidden border border-white/10 group cursor-zoom-in text-left"
+                            title="Clique para ampliar"
+                          >
+                            <img src={ph.data_url} alt={ph.label} className="w-full h-24 object-cover group-hover:opacity-90" />
+                            <p className="absolute bottom-1 left-1 text-[9px] text-white font-bold uppercase px-1.5 py-0.5 rounded bg-black/60">
+                              {ph.label}
+                            </p>
+                          </button>
+                        );
+                      })}
                     </div>
                   </div>
                 ))}
@@ -854,6 +861,74 @@ export const ProjectDetailPage = () => {
       {tab === 'arquivos' && (
       <div className="p-4 space-y-4 max-w-3xl mx-auto">
       </div>
+      )}
+
+      {/* Fev/2026 · Lightbox para visualizar fotos em tela cheia (mobile-friendly) */}
+      {lightbox && (
+        <div
+          data-testid="pd-lightbox"
+          className="fixed inset-0 z-[80] bg-black/95 backdrop-blur-xl flex flex-col"
+          onClick={() => setLightbox(null)}
+        >
+          <div className="p-3 flex items-center gap-2 border-b border-white/10" onClick={(e) => e.stopPropagation()}>
+            <button
+              data-testid="pd-lightbox-close"
+              onClick={() => setLightbox(null)}
+              className="w-10 h-10 rounded-full bg-white/5 border border-white/10 text-white flex items-center justify-center"
+              aria-label="Fechar"
+            >
+              ✕
+            </button>
+            <div className="flex-1 min-w-0">
+              <p className="text-white text-sm font-bold truncate">
+                {(lightbox.list[lightbox.index]?.point || '—').toUpperCase()} · {(lightbox.list[lightbox.index]?.label || '').toUpperCase()}
+              </p>
+              <p className="text-[10px] text-zinc-400 font-mono truncate">
+                {(lightbox.list[lightbox.index]?.uploaded_at || '').slice(0, 19).replace('T', ' ')}
+                {'  ·  '}{lightbox.index + 1} de {lightbox.list.length}
+              </p>
+            </div>
+            <a
+              data-testid="pd-lightbox-download"
+              href={lightbox.list[lightbox.index]?.data_url}
+              download={`foto_${lightbox.list[lightbox.index]?.id || 'obra'}.jpg`}
+              onClick={(e) => e.stopPropagation()}
+              className="text-[11px] font-black bg-[#E0FF00] text-black px-3 py-2 rounded-full"
+              title="Baixar imagem"
+            >
+              Baixar
+            </a>
+          </div>
+          <div className="flex-1 flex items-center justify-center p-2 overflow-auto" onClick={(e) => e.stopPropagation()}>
+            <img
+              data-testid="pd-lightbox-image"
+              src={lightbox.list[lightbox.index]?.data_url}
+              alt={lightbox.list[lightbox.index]?.label}
+              className="max-w-full max-h-[80vh] object-contain rounded-xl"
+              style={{ boxShadow: '0 0 40px rgba(224,255,0,0.15)' }}
+            />
+          </div>
+          {lightbox.list.length > 1 && (
+            <div className="p-3 flex items-center justify-between gap-3 border-t border-white/10" onClick={(e) => e.stopPropagation()}>
+              <button
+                data-testid="pd-lightbox-prev"
+                disabled={lightbox.index === 0}
+                onClick={() => setLightbox((s) => ({ ...s, index: Math.max(0, s.index - 1) }))}
+                className="flex-1 py-2 rounded-full bg-white/5 border border-white/10 text-white font-bold disabled:opacity-40"
+              >
+                ← Anterior
+              </button>
+              <button
+                data-testid="pd-lightbox-next"
+                disabled={lightbox.index >= lightbox.list.length - 1}
+                onClick={() => setLightbox((s) => ({ ...s, index: Math.min(s.list.length - 1, s.index + 1) }))}
+                className="flex-1 py-2 rounded-full bg-white/5 border border-white/10 text-white font-bold disabled:opacity-40"
+              >
+                Próxima →
+              </button>
+            </div>
+          )}
+        </div>
       )}
 
       {/* Fev/2026 · APR Editor Modal */}

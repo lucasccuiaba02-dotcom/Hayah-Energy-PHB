@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { motion } from 'framer-motion';
 import axios from 'axios';
 import { toast } from 'sonner';
-import { Plus, Edit2, Trash2, Calendar, MapPin, Zap, History, ClipboardCheck, Users as UsersIcon, Sun, ArrowRight, CircleDot, FileText, XCircle, CheckCircle2, DollarSign } from 'lucide-react';
+import { Plus, Edit2, Trash2, Calendar, MapPin, Zap, History, ClipboardCheck, Users as UsersIcon, Sun, ArrowRight, CircleDot, FileText, XCircle, CheckCircle2, DollarSign, Truck } from 'lucide-react';
 import { AppLayout } from '../components/AppLayout';
 import { ProjectDrawer } from '../components/ProjectDrawer';
 import { ProjectFilters } from '../components/ProjectFilters';
