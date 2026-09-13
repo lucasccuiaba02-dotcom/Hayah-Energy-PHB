@@ -30,6 +30,11 @@ Dashboard, **Buscar Obras**, Operacional, Carteira, Programação, Calendário, 
 - Emails/Push: mantidos
 
 ## Feito em Fev/2026 (últimas iterações)
+- **[13/Fev/2026] Meta contratual R$ 336k/mês + Meta diária R$ 4k/equipe**
+  - Backend: constantes `MONTHLY_CONTRACT_TARGET=336000` e `TEAM_DAILY_TARGET=4000`
+  - Novo campo `targets` em `/analytics/manager-kpis` com `monthly_pct`, `monthly_gap`, `daily_target_total`, `business_days_in_month`, `expected_monthly_per_team`, `team_daily_perf[]`
+  - Custos de perda recalibrados: **R$ 500/h** (jornada 8h × R$4k/dia) e **R$ 4.000/dia**
+  - Frontend `AnalisePage`: nova barra de progresso destacada com % atingido, quanto falta, meta diária/equipe, meta diária total (Nº equipes × R$ 4k), e ranking de aderência por equipe (produção do mês / R$ 4k × 22 dias úteis)
 - **[13/Fev/2026] Análise: Prejuízos Operacionais + Filtro de equipes cadastradas**
   - Backend `/analytics/manager-kpis`: novos campos `losses.unproductive_cost`, `losses.unavailable_cost`, `losses.reschedule_count`, `losses.reschedule_events`, `losses.reschedule_lost_value`
   - Backend `/analytics/advanced` e `manager-kpis`: só considera equipes cadastradas na aba Equipes **E** com ≥1 membro OU supervisor (filtra placeholders "Equipe 1/2/3" vazios e "Sem equipe")

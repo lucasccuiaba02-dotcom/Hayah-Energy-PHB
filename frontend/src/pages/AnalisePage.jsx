@@ -108,6 +108,103 @@ export const AnalisePage = () => {
       {/* Executive KPIs (Fev/2026) — visão gerencial no topo */}
       {managerKpis && (
         <div data-testid="manager-kpis" className="mb-6 space-y-4">
+          {/* Meta Contratual (Fev/2026) — barra de progresso destacada */}
+          {managerKpis.targets && (
+            <motion.div
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              data-testid="targets-panel"
+              className="glass-panel rounded-2xl p-5 border border-[#E0FF00]/40"
+            >
+              <div className="flex items-start justify-between gap-4 flex-wrap mb-3">
+                <div>
+                  <div className="flex items-center gap-2 mb-1">
+                    <Target className="w-4 h-4 text-[#E0FF00]" />
+                    <p className="text-[10px] tracking-[0.2em] uppercase font-bold text-[#E0FF00]">Meta Contratual Mensal</p>
+                  </div>
+                  <p className="font-heading font-black text-2xl tracking-tighter text-white leading-none">
+                    {formatCurrency(managerKpis.targets.monthly_actual)}
+                    <span className="text-sm text-zinc-500 font-mono font-normal ml-2">
+                      / {formatCurrency(managerKpis.targets.monthly_contract)}
+                    </span>
+                  </p>
+                </div>
+                <div className="text-right">
+                  <p className="text-[10px] tracking-[0.2em] uppercase font-bold text-zinc-500 mb-1">Atingido</p>
+                  <p
+                    className="font-heading font-black text-3xl tracking-tighter leading-none"
+                    style={{ color: managerKpis.targets.monthly_pct >= 100 ? '#39FF14' : managerKpis.targets.monthly_pct >= 70 ? '#E0FF00' : '#FF5E00' }}
+                    data-testid="target-monthly-pct"
+                  >
+                    {managerKpis.targets.monthly_pct.toFixed(1)}%
+                  </p>
+                </div>
+              </div>
+              {/* Barra de progresso */}
+              <div className="relative h-2.5 rounded-full bg-white/5 overflow-hidden mb-2" data-testid="target-progress-bar">
+                <div
+                  className="h-full rounded-full transition-all"
+                  style={{
+                    width: `${Math.min(100, managerKpis.targets.monthly_pct)}%`,
+                    background: managerKpis.targets.monthly_pct >= 100
+                      ? 'linear-gradient(90deg, #39FF14, #00F0FF)'
+                      : managerKpis.targets.monthly_pct >= 70
+                      ? 'linear-gradient(90deg, #E0FF00, #39FF14)'
+                      : 'linear-gradient(90deg, #FF003C, #FF5E00, #E0FF00)',
+                  }}
+                />
+              </div>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-3 text-[11px]">
+                <div>
+                  <p className="text-zinc-500 uppercase text-[9px] tracking-wider font-bold">Faltam</p>
+                  <p className="text-white font-mono font-bold" data-testid="target-monthly-gap">{formatCurrency(managerKpis.targets.monthly_gap)}</p>
+                </div>
+                <div>
+                  <p className="text-zinc-500 uppercase text-[9px] tracking-wider font-bold">Meta Diária/Equipe</p>
+                  <p className="text-[#00F0FF] font-mono font-bold" data-testid="target-daily-team">{formatCurrency(managerKpis.targets.team_daily)}</p>
+                </div>
+                <div>
+                  <p className="text-zinc-500 uppercase text-[9px] tracking-wider font-bold">Equipes Ativas</p>
+                  <p className="text-white font-mono font-bold" data-testid="target-active-teams">{managerKpis.targets.active_teams_count}</p>
+                </div>
+                <div>
+                  <p className="text-zinc-500 uppercase text-[9px] tracking-wider font-bold">Meta Diária Total</p>
+                  <p className="text-[#39FF14] font-mono font-bold" data-testid="target-daily-total">{formatCurrency(managerKpis.targets.daily_target_total)}</p>
+                </div>
+              </div>
+              {managerKpis.targets.team_daily_perf && managerKpis.targets.team_daily_perf.length > 0 && (
+                <div className="mt-4 pt-3 border-t border-white/10">
+                  <p className="text-[10px] tracking-[0.2em] uppercase font-bold text-zinc-500 mb-2">Aderência por Equipe (mês atual · {managerKpis.targets.business_days_in_month} dias úteis)</p>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+                    {managerKpis.targets.team_daily_perf.map((tp, i) => (
+                      <div
+                        key={tp.name}
+                        data-testid={`team-daily-perf-${i}`}
+                        className="rounded-lg p-2.5 border"
+                        style={{
+                          backgroundColor: tp.meta_pct >= 100 ? '#39FF1415' : tp.meta_pct >= 70 ? '#E0FF0015' : '#FF5E0015',
+                          borderColor: tp.meta_pct >= 100 ? '#39FF1440' : tp.meta_pct >= 70 ? '#E0FF0040' : '#FF5E0040',
+                        }}
+                      >
+                        <div className="flex items-center justify-between mb-1">
+                          <p className="text-white text-xs font-bold truncate">{tp.name}</p>
+                          <p
+                            className="text-sm font-mono font-black"
+                            style={{ color: tp.meta_pct >= 100 ? '#39FF14' : tp.meta_pct >= 70 ? '#E0FF00' : '#FF5E00' }}
+                          >
+                            {tp.meta_pct.toFixed(0)}%
+                          </p>
+                        </div>
+                        <p className="text-[10px] text-zinc-500 font-mono">
+                          {formatCurrency(tp.actual)} / {formatCurrency(tp.expected_monthly)}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </motion.div>
+          )}
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
             <KpiCard
               testid="kpi-adherence"
@@ -264,7 +361,9 @@ export const AnalisePage = () => {
             <div className="flex items-center gap-2 mb-3">
               <TrendingDown className="w-4 h-4 text-[#FF5E00]" />
               <p className="text-[10px] tracking-[0.2em] uppercase font-bold text-[#FF5E00]">Prejuízos Operacionais</p>
-              <span className="ml-auto text-[10px] font-mono text-zinc-500">R$ 100/h · R$ 800/dia · valor programado não realizado</span>
+              <span className="ml-auto text-[10px] font-mono text-zinc-500">
+                R$ {(managerKpis.losses.hour_cost ?? 500).toLocaleString('pt-BR')}/h · R$ {(managerKpis.losses.day_cost ?? 4000).toLocaleString('pt-BR')}/dia · valor programado não realizado
+              </span>
             </div>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
               <LossCard

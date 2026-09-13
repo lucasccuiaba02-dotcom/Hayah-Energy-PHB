@@ -2112,9 +2112,10 @@ async def manager_kpis(
     unprod_hours = round(sum(float(d.get("hours_lost") or 0) for d in unprod_docs), 1)
     unavail_days = len(unavail_docs)
 
-    # Custo estimado das perdas (constantes já usadas nas outras páginas)
-    HOUR_COST = 100.0
-    DAY_COST = 800.0
+    # Custo estimado das perdas — ajustado à meta operacional real
+    # Meta diária por equipe: R$ 4.000/dia (~ R$ 500/h com jornada de 8h)
+    HOUR_COST = 500.0
+    DAY_COST = 4000.0
     unprod_cost = round(unprod_hours * HOUR_COST, 2)
     unavail_cost = round(unavail_days * DAY_COST, 2)
 
@@ -2146,6 +2147,38 @@ async def manager_kpis(
             reschedule_events += 1
 
     loss_cost = round(unprod_cost + unavail_cost + reschedule_lost_value, 2)
+
+    # Fev/2026 · Metas contratuais operacionais
+    MONTHLY_CONTRACT_TARGET = 336000.0   # R$ 336k / mês (meta contratual global)
+    TEAM_DAILY_TARGET = 4000.0            # R$ 4k / dia por equipe
+    active_teams_count = len(registered_names)
+    # Meta atingida no mês corrente (produção realizada)
+    monthly_actual = float(cur_actual or 0)
+    monthly_pct = round((monthly_actual / MONTHLY_CONTRACT_TARGET) * 100, 1) if MONTHLY_CONTRACT_TARGET else 0.0
+    monthly_gap = round(max(0.0, MONTHLY_CONTRACT_TARGET - monthly_actual), 2)
+    # Meta diária somada (equipes ativas × R$ 4k)
+    daily_target_total = round(TEAM_DAILY_TARGET * active_teams_count, 2)
+
+    # Aderência à meta diária por equipe (produção realizada média / dias úteis)
+    # Simplificação: produção do mês / (equipe × dias úteis do mês atual)
+    from calendar import monthrange as _mrange
+    _y, _m = now.year, now.month
+    _dim = _mrange(_y, _m)[1]
+    # dias úteis aproximados (seg-sex)
+    _business_days = sum(1 for _d in range(1, _dim + 1) if _dt(_y, _m, _d).weekday() < 5)
+    expected_monthly_per_team = TEAM_DAILY_TARGET * _business_days
+    team_daily_perf = []
+    for tn in registered_names:
+        tp = team_map.get(tn) or {"actual": 0.0, "programmed": 0.0, "count": 0, "team": tn}
+        team_actual = float(tp.get("actual") or 0)
+        pct_meta = round((team_actual / expected_monthly_per_team) * 100, 1) if expected_monthly_per_team else 0.0
+        team_daily_perf.append({
+            "name": tn,
+            "actual": team_actual,
+            "expected_monthly": round(expected_monthly_per_team, 2),
+            "meta_pct": pct_meta,
+        })
+    team_daily_perf.sort(key=lambda x: x["meta_pct"], reverse=True)
 
     return {
         "financial": {
@@ -2188,6 +2221,20 @@ async def manager_kpis(
             "reschedule_events": reschedule_events,
             "reschedule_lost_value": reschedule_lost_value,
             "estimated_cost": loss_cost,
+            "hour_cost": HOUR_COST,
+            "day_cost": DAY_COST,
+        },
+        "targets": {
+            "monthly_contract": MONTHLY_CONTRACT_TARGET,
+            "team_daily": TEAM_DAILY_TARGET,
+            "active_teams_count": active_teams_count,
+            "daily_target_total": daily_target_total,
+            "monthly_actual": monthly_actual,
+            "monthly_pct": monthly_pct,
+            "monthly_gap": monthly_gap,
+            "business_days_in_month": _business_days,
+            "expected_monthly_per_team": round(expected_monthly_per_team, 2),
+            "team_daily_perf": team_daily_perf,
         },
     }
 
