@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import axios from 'axios';
 import { toast } from 'sonner';
@@ -21,6 +21,7 @@ const formatBytes = (n) => {
 export const ProjectDetailPage = () => {
   const { id } = useParams();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const [project, setProject] = useState(null);
   const [checklist, setChecklist] = useState({});
   const [photos, setPhotos] = useState([]);
@@ -32,8 +33,12 @@ export const ProjectDetailPage = () => {
   const [photoPoint, setPhotoPoint] = useState(''); // P1, P2, P3...
   const [dailyNotes, setDailyNotes] = useState('');
   const [downloadingPdf, setDownloadingPdf] = useState(false);
-  const [tab, setTab] = useState('operacional'); // 'operacional' | 'arquivos'
+  // Fev/2026 · Se veio de /carteira com ?camera=1, abre já na aba Arquivos
+  const [tab, setTab] = useState(searchParams.get('camera') === '1' ? 'arquivos' : 'operacional');
   const [uploadingPdf, setUploadingPdf] = useState(false);
+  // Fev/2026 · Preview modal pós-captura
+  const [previewSrc, setPreviewSrc] = useState(null);
+  const [previewFile, setPreviewFile] = useState(null);
 
   useEffect(() => {
     axios.get(`${API}/projects/${id}`).then(({ data }) => setProject(data)).catch(() => toast.error('Projeto não encontrado'));
@@ -51,6 +56,15 @@ export const ProjectDetailPage = () => {
       window.removeEventListener('offline', onOff);
     };
   }, [id]);
+
+  // Fev/2026 · Auto-abrir câmera quando abrimos com ?camera=1 (a partir da Carteira)
+  useEffect(() => {
+    if (searchParams.get('camera') !== '1') return;
+    const t = setTimeout(() => {
+      if (fileInputRef.current) fileInputRef.current.click();
+    }, 600);
+    return () => clearTimeout(t);
+  }, [searchParams]);
 
   const updateCheck = async (key) => {
     const updated = { ...checklist, [key]: !checklist[key] };
@@ -144,6 +158,21 @@ export const ProjectDetailPage = () => {
   const handlePhotoUpload = async (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
+    // Fev/2026 · Abre preview modal antes de enviar; usuário confirma ou refaz
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      setPreviewSrc(ev.target.result);
+      setPreviewFile(file);
+    };
+    reader.readAsDataURL(file);
+    e.target.value = '';
+  };
+
+  const confirmPhotoUpload = async () => {
+    if (!previewFile) return;
+    const file = previewFile;
+    setPreviewSrc(null);
+    setPreviewFile(null);
     setUploading(true);
     try {
       let outFile = file;
@@ -173,8 +202,14 @@ export const ProjectDetailPage = () => {
       toast.error('Erro ao enviar foto');
     } finally {
       setUploading(false);
-      e.target.value = '';
     }
+  };
+
+  const cancelPhotoPreview = () => {
+    setPreviewSrc(null);
+    setPreviewFile(null);
+    // reabre o seletor para o usuário refazer
+    setTimeout(() => { if (fileInputRef.current) fileInputRef.current.click(); }, 100);
   };
 
   const handlePhotoDelete = async (photoId) => {
@@ -423,14 +458,6 @@ export const ProjectDetailPage = () => {
                 <Camera className="w-3 h-3" />
                 {uploading ? 'Enviando...' : 'Foto'}
               </button>
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept="image/*"
-                capture="environment"
-                onChange={handlePhotoUpload}
-                className="hidden"
-              />
             </div>
           </div>
           <div className="grid grid-cols-2 gap-2">
@@ -718,6 +745,67 @@ export const ProjectDetailPage = () => {
                 ))}
               </div>
             )}
+          </div>
+        </div>
+      )}
+      {tab === 'arquivos' && (
+      <div className="p-4 space-y-4 max-w-3xl mx-auto">
+      </div>
+      )}
+
+      {/* Fev/2026 · file input global sempre montado — permite auto-abrir câmera a partir de ?camera=1 mesmo estando em aba arquivos */}
+      <input
+        data-testid="pd-photo-input"
+        ref={fileInputRef}
+        type="file"
+        accept="image/*"
+        capture="environment"
+        onChange={handlePhotoUpload}
+        className="hidden"
+      />
+
+      {/* Fev/2026 · Modal de preview pós-captura de foto */}
+      {previewSrc && (
+        <div
+          data-testid="pd-photo-preview-modal"
+          className="fixed inset-0 z-50 bg-black/95 backdrop-blur-xl flex flex-col"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="p-4 flex items-center justify-between border-b border-white/10">
+            <p className="text-white font-bold text-sm">Conferir foto antes de enviar</p>
+            <button
+              data-testid="pd-photo-preview-close"
+              onClick={() => { setPreviewSrc(null); setPreviewFile(null); }}
+              className="w-9 h-9 rounded-full bg-white/5 border border-white/10 text-white flex items-center justify-center"
+              aria-label="Fechar preview"
+            >
+              ✕
+            </button>
+          </div>
+          <div className="flex-1 flex items-center justify-center p-4 overflow-auto">
+            <img
+              data-testid="pd-photo-preview-image"
+              src={previewSrc}
+              alt="Preview"
+              className="max-w-full max-h-full object-contain rounded-xl"
+              style={{ boxShadow: '0 0 40px rgba(224,255,0,0.15)' }}
+            />
+          </div>
+          <div className="p-4 border-t border-white/10 grid grid-cols-2 gap-3">
+            <button
+              data-testid="pd-photo-preview-retake"
+              onClick={cancelPhotoPreview}
+              className="py-3 rounded-full bg-white/5 border border-white/20 text-white font-bold inline-flex items-center justify-center gap-2"
+            >
+              <Camera className="w-4 h-4" /> Refazer
+            </button>
+            <button
+              data-testid="pd-photo-preview-send"
+              onClick={confirmPhotoUpload}
+              className="py-3 rounded-full bg-[#E0FF00] text-black font-black inline-flex items-center justify-center gap-2"
+            >
+              Enviar com marca d'água
+            </button>
           </div>
         </div>
       )}

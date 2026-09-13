@@ -3892,6 +3892,47 @@ async def repair_all_materials_mapping(current_user: dict = Depends(get_current_
     return {"status": "ok", "projects_touched": projects_touched, "items_repaired": total_changed}
 
 
+# Fev/2026 · Adicionar item avulso (material não orçado) ao projeto
+class ManualMaterialBody(BaseModel):
+    item: str  # descrição
+    code: str = ""
+    quantity: float = 1
+    unit: str = "UN"
+    unit_cost: float = 0
+    notes: str = ""
+
+
+@api_router.post("/projects/{project_id}/materials/add-manual")
+async def add_manual_material(project_id: str, body: ManualMaterialBody, current_user: dict = Depends(get_current_user)):
+    """Adiciona material AVULSO (não orçado) à obra. Marcado com `source: 'avulso'`
+    para diferenciar de itens importados da planilha. Total é calculado automaticamente."""
+    project = await db.projects.find_one({"_id": safe_object_id(project_id), "user_id": current_user["_id"]})
+    if not project:
+        raise HTTPException(status_code=404, detail="Obra não encontrada")
+    if not (body.item or "").strip():
+        raise HTTPException(status_code=400, detail="Descrição do material é obrigatória")
+    qty = float(body.quantity or 0)
+    cost = float(body.unit_cost or 0)
+    new_item = {
+        "id": secrets.token_urlsafe(8),
+        "item": str(body.item).strip(),
+        "code": str(body.code or "").strip(),
+        "quantity": int(qty) if qty == int(qty) else qty,
+        "unit": (body.unit or "UN").upper(),
+        "unit_cost": cost,
+        "total_cost": round(cost * qty, 2),
+        "notes": str(body.notes or "").strip(),
+        "source": "avulso",  # marca como não orçado
+        "added_at": datetime.now(timezone.utc).isoformat(),
+        "added_by": current_user.get("email") or current_user.get("name") or "",
+    }
+    await db.projects.update_one(
+        {"_id": safe_object_id(project_id)},
+        {"$push": {"materials_list": new_item}}
+    )
+    return {"status": "ok", "item": new_item}
+
+
 # ============ Material template + export (Fev/2026) ============
 @api_router.get("/materials/template")
 async def download_material_template(current_user: dict = Depends(get_current_user)):

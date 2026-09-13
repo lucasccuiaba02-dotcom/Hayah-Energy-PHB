@@ -1,9 +1,9 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useSearchParams, Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import axios from 'axios';
 import { toast } from 'sonner';
-import { Plus, Edit2, Trash2, MapPin, Calendar as CalIcon, Search, Copy, X } from 'lucide-react';
+import { Plus, Edit2, Trash2, MapPin, Calendar as CalIcon, Search, Copy, X, Camera } from 'lucide-react';
 import { SearchBar } from '../components/SearchBar';
 import { AppLayout } from '../components/AppLayout';
 import { ProjectDrawer } from '../components/ProjectDrawer';
@@ -339,6 +339,14 @@ export const CarteiraPage = () => {
                       </td>
                       <td className="px-4 py-3 text-right">
                         <div className="flex items-center justify-end gap-2">
+                          <Link
+                            to={`/obras/${p.id}?camera=1`}
+                            data-testid={`carteira-photo-${i}`}
+                            title="Tirar foto (abre câmera do celular)"
+                            className="w-8 h-8 rounded-lg bg-white/5 border border-white/10 flex items-center justify-center text-zinc-400 hover:text-[#E0FF00]"
+                          >
+                            <Camera className="w-4 h-4" />
+                          </Link>
                           <button
                             data-testid={`duplicate-carteira-${i}`}
                             onClick={() => handleDuplicate(p.id)}
