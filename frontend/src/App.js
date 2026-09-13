@@ -25,6 +25,7 @@ import { SettingsPage } from './pages/SettingsPage';
 import { ImprodutividadePage } from './pages/ImprodutividadePage';
 import { EquipamentosPage } from './pages/EquipamentosPage';
 import { ProtectedRoute } from './components/ProtectedRoute';
+import { OfflineBanner } from './components/OfflineBanner';
 import '@/App.css';
 
 const PublicRoute = ({ children }) => {
@@ -68,6 +69,7 @@ function App() {
     <ThemeProvider>
       <AuthProvider>
         <BrowserRouter>
+          <OfflineBanner />
           <AppRoutes />
           <Toaster
             position="top-right"
