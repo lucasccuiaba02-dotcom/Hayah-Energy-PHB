@@ -7,6 +7,7 @@ import { ArrowLeft, Zap, AlertTriangle, Package, CheckCircle2, Camera, X, MapPin
 import { HayahLogo } from '../components/HayahLogo';
 import { PROJECT_TYPE_LABEL, EXECUTION_STATUS_LABEL, formatCurrency, resolveMaterialCodeAndDesc } from '../lib/constants';
 import { enqueue, syncQueue } from '../lib/offline';
+import { enqueuePhoto, syncPhotoQueue, getQueuedPhotoCount } from '../lib/photoQueue';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -39,6 +40,8 @@ export const ProjectDetailPage = () => {
   // Fev/2026 · Preview modal pós-captura
   const [previewSrc, setPreviewSrc] = useState(null);
   const [previewFile, setPreviewFile] = useState(null);
+  // Fev/2026 · Fotos aguardando sync no IndexedDB (modo offline)
+  const [pendingPhotos, setPendingPhotos] = useState(0);
 
   useEffect(() => {
     axios.get(`${API}/projects/${id}`).then(({ data }) => setProject(data)).catch(() => toast.error('Projeto não encontrado'));
@@ -47,10 +50,28 @@ export const ProjectDetailPage = () => {
       setPhotos(data.photos || []);
     }).catch(() => { /* offline OK */ });
 
-    const onOn = () => { setOnline(true); syncQueue(axios, API).then((r) => { if (r.synced > 0) toast.success(`${r.synced} atualização(ões) sincronizada(s)`); }); };
+    const onOn = () => {
+      setOnline(true);
+      syncQueue(axios, API).then((r) => { if (r.synced > 0) toast.success(`${r.synced} checklist(s) sincronizado(s)`); });
+      // Fev/2026 · sincroniza fotos que estavam no IDB aguardando sinal
+      syncPhotoQueue(axios, API).then(async (r) => {
+        if (r.synced > 0) {
+          toast.success(`${r.synced} foto(s) sincronizada(s) do offline`);
+          // recarrega lista de fotos do backend
+          try {
+            const { data } = await axios.get(`${API}/operacional/checklist/${id}`);
+            setPhotos(data.photos || []);
+          } catch {}
+        }
+        setPendingPhotos(await getQueuedPhotoCount());
+      });
+    };
     const onOff = () => setOnline(false);
     window.addEventListener('online', onOn);
     window.addEventListener('offline', onOff);
+    // sincroniza na montagem se já online
+    if (navigator.onLine) onOn();
+    else getQueuedPhotoCount().then(setPendingPhotos);
     return () => {
       window.removeEventListener('online', onOn);
       window.removeEventListener('offline', onOff);
@@ -181,14 +202,34 @@ export const ProjectDetailPage = () => {
       } catch (err) {
         console.warn('Watermark failed, sending original', err);
       }
+      // Fev/2026 · Se offline OU falhar o POST, enfileira no IndexedDB para sync posterior
+      if (!navigator.onLine) {
+        await enqueuePhoto({ projectId: id, file: outFile, label: photoLabel, point: (photoPoint || '').trim() });
+        setPendingPhotos(await getQueuedPhotoCount());
+        toast.info(`Offline — foto salva no celular. Sincroniza automaticamente ao voltar sinal.`);
+        // auto-increment point mesmo offline
+        if (photoPoint) {
+          const m = photoPoint.match(/^([A-Za-z]*)(\d+)$/);
+          if (m) setPhotoPoint(`${m[1] || 'P'}${parseInt(m[2], 10) + 1}`);
+        }
+        return;
+      }
       const formData = new FormData();
       formData.append('file', outFile);
       formData.append('label', photoLabel);
       formData.append('point', (photoPoint || '').trim());
-      const { data } = await axios.post(`${API}/operacional/photos/${id}`, formData, {
-        headers: { 'Content-Type': 'multipart/form-data' },
-      });
-      setPhotos([...photos, data]);
+      try {
+        const { data } = await axios.post(`${API}/operacional/photos/${id}`, formData, {
+          headers: { 'Content-Type': 'multipart/form-data' },
+        });
+        setPhotos([...photos, data]);
+        toast.success(`Foto enviada com marca d'água${data.point ? ` (${data.point})` : ''}!`);
+      } catch (err) {
+        // Falhou (timeout/rede) — enfileira offline
+        await enqueuePhoto({ projectId: id, file: outFile, label: photoLabel, point: (photoPoint || '').trim() });
+        setPendingPhotos(await getQueuedPhotoCount());
+        toast.warning('Sem resposta do servidor — foto salva no celular para sincronizar depois.');
+      }
       // Auto-increment point (P1 → P2 → P3, etc.)
       if (photoPoint) {
         const m = photoPoint.match(/^([A-Za-z]*)(\d+)$/);
@@ -197,9 +238,6 @@ export const ProjectDetailPage = () => {
           setPhotoPoint(`${prefix}${parseInt(m[2], 10) + 1}`);
         }
       }
-      toast.success(`Foto enviada com marca d'água${data.point ? ` (${data.point})` : ''}!`);
-    } catch (err) {
-      toast.error('Erro ao enviar foto');
     } finally {
       setUploading(false);
     }
@@ -330,9 +368,18 @@ export const ProjectDetailPage = () => {
             )}
             <h1 className="text-white font-bold truncate">{project.name}</h1>
           </div>
-          <div className={`w-8 h-8 rounded-full flex items-center justify-center ${online ? 'text-[#39FF14]' : 'text-[#FF003C]'}`} title={online ? 'Online' : 'Offline'}>
+          <div className={`w-8 h-8 rounded-full flex items-center justify-center ${online ? 'text-[#39FF14]' : 'text-[#FF003C]'}`} title={online ? 'Online' : 'Offline — fotos serão sincronizadas ao voltar sinal'}>
             {online ? <Wifi className="w-4 h-4" /> : <WifiOff className="w-4 h-4" />}
           </div>
+          {pendingPhotos > 0 && (
+            <div
+              data-testid="pd-pending-photos-badge"
+              className="px-2 py-1 rounded-full bg-[#FF5E00]/15 border border-[#FF5E00]/50 text-[#FF5E00] text-[10px] font-black font-mono flex items-center gap-1"
+              title={`${pendingPhotos} foto(s) aguardando sincronização`}
+            >
+              <Upload className="w-3 h-3" />{pendingPhotos}
+            </div>
+          )}
         </div>
         {/* Tabs */}
         <div className="px-4 pb-3 flex items-center gap-2">

@@ -5,7 +5,7 @@ import { toast } from 'sonner';
 import { AppLayout } from '../components/AppLayout';
 import {
   Package, Send, FileText, MapPin, Users, Calendar, Hash, PenLine,
-  CheckCircle2, History, FileDown, Camera, Truck, AlertCircle, Loader, RefreshCw, Eye, X, ClipboardList, Plus,
+  CheckCircle2, History, FileDown, Camera, Truck, AlertCircle, Loader, RefreshCw, Eye, X, ClipboardList, Plus, MessageCircle,
 } from 'lucide-react';
 import { WAREHOUSE_RESPONSE_STATUS, WAREHOUSE_RESPONSE_LABEL, MATERIAL_UNITS, ITEM_WAREHOUSE_STATUS, ITEM_WAREHOUSE_STATUS_LABEL, resolveMaterialCodeAndDesc } from '../lib/constants';
 import { PROJECT_TYPE_LABEL, formatCurrency, todayISO } from '../lib/constants';
@@ -97,6 +97,56 @@ export const SolicitacaoMaterialPage = () => {
     } catch (err) {
       toast.error(err?.response?.data?.detail || 'Erro ao adicionar avulso');
     } finally { setSavingAvulso(false); }
+  };
+
+  // Fev/2026 · Compartilhar item avulso no WhatsApp do almoxarifado
+  const shareAvulsoOnWhatsApp = (mat) => {
+    // Guarda o número do almoxarife no localStorage após primeira vez
+    let phone = localStorage.getItem('hayah_warehouse_phone') || '';
+    if (!phone) {
+      const answer = window.prompt(
+        'Qual o WhatsApp do almoxarifado? (com DDI + DDD, ex: 5565999998888)\nSalvamos no seu celular para próximas vezes.',
+        '55',
+      );
+      if (!answer) return;
+      phone = String(answer).replace(/\D/g, '');
+      if (phone.length < 10) { toast.error('Número inválido'); return; }
+      localStorage.setItem('hayah_warehouse_phone', phone);
+    }
+    const proj = selected;
+    const total = (Number(mat.quantity || 0) * Number(mat.unit_cost || 0)).toLocaleString('pt-BR', { minimumFractionDigits: 2 });
+    const projectUrl = `${window.location.origin}/obras/${proj?.id || selectedProject}`;
+    const lines = [
+      '*🟡 MATERIAL AVULSO (não orçado)*',
+      '',
+      `*Obra:* ${proj?.name || '-'}${proj?.project_code ? ` (${proj.project_code})` : ''}`,
+      proj?.location ? `*Local:* ${proj.location}` : null,
+      '',
+      `*Código:* ${mat.code || '(sem código)'}`,
+      `*Descrição:* ${mat.item || '-'}`,
+      `*Quantidade:* ${mat.quantity} ${(mat.unit || 'UN').toUpperCase()}`,
+      mat.unit_cost > 0 ? `*Preço unit.:* R$ ${Number(mat.unit_cost).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}` : null,
+      mat.unit_cost > 0 ? `*Total:* R$ ${total}` : null,
+      '',
+      mat.notes ? `*Justificativa:* ${mat.notes}` : '*Justificativa:* (não informada)',
+      '',
+      `📎 Detalhes e fotos da obra: ${projectUrl}`,
+      mat.added_by ? `Solicitado por: ${mat.added_by}` : null,
+    ].filter(Boolean);
+    const text = encodeURIComponent(lines.join('\n'));
+    const url = `https://wa.me/${phone}?text=${text}`;
+    window.open(url, '_blank', 'noopener,noreferrer');
+  };
+
+  // Permite trocar o número do almoxarife
+  const changeWarehousePhone = () => {
+    const current = localStorage.getItem('hayah_warehouse_phone') || '';
+    const answer = window.prompt('WhatsApp do almoxarifado (DDI+DDD+número):', current);
+    if (answer === null) return;
+    const clean = String(answer).replace(/\D/g, '');
+    if (clean.length < 10) { toast.error('Número inválido'); return; }
+    localStorage.setItem('hayah_warehouse_phone', clean);
+    toast.success('WhatsApp do almoxarifado atualizado');
   };
 
   const handlePreview = async () => {
@@ -374,6 +424,15 @@ export const SolicitacaoMaterialPage = () => {
                 >
                   <Plus className="w-3 h-3" /> Adicionar avulso
                 </button>
+                <button
+                  data-testid="materials-whatsapp-config"
+                  type="button"
+                  onClick={changeWarehousePhone}
+                  className="text-[11px] font-bold bg-white/5 border border-[#25D366]/40 hover:bg-[#25D366]/10 text-[#25D366] px-3 py-1.5 rounded-full inline-flex items-center gap-1"
+                  title="Configurar WhatsApp do almoxarifado para envios rápidos"
+                >
+                  <MessageCircle className="w-3 h-3" /> WhatsApp almox.
+                </button>
               </div>
             </div>
             {materials.length > 0 && (
@@ -404,13 +463,23 @@ export const SolicitacaoMaterialPage = () => {
                             <div className="flex items-center gap-1.5">
                               <span>{rowCode || '-'}</span>
                               {m.source === 'avulso' && (
-                                <span
-                                  data-testid={`mat-avulso-badge-${m.id}`}
-                                  className="text-[8px] font-black px-1.5 py-0.5 rounded bg-[#E0FF00]/20 border border-[#E0FF00]/50 text-[#E0FF00] tracking-wider"
-                                  title={m.notes ? `Avulso: ${m.notes}` : 'Item avulso (não orçado)'}
-                                >
-                                  AVULSO
-                                </span>
+                                <>
+                                  <span
+                                    data-testid={`mat-avulso-badge-${m.id}`}
+                                    className="text-[8px] font-black px-1.5 py-0.5 rounded bg-[#E0FF00]/20 border border-[#E0FF00]/50 text-[#E0FF00] tracking-wider"
+                                    title={m.notes ? `Avulso: ${m.notes}` : 'Item avulso (não orçado)'}
+                                  >
+                                    AVULSO
+                                  </span>
+                                  <button
+                                    data-testid={`mat-whatsapp-${m.id}`}
+                                    onClick={() => shareAvulsoOnWhatsApp(m)}
+                                    title="Enviar detalhes para o WhatsApp do almoxarifado"
+                                    className="w-5 h-5 rounded-md bg-[#25D366]/15 border border-[#25D366]/50 text-[#25D366] hover:bg-[#25D366]/25 flex items-center justify-center transition-all"
+                                  >
+                                    <MessageCircle className="w-2.5 h-2.5" />
+                                  </button>
+                                </>
                               )}
                             </div>
                           </td>
