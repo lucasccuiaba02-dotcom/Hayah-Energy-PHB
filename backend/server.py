@@ -3933,6 +3933,117 @@ async def add_manual_material(project_id: str, body: ManualMaterialBody, current
     return {"status": "ok", "item": new_item}
 
 
+# Fev/2026 · APR (Análise Preliminar de Risco) ==============================
+class APRSignerBody(BaseModel):
+    nome: str = ""
+    matricula: str = ""
+    assinatura: str = ""  # data URL do canvas
+
+
+class APRExtraMeasure(BaseModel):
+    etapa: str = ""
+    risco: str = ""
+    medida: str = ""
+
+
+class APRBody(BaseModel):
+    line_type: str = "morta"  # 'viva' | 'morta'
+    os_number: str = ""
+    header: dict = Field(default_factory=dict)
+    epis: dict = Field(default_factory=dict)
+    epcs: dict = Field(default_factory=dict)
+    riscos: dict = Field(default_factory=dict)
+    procedimentos: dict = Field(default_factory=dict)
+    medidas_extra: List[APRExtraMeasure] = Field(default_factory=list)
+    observacoes: str = ""
+    supervisor: APRSignerBody = Field(default_factory=APRSignerBody)
+    executores: List[APRSignerBody] = Field(default_factory=list)
+
+
+@api_router.post("/projects/{project_id}/aprs")
+async def create_apr(project_id: str, body: APRBody, current_user: dict = Depends(get_current_user)):
+    project = await db.projects.find_one({"_id": safe_object_id(project_id), "user_id": current_user["_id"]})
+    if not project:
+        raise HTTPException(status_code=404, detail="Obra não encontrada")
+    doc = {
+        "project_id": project_id,
+        "user_id": current_user["_id"],
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "created_by": current_user.get("email") or current_user.get("name") or "",
+        **body.model_dump(),
+    }
+    r = await db.aprs.insert_one(doc)
+    doc["id"] = str(r.inserted_id)
+    doc.pop("_id", None)
+    return doc
+
+
+@api_router.get("/projects/{project_id}/aprs")
+async def list_project_aprs(project_id: str, current_user: dict = Depends(get_current_user)):
+    project = await db.projects.find_one({"_id": safe_object_id(project_id), "user_id": current_user["_id"]})
+    if not project:
+        raise HTTPException(status_code=404, detail="Obra não encontrada")
+    out = []
+    async for a in db.aprs.find({"project_id": project_id, "user_id": current_user["_id"]}).sort("created_at", -1):
+        a["id"] = str(a.pop("_id"))
+        out.append(a)
+    return out
+
+
+@api_router.get("/aprs/{apr_id}")
+async def get_apr(apr_id: str, current_user: dict = Depends(get_current_user)):
+    a = await db.aprs.find_one({"_id": safe_object_id(apr_id), "user_id": current_user["_id"]})
+    if not a:
+        raise HTTPException(status_code=404, detail="APR não encontrada")
+    a["id"] = str(a.pop("_id"))
+    return a
+
+
+@api_router.patch("/aprs/{apr_id}")
+async def update_apr(apr_id: str, body: APRBody, current_user: dict = Depends(get_current_user)):
+    a = await db.aprs.find_one({"_id": safe_object_id(apr_id), "user_id": current_user["_id"]})
+    if not a:
+        raise HTTPException(status_code=404, detail="APR não encontrada")
+    updates = body.model_dump()
+    updates["updated_at"] = datetime.now(timezone.utc).isoformat()
+    await db.aprs.update_one({"_id": safe_object_id(apr_id)}, {"$set": updates})
+    a2 = await db.aprs.find_one({"_id": safe_object_id(apr_id)})
+    a2["id"] = str(a2.pop("_id"))
+    return a2
+
+
+@api_router.delete("/aprs/{apr_id}")
+async def delete_apr(apr_id: str, current_user: dict = Depends(get_current_user)):
+    a = await db.aprs.find_one({"_id": safe_object_id(apr_id), "user_id": current_user["_id"]})
+    if not a:
+        raise HTTPException(status_code=404, detail="APR não encontrada")
+    await db.aprs.delete_one({"_id": safe_object_id(apr_id)})
+    return {"status": "deleted"}
+
+
+@api_router.get("/aprs/{apr_id}/pdf")
+async def download_apr_pdf(apr_id: str, current_user: dict = Depends(get_current_user)):
+    a = await db.aprs.find_one({"_id": safe_object_id(apr_id), "user_id": current_user["_id"]})
+    if not a:
+        raise HTTPException(status_code=404, detail="APR não encontrada")
+    project = await db.projects.find_one({"_id": safe_object_id(a["project_id"])}) or {}
+    project["id"] = str(project.get("_id", ""))
+    project.pop("_id", None)
+    team = None
+    if project.get("team_id"):
+        try:
+            team = await db.teams.find_one({"_id": safe_object_id(project["team_id"])})
+        except Exception:
+            team = None
+    from apr_pdf import build_apr_pdf
+    pdf = build_apr_pdf(a, project, team)
+    filename = f"APR_{a.get('os_number','') or apr_id}.pdf"
+    return StreamingResponse(
+        io.BytesIO(pdf), media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
 # ============ Material template + export (Fev/2026) ============
 @api_router.get("/materials/template")
 async def download_material_template(current_user: dict = Depends(get_current_user)):

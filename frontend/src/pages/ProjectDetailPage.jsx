@@ -6,6 +6,7 @@ import { toast } from 'sonner';
 import { ArrowLeft, Zap, AlertTriangle, Package, CheckCircle2, Camera, X, MapPin, Wifi, WifiOff, FileText, FolderOpen, ShieldCheck, Download, Upload, Trash2, Folder } from 'lucide-react';
 import { HayahLogo } from '../components/HayahLogo';
 import { PROJECT_TYPE_LABEL, EXECUTION_STATUS_LABEL, formatCurrency, resolveMaterialCodeAndDesc } from '../lib/constants';
+import { APREditor } from '../components/APREditor';
 import { enqueue, syncQueue } from '../lib/offline';
 import { enqueuePhoto, syncPhotoQueue, getQueuedPhotoCount } from '../lib/photoQueue';
 
@@ -42,6 +43,11 @@ export const ProjectDetailPage = () => {
   const [previewFile, setPreviewFile] = useState(null);
   // Fev/2026 · Fotos aguardando sync no IndexedDB (modo offline)
   const [pendingPhotos, setPendingPhotos] = useState(0);
+  // Fev/2026 · APR (Análise Preliminar de Risco)
+  const [aprOpen, setAprOpen] = useState(false);
+  const [aprList, setAprList] = useState([]);
+  const [aprSelected, setAprSelected] = useState(null); // objeto ou null para nova
+  const [teams, setTeams] = useState([]);
 
   useEffect(() => {
     axios.get(`${API}/projects/${id}`).then(({ data }) => setProject(data)).catch(() => toast.error('Projeto não encontrado'));
@@ -49,6 +55,9 @@ export const ProjectDetailPage = () => {
       setChecklist(data.checklist || {});
       setPhotos(data.photos || []);
     }).catch(() => { /* offline OK */ });
+    // APRs + teams
+    axios.get(`${API}/projects/${id}/aprs`).then(({ data }) => setAprList(data || [])).catch(() => {});
+    axios.get(`${API}/teams`).then(({ data }) => setTeams(data || [])).catch(() => {});
 
     const onOn = () => {
       setOnline(true);
@@ -86,6 +95,14 @@ export const ProjectDetailPage = () => {
     }, 600);
     return () => clearTimeout(t);
   }, [searchParams]);
+
+  // Fev/2026 · Se veio de /programacao com ?apr=1, abre o editor de APR
+  useEffect(() => {
+    if (searchParams.get('apr') === '1' && project) {
+      setAprSelected(null);
+      setAprOpen(true);
+    }
+  }, [searchParams, project]);
 
   const updateCheck = async (key) => {
     const updated = { ...checklist, [key]: !checklist[key] };
@@ -428,6 +445,45 @@ export const ProjectDetailPage = () => {
             <p className="text-sm text-zinc-300 flex items-start gap-1"><MapPin className="w-4 h-4 mt-0.5 flex-shrink-0 text-zinc-500" />{project.location}</p>
           )}
           {project.team_name && <p className="text-xs text-zinc-500 mt-2">Equipe: <span className="text-white">{project.team_name}</span></p>}
+        </div>
+
+        {/* Fev/2026 · APR (Análise Preliminar de Risco) */}
+        <div className="glass-panel rounded-2xl p-4 border border-[#FF003C]/30">
+          <div className="flex items-center justify-between mb-3">
+            <div>
+              <p className="text-[10px] tracking-[0.2em] uppercase font-bold text-[#FF003C]">APR — Segurança</p>
+              <p className="text-xs text-zinc-500">Análise Preliminar de Risco digital</p>
+            </div>
+            <button
+              data-testid="pd-apr-new"
+              onClick={() => { setAprSelected(null); setAprOpen(true); }}
+              className="text-xs font-black px-3 py-2 rounded-full bg-[#FF003C] text-white flex items-center gap-1"
+            >
+              <ShieldCheck className="w-3 h-3" /> Nova APR
+            </button>
+          </div>
+          {aprList.length === 0 ? (
+            <p className="text-[11px] text-zinc-500 italic">Nenhuma APR emitida ainda</p>
+          ) : (
+            <div className="space-y-1.5">
+              {aprList.map((a) => (
+                <button
+                  key={a.id}
+                  data-testid={`pd-apr-item-${a.id}`}
+                  onClick={() => { setAprSelected(a); setAprOpen(true); }}
+                  className="w-full flex items-center justify-between gap-2 px-3 py-2 rounded-lg bg-white/[0.03] border border-white/10 hover:border-white/30 text-left"
+                >
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs text-white font-bold truncate">
+                      {a.header?.task || 'APR'} <span className="font-mono text-[10px] text-[#E0FF00]">#{a.os_number || '—'}</span>
+                    </p>
+                    <p className="text-[10px] text-zinc-500">{(a.header?.date || '').slice(0, 10)} · <span className={a.line_type === 'viva' ? 'text-[#FF003C] font-bold' : 'text-[#39FF14] font-bold'}>LINHA {a.line_type === 'viva' ? 'VIVA' : 'MORTA'}</span> · {(a.executores || []).length + (a.supervisor?.nome ? 1 : 0)} assinatura(s)</p>
+                  </div>
+                  <span className="text-[10px] text-zinc-400 shrink-0">Abrir</span>
+                </button>
+              ))}
+            </div>
+          )}
         </div>
 
         <div>
@@ -798,6 +854,22 @@ export const ProjectDetailPage = () => {
       {tab === 'arquivos' && (
       <div className="p-4 space-y-4 max-w-3xl mx-auto">
       </div>
+      )}
+
+      {/* Fev/2026 · APR Editor Modal */}
+      {aprOpen && (
+        <APREditor
+          projectId={id}
+          project={project}
+          teams={teams}
+          initialApr={aprSelected}
+          onClose={() => setAprOpen(false)}
+          onSaved={async (saved) => {
+            const { data } = await axios.get(`${API}/projects/${id}/aprs`);
+            setAprList(data || []);
+            setAprSelected(saved);
+          }}
+        />
       )}
 
       {/* Fev/2026 · file input global sempre montado — permite auto-abrir câmera a partir de ?camera=1 mesmo estando em aba arquivos */}

@@ -40,6 +40,21 @@ Dashboard, **Buscar Obras**, Operacional, Carteira, Programação, Calendário, 
 
 ## Novidades Fev/2026 (Ondas)
 
+- **APR Digital (Análise Preliminar de Risco) — Fiel ao PDF do usuário (iter36, 11/Fev/2026)** — 🛡️ formulário digital completo:
+  1. **Backend**: `backend/apr_pdf_constants.py` com listas oficiais (16 EPIs, 14 EPCs, 13 Riscos, 27 Procedimentos) extraídas por AI do PDF anexado. `backend/apr_pdf.py` gera PDF fiel via ReportLab com cabeçalho colorido (verde=Linha Morta, vermelho=Linha Viva), tabelas de EPI/EPC/Risco/Procedimentos (Sim/Não/N.A), medidas extras não pré-identificadas, observações e **bloco de assinaturas com imagens** vindas do canvas (base64 → PIL Image no PDF). Endpoints em `server.py`: `POST /projects/{id}/aprs` (criar), `GET /projects/{id}/aprs` (listar), `GET/PATCH/DELETE /aprs/{id}`, `GET /aprs/{id}/pdf` (download com filename `APR_{os}.pdf`). Coleção MongoDB: `aprs`.
+  2. **Frontend**: novo componente `components/APREditor.jsx` — modal fullscreen com:
+     - Seletor Linha Viva/Morta com cores no header
+     - Bloco de identificação (data, OS, tarefa, área, equipe, local, nº profissionais, empresa)
+     - 2 grids de checklist EPIs+EPCs + grid de riscos (checkboxes tipo pill amarelo quando marcado)
+     - 27 procedimentos com 3 botões coloridos SIM/NÃO/N/A (verde/vermelho/amarelo)
+     - Observações gerais textarea
+     - Bloco de assinaturas: **Supervisor + N Executores dinâmicos** — cada um com dropdown que lista membros da equipe (`teams.find(t.id === project.team_id).members`) OU digitação manual, campo matrícula, e **SignaturePad canvas** com toque/mouse (touch-action:none) + botão limpar. Assinatura salva como data URL PNG.
+     - Botões `[Salvar]` (POST/PATCH) e `[PDF]` (download).
+  3. **Ganchos de acesso**:
+     - **ProjectDetailPage** (aba Operacional): novo card vermelho "APR — Segurança" com botão `[Nova APR]` e lista de APRs existentes (`pd-apr-item-{id}`) clicáveis para editar. Também: `?apr=1` na URL abre editor automaticamente.
+     - **ProgramacaoPage** (cards de obra): novo botão `<Truck>` vermelho (`hoje-apr-{id}`) ao lado do edit — abre `/obras/:id?apr=1` em nova aba.
+  4. Testado E2E via curl: APR criada, listada, PDF gerado com 5.7 KB, assinaturas base64 do supervisor incluídas.
+
 - **Barra global Offline/Sync Pendente (iter35, 11/Fev/2026)** — 📶 aviso fixo em TODAS as rotas:
   - Novo componente `components/OfflineBanner.jsx` (`data-testid="global-offline-banner"`) montado direto em `App.js` dentro do `<BrowserRouter>` — aparece inclusive em rotas que não usam `AppLayout` (como `ProjectDetailPage`).
   - Dois estados visuais: (1) **SEM SINAL** (vermelho `#FF003C`, WifiOff icon) — "Você está offline. Alterações serão sincronizadas quando o sinal voltar" ou "N foto(s) salvas no celular"; (2) **FOTOS AGUARDANDO SYNC** (laranja `#FF5E00`, Upload icon) — "N foto(s) aguardando envio" com botão `[SINCRONIZAR AGORA]` (`global-offline-sync-now`) que chama `syncPhotoQueue` na hora. Quando termina sem pendências, mostra "✓ Tudo sincronizado".

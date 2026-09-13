@@ -579,6 +579,14 @@ export const ProgramacaoPage = () => {
                             <p className="text-[10px] text-zinc-500 mt-0.5">{PROJECT_TYPE_LABEL[p.project_type]} · {p.team_name || 'sem equipe'}{p.additional_team_name ? ` + ${p.additional_team_name}` : ''}</p>
                           </div>
                           <button
+                            data-testid={`hoje-apr-${p.id}`}
+                            onClick={() => window.open(`/obras/${p.id}?apr=1`, '_blank', 'noopener,noreferrer')}
+                            className="w-7 h-7 rounded-md bg-[#FF003C]/15 border border-[#FF003C]/50 text-[#FF003C] flex items-center justify-center hover:bg-[#FF003C]/25"
+                            title="Abrir APR desta equipe"
+                          >
+                            <Truck className="w-3 h-3" />
+                          </button>
+                          <button
                             data-testid={`hoje-edit-${p.id}`}
                             onClick={() => { setEditing(p); setIsDrawerOpen(true); setHojeOpen(false); }}
                             className="w-7 h-7 rounded-md bg-white/5 border border-white/10 flex items-center justify-center text-zinc-400 hover:text-[#00F0FF]"
