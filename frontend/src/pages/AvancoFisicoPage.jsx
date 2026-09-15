@@ -4,7 +4,7 @@ import { toast } from 'sonner';
 import { motion } from 'framer-motion';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid, Legend } from 'recharts';
-import { TrendingUp, Gauge, Clock, DollarSign, Package, Plus, Trash2, Save, ExternalLink, Search, AlertTriangle } from 'lucide-react';
+import { TrendingUp, Gauge, Clock, DollarSign, Package, Plus, Trash2, Save, ExternalLink, Search, AlertTriangle, FileDown } from 'lucide-react';
 import { AppLayout } from '../components/AppLayout';
 import { AvancoQuickEntry, AvancoItemsTable, AvancoTimeline, ProgressBar, effColor } from '../components/AvancoWidgets';
 import { formatCurrency, EXECUTION_STATUS_LABEL } from '../lib/constants';
@@ -60,8 +60,8 @@ const CurveChart = ({ data }) => (
       <YAxis domain={[0, 100]} tick={{ fontSize: 10, fill: '#a1a1aa' }} tickFormatter={(v) => `${v}%`} />
       <Tooltip contentStyle={{ background: '#0b0b0d', border: '1px solid rgba(255,255,255,0.1)', fontSize: 11 }} formatter={(v) => (v === null ? '—' : `${v}%`)} labelFormatter={(d) => d.split('-').reverse().join('/')} />
       <Legend wrapperStyle={{ fontSize: 11 }} />
-      <Line type="monotone" dataKey="planned_pct" name="Planejado" stroke="#00F0FF" strokeDasharray="5 4" dot={false} strokeWidth={2} />
-      <Line type="monotone" dataKey="real_pct" name="Realizado" stroke="#39FF14" strokeWidth={3} dot={{ r: 3 }} connectNulls={false} />
+      <Line type="linear" dataKey="planned_pct" name="Planejado" stroke="#00F0FF" strokeDasharray="5 4" dot={false} strokeWidth={2} />
+      <Line type="linear" dataKey="real_pct" name="Realizado" stroke="#39FF14" strokeWidth={3} dot={{ r: 3 }} connectNulls={false} />
     </LineChart>
   </ResponsiveContainer>
 );
@@ -196,6 +196,20 @@ export const AvancoFisicoPage = () => {
   }, [list, search]);
 
   const s = detail?.summary;
+  const [pdfLoading, setPdfLoading] = useState(false);
+  const downloadPdf = async () => {
+    setPdfLoading(true);
+    try {
+      const { data } = await axios.get(`${API}/projects/${selectedId}/avanco/pdf`, { responseType: 'blob' });
+      const url = window.URL.createObjectURL(new Blob([data], { type: 'application/pdf' }));
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `avanco_fisico_${(s?.project_code || selectedId).replace(/[^A-Za-z0-9]/g, '_')}.pdf`;
+      document.body.appendChild(a); a.click(); a.remove();
+      window.URL.revokeObjectURL(url);
+      toast.success('Relatório de Avanço Físico gerado!');
+    } catch { toast.error('Erro ao gerar o PDF'); } finally { setPdfLoading(false); }
+  };
   const deleteEntry = async (eid) => {
     if (!window.confirm('Remover este lançamento?')) return;
     await axios.delete(`${API}/projects/${selectedId}/avanco/entries/${eid}`);
@@ -244,7 +258,10 @@ export const AvancoFisicoPage = () => {
                   <p className="font-mono text-lg font-bold text-white">{formatCurrency(s.programmed_value)}</p>
                   <p className="text-[10px] text-zinc-500">Realizado <span className="text-[#00F0FF] font-bold">{formatCurrency(s.actual_value)}</span></p>
                 </div>
-                <button data-testid="avanco-open-project" onClick={() => navigate(`/projeto/${s.id}`)} className="inline-flex items-center gap-1 text-[11px] font-bold px-3 py-1.5 rounded-full border border-white/15 text-zinc-300 hover:bg-white/10"><ExternalLink className="w-3 h-3" /> Abrir obra</button>
+                <div className="flex flex-col gap-2">
+                  <button data-testid="avanco-download-pdf" disabled={pdfLoading} onClick={downloadPdf} className="inline-flex items-center justify-center gap-1 text-[11px] font-bold px-3 py-1.5 rounded-full bg-[#E0FF00] text-black hover:bg-[#C8E600] disabled:opacity-50"><FileDown className="w-3.5 h-3.5" /> {pdfLoading ? 'Gerando…' : 'Relatório PDF'}</button>
+                  <button data-testid="avanco-open-project" onClick={() => navigate(`/projeto/${s.id}`)} className="inline-flex items-center justify-center gap-1 text-[11px] font-bold px-3 py-1.5 rounded-full border border-white/15 text-zinc-300 hover:bg-white/10"><ExternalLink className="w-3 h-3" /> Abrir obra</button>
+                </div>
               </div>
 
               <div className="grid grid-cols-2 md:grid-cols-5 gap-3">

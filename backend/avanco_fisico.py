@@ -5,11 +5,14 @@ Router montado em server.py via build_router(). Dados ficam no doc da obra:
 Threshold em app_settings {user_id, key:'avanco_threshold', value}.
 """
 from datetime import datetime, timezone
-from typing import Optional, List
+from typing import List
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import Response
 from pydantic import BaseModel
+
+from avanco_pdf import build_avanco_pdf
 
 DEFAULT_THRESHOLD = 45000.0
 BASE_ITEMS = [
@@ -219,9 +222,7 @@ def build_router(db, get_current_user, require_admin, safe_object_id, today_fn):
         }
         return {"threshold": th, "today": today, "totals": totals, "projects": out}
 
-    @router.get("/projects/{project_id}/avanco")
-    async def project_detail(project_id: str, current_user: dict = Depends(get_current_user)):
-        p = await _get_project(project_id, current_user)
+    async def _detail_payload(p, current_user):
         today = today_fn()
         items = _build_items(p)
         entries = sorted((p.get("progress_entries") or []), key=lambda e: (e.get("date", ""), e.get("created_at", "")), reverse=True)
@@ -247,6 +248,20 @@ def build_router(db, get_current_user, require_admin, safe_object_id, today_fn):
             "curve": _curve(p, items, today),
             "materials": mats,
         }
+
+    @router.get("/projects/{project_id}/avanco")
+    async def project_detail(project_id: str, current_user: dict = Depends(get_current_user)):
+        p = await _get_project(project_id, current_user)
+        return await _detail_payload(p, current_user)
+
+    @router.get("/projects/{project_id}/avanco/pdf")
+    async def project_pdf(project_id: str, current_user: dict = Depends(get_current_user)):
+        p = await _get_project(project_id, current_user)
+        detail = await _detail_payload(p, current_user)
+        pdf = build_avanco_pdf(p, detail)
+        code = "".join(ch if ch.isalnum() else "_" for ch in (p.get("project_code") or project_id))[:24]
+        filename = f"avanco_fisico_{code}_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M')}.pdf"
+        return Response(content=pdf, media_type="application/pdf", headers={"Content-Disposition": f'attachment; filename="{filename}"'})
 
     @router.post("/projects/{project_id}/avanco/entries")
     async def add_entry(project_id: str, body: EntryBody, current_user: dict = Depends(get_current_user)):
