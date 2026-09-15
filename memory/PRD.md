@@ -30,6 +30,8 @@ Dashboard, **Buscar Obras**, Operacional, Carteira, Programação, Calendário, 
 - Emails/Push: mantidos
 
 ## Feito em Fev/2026 (últimas iterações)
+- **[15/Set/2026] Login — fundo com tema de engenharia elétrica (rotação automática)**
+  - `LoginPage.jsx`: `HERO_IMAGES` (6 fotos Unsplash: cesto aéreo, linha viva, poste/caminhão-cesto, trabalho em altura, rede ao pôr do sol, postes e cabos), troca a cada 7s com cross-fade (framer-motion `AnimatePresence`) + leve zoom, pré-carregamento, overlay escuro para legibilidade. Legenda `login-hero-caption` e pontos clicáveis `login-hero-dot-{i}`. Mobile (`<lg`): mesma imagem esmaecida (`login-hero-mobile`) atrás do card. Testado via screenshot (desktop 1920 e mobile 390, sem overflow).
 - **[15/Set/2026] Avanço Físico — regra "mostrar todas" (iter28)**
   - Pedido do usuário (obras 0122600622/0122600699): listar **todas** as obras ≥ limite exceto **canceladas/suspensas**; `aguardando_programacao` (e legado None/"") entra com aviso `avanco-not-scheduled-{id}` "Aguardando programação — sem data no calendário"; concluídas seguem ocultas por toggle. `totals.not_scheduled` no resumo; ordenação ativas → aguardando → concluídas. Lookup só aponta valor abaixo do limite / concluída / suspensa-cancelada. `eligible` = valor ≥ limite e status ∉ {cancelado, suspenso}.
   - Nota: a versão publicada precisa de novo deploy para receber a correção.

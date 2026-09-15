@@ -1,10 +1,57 @@
-import React, { useState } from 'react';
-import { motion } from 'framer-motion';
+import React, { useState, useEffect } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { Mail, Lock, User } from 'lucide-react';
 
+const unsplash = (id) => `https://images.unsplash.com/${id}?w=1800&q=80&auto=format&fit=crop`;
+
+export const HERO_IMAGES = [
+  { id: 'photo-1759542877886-39d81e8f2eee', caption: 'Equipe em cesto aéreo · rede de distribuição' },
+  { id: 'photo-1597502310092-31cdaa35b46d', caption: 'Eletricista em linha viva · segurança em primeiro lugar' },
+  { id: 'photo-1509390373685-579356742d95', caption: 'Manutenção em poste · caminhão-cesto' },
+  { id: 'photo-1595856619767-ab739fa7daae', caption: 'Trabalho em altura com EPI completo' },
+  { id: 'photo-1563068261-13ebbdf16aa3', caption: 'Rede energizada ao pôr do sol' },
+  { id: 'photo-1610028290816-5d937a395a49', caption: 'Postes e cabos · fim de jornada' },
+];
+
+const ROTATE_MS = 7000;
+
+const useHeroRotation = () => {
+  const [index, setIndex] = useState(0);
+  useEffect(() => {
+    HERO_IMAGES.forEach((img) => {
+      const el = new Image();
+      el.src = unsplash(img.id);
+    });
+    const t = setInterval(() => setIndex((i) => (i + 1) % HERO_IMAGES.length), ROTATE_MS);
+    return () => clearInterval(t);
+  }, []);
+  return [index, setIndex];
+};
+
+const HeroBackdrop = ({ index }) => (
+  <AnimatePresence initial={false}>
+    <motion.div
+      key={HERO_IMAGES[index].id}
+      data-testid="login-hero-image"
+      data-hero-index={index}
+      initial={{ opacity: 0, scale: 1.04 }}
+      animate={{ opacity: 1, scale: 1 }}
+      exit={{ opacity: 0 }}
+      transition={{ opacity: { duration: 1.4, ease: 'easeInOut' }, scale: { duration: ROTATE_MS / 1000 + 1.5, ease: 'linear' } }}
+      className="absolute inset-0"
+      style={{
+        backgroundImage: `url(${unsplash(HERO_IMAGES[index].id)})`,
+        backgroundSize: 'cover',
+        backgroundPosition: 'center',
+      }}
+    />
+  </AnimatePresence>
+);
+
 export const LoginPage = () => {
+  const [heroIndex, setHeroIndex] = useHeroRotation();
   const [isLogin, setIsLogin] = useState(true);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -33,16 +80,41 @@ export const LoginPage = () => {
 
   return (
     <div data-testid="login-page" className="min-h-screen flex">
-      <div
-        className="hidden lg:flex lg:w-1/2 relative overflow-hidden"
-        style={{
-          backgroundImage:
-            'url(https://images.unsplash.com/photo-1672872476232-da16b45c9001?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NDk1ODB8MHwxfHNlYXJjaHwzfHxjeWJlcnB1bmslMjBhYnN0cmFjdCUyMGJhY2tncm91bmR8ZW58MHx8fHwxNzg0ODI5NjU3fDA&ixlib=rb-4.1.0&q=85)',
-          backgroundSize: 'cover',
-          backgroundPosition: 'center',
-        }}
-      >
-        <div className="absolute inset-0 bg-gradient-to-br from-[#050505]/80 via-[#050505]/60 to-transparent"></div>
+      <div data-testid="login-hero-panel" className="hidden lg:flex lg:w-1/2 relative overflow-hidden bg-[#050505]">
+        <HeroBackdrop index={heroIndex} />
+        <div className="absolute inset-0 bg-gradient-to-br from-[#050505]/90 via-[#050505]/60 to-[#050505]/30"></div>
+        <div className="absolute inset-x-0 bottom-0 h-40 bg-gradient-to-t from-[#050505] to-transparent"></div>
+
+        <div className="absolute bottom-8 left-12 right-12 z-10 flex items-center justify-between gap-6">
+          <AnimatePresence mode="wait">
+            <motion.p
+              key={HERO_IMAGES[heroIndex].id}
+              data-testid="login-hero-caption"
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -8 }}
+              transition={{ duration: 0.5 }}
+              className="text-xs tracking-[0.2em] uppercase font-bold text-zinc-400"
+            >
+              {HERO_IMAGES[heroIndex].caption}
+            </motion.p>
+          </AnimatePresence>
+          <div className="flex items-center gap-2" data-testid="login-hero-dots">
+            {HERO_IMAGES.map((img, i) => (
+              <button
+                key={img.id}
+                type="button"
+                aria-label={`Imagem ${i + 1}`}
+                data-testid={`login-hero-dot-${i}`}
+                onClick={() => setHeroIndex(i)}
+                className={`h-1.5 rounded-full transition-all duration-500 ${
+                  i === heroIndex ? 'w-8 bg-[#E0FF00]' : 'w-3 bg-white/25 hover:bg-white/50'
+                }`}
+              />
+            ))}
+          </div>
+        </div>
+
         <div className="relative z-10 flex flex-col justify-center px-12 text-white">
           <motion.h1
             initial={{ opacity: 0, y: 20 }}
@@ -69,12 +141,16 @@ export const LoginPage = () => {
         </div>
       </div>
 
-      <div className="w-full lg:w-1/2 flex items-center justify-center p-8 bg-[#050505]">
+      <div className="w-full lg:w-1/2 relative flex items-center justify-center p-8 bg-[#050505] overflow-hidden">
+        <div className="absolute inset-0 lg:hidden opacity-40" data-testid="login-hero-mobile">
+          <HeroBackdrop index={heroIndex} />
+          <div className="absolute inset-0 bg-gradient-to-b from-[#050505]/40 via-[#050505]/70 to-[#050505]"></div>
+        </div>
         <motion.div
           initial={{ opacity: 0, scale: 0.95 }}
           animate={{ opacity: 1, scale: 1 }}
           transition={{ duration: 0.5 }}
-          className="w-full max-w-md"
+          className="relative z-10 w-full max-w-md"
         >
           <div className="glass-panel rounded-2xl p-8">
             <div className="mb-8 text-center">
