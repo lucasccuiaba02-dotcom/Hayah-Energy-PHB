@@ -315,6 +315,10 @@ class ProjectCreate(BaseModel):
     postes_qty: int = 0
     transformadores_qty: int = 0
     km_rede: float = 0.0
+    estruturas_primarias: int = 0
+    estruturas_secundarias: int = 0
+    religadores_qty: int = 0
+    reguladores_qty: int = 0
     ligacoes_novas: int = 0
     religacoes: int = 0
     desligamentos: int = 0
@@ -358,6 +362,10 @@ class ProjectUpdate(BaseModel):
     postes_qty: Optional[int] = None
     transformadores_qty: Optional[int] = None
     km_rede: Optional[float] = None
+    estruturas_primarias: Optional[int] = None
+    estruturas_secundarias: Optional[int] = None
+    religadores_qty: Optional[int] = None
+    reguladores_qty: Optional[int] = None
     ligacoes_novas: Optional[int] = None
     religacoes: Optional[int] = None
     desligamentos: Optional[int] = None
@@ -408,6 +416,10 @@ class ProjectResponse(BaseModel):
     postes_qty: int = 0
     transformadores_qty: int = 0
     km_rede: float = 0.0
+    estruturas_primarias: int = 0
+    estruturas_secundarias: int = 0
+    religadores_qty: int = 0
+    reguladores_qty: int = 0
     ligacoes_novas: int = 0
     religacoes: int = 0
     desligamentos: int = 0
@@ -1148,6 +1160,10 @@ async def dashboard_kpis(current_user: dict = Depends(get_current_user)):
     postes = sum((p.get("postes_qty") or 0) for p in projects)
     trafos = sum((p.get("transformadores_qty") or 0) for p in projects)
     km_rede = sum((p.get("km_rede") or 0) for p in projects)
+    estr_prim = sum((p.get("estruturas_primarias") or 0) for p in projects)
+    estr_sec = sum((p.get("estruturas_secundarias") or 0) for p in projects)
+    religadores = sum((p.get("religadores_qty") or 0) for p in projects)
+    reguladores = sum((p.get("reguladores_qty") or 0) for p in projects)
     ligacoes = sum((p.get("ligacoes_novas") or 0) for p in projects)
     religacoes = sum((p.get("religacoes") or 0) for p in projects)
     desligamentos = sum((p.get("desligamentos") or 0) for p in projects)
@@ -1227,6 +1243,10 @@ async def dashboard_kpis(current_user: dict = Depends(get_current_user)):
             "postes": postes,
             "transformadores": trafos,
             "km_rede": round(km_rede, 2),
+            "estruturas_primarias": estr_prim,
+            "estruturas_secundarias": estr_sec,
+            "religadores": religadores,
+            "reguladores": reguladores,
             "ligacoes_novas": ligacoes,
             "religacoes": religacoes,
             "desligamentos": desligamentos,
@@ -1355,6 +1375,10 @@ def build_project_response(project: dict) -> ProjectResponse:
         postes_qty=project.get("postes_qty", 0),
         transformadores_qty=project.get("transformadores_qty", 0),
         km_rede=project.get("km_rede", 0.0),
+        estruturas_primarias=project.get("estruturas_primarias", 0) or 0,
+        estruturas_secundarias=project.get("estruturas_secundarias", 0) or 0,
+        religadores_qty=project.get("religadores_qty", 0) or 0,
+        reguladores_qty=project.get("reguladores_qty", 0) or 0,
         ligacoes_novas=project.get("ligacoes_novas", 0),
         religacoes=project.get("religacoes", 0),
         desligamentos=project.get("desligamentos", 0),

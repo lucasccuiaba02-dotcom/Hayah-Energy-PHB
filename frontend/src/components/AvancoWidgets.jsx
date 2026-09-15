@@ -46,7 +46,7 @@ export const AvancoQuickEntry = ({ projectId, items, onSaved, compact = false })
   return (
     <div data-testid="avanco-quick-entry" className={`grid gap-2 ${compact ? 'grid-cols-2' : 'grid-cols-2 md:grid-cols-5'}`}>
       <select data-testid="avanco-entry-item" value={itemKey || usable[0]?.key} onChange={(e) => setItemKey(e.target.value)} className="col-span-2 md:col-span-1 bg-zinc-950/90 border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:border-[#E0FF00] focus:outline-none">
-        {usable.map((i) => <option key={i.key} value={i.key}>{i.label} ({i.executed_qty}/{i.planned_qty} {i.unit})</option>)}
+        {usable.map((i) => <option key={i.key} value={i.key} data-testid={`avanco-entry-item-${i.key}`}>{i.label} ({i.executed_qty}/{i.planned_qty} {i.unit})</option>)}
       </select>
       <input data-testid="avanco-entry-qty" type="number" step="any" placeholder={`Qtd (${sel?.unit || 'un'})`} value={qty} onChange={(e) => setQty(e.target.value)} className="bg-zinc-950/90 border border-white/10 rounded-lg px-3 py-2 text-sm text-white font-mono focus:border-[#E0FF00] focus:outline-none" />
       <input data-testid="avanco-entry-date" type="date" value={date} onChange={(e) => setDate(e.target.value)} className="bg-zinc-950/90 border border-white/10 rounded-lg px-3 py-2 text-sm text-white font-mono focus:border-[#E0FF00] focus:outline-none" />

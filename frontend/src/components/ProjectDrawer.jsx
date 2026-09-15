@@ -43,9 +43,10 @@ export const ProjectDrawer = ({ isOpen, onClose, onSave, project, teams, default
     postes_qty: 0,
     transformadores_qty: 0,
     km_rede: 0,
-    ligacoes_novas: 0,
-    religacoes: 0,
-    desligamentos: 0,
+    estruturas_primarias: 0,
+    estruturas_secundarias: 0,
+    religadores_qty: 0,
+    reguladores_qty: 0,
     start_date: '',
     end_date: '',
     priority: 'medium',
@@ -111,9 +112,10 @@ export const ProjectDrawer = ({ isOpen, onClose, onSave, project, teams, default
         postes_qty: project.postes_qty || 0,
         transformadores_qty: project.transformadores_qty || 0,
         km_rede: project.km_rede || 0,
-        ligacoes_novas: project.ligacoes_novas || 0,
-        religacoes: project.religacoes || 0,
-        desligamentos: project.desligamentos || 0,
+        estruturas_primarias: project.estruturas_primarias || 0,
+        estruturas_secundarias: project.estruturas_secundarias || 0,
+        religadores_qty: project.religadores_qty || 0,
+        reguladores_qty: project.reguladores_qty || 0,
         start_date: project.start_date ? project.start_date.split('T')[0] : '',
         end_date: project.end_date ? project.end_date.split('T')[0] : '',
         priority: project.priority || 'medium',
@@ -156,9 +158,10 @@ export const ProjectDrawer = ({ isOpen, onClose, onSave, project, teams, default
       postes_qty: parseInt(formData.postes_qty) || 0,
       transformadores_qty: parseInt(formData.transformadores_qty) || 0,
       km_rede: parseFloat(formData.km_rede) || 0,
-      ligacoes_novas: parseInt(formData.ligacoes_novas) || 0,
-      religacoes: parseInt(formData.religacoes) || 0,
-      desligamentos: parseInt(formData.desligamentos) || 0,
+      estruturas_primarias: parseInt(formData.estruturas_primarias) || 0,
+      estruturas_secundarias: parseInt(formData.estruturas_secundarias) || 0,
+      religadores_qty: parseInt(formData.religadores_qty) || 0,
+      reguladores_qty: parseInt(formData.reguladores_qty) || 0,
       team_splits: (formData.team_splits || []).map((s) => ({
         team_id: s.team_id || '',
         team_name: s.team_name || '',
@@ -391,24 +394,28 @@ export const ProjectDrawer = ({ isOpen, onClose, onSave, project, teams, default
                       <input data-testid="project-postes-input" type="number" value={formData.postes_qty} onChange={(e) => setFormData({ ...formData, postes_qty: e.target.value })} className="w-full bg-zinc-950/90 border border-white/10 rounded-lg px-3 py-2 text-white font-mono text-sm" />
                     </div>
                     <div>
-                      <label className="text-[10px] uppercase text-zinc-500 block mb-1">Trafos</label>
-                      <input data-testid="project-trafos-input" type="number" value={formData.transformadores_qty} onChange={(e) => setFormData({ ...formData, transformadores_qty: e.target.value })} className="w-full bg-zinc-950/90 border border-white/10 rounded-lg px-3 py-2 text-white font-mono text-sm" />
-                    </div>
-                    <div>
                       <label className="text-[10px] uppercase text-zinc-500 block mb-1">Km rede</label>
                       <input data-testid="project-km-input" type="number" step="0.01" value={formData.km_rede} onChange={(e) => setFormData({ ...formData, km_rede: e.target.value })} className="w-full bg-zinc-950/90 border border-white/10 rounded-lg px-3 py-2 text-white font-mono text-sm" />
                     </div>
                     <div>
-                      <label className="text-[10px] uppercase text-zinc-500 block mb-1">Ligações novas</label>
-                      <input data-testid="project-ligacoes-input" type="number" value={formData.ligacoes_novas} onChange={(e) => setFormData({ ...formData, ligacoes_novas: e.target.value })} className="w-full bg-zinc-950/90 border border-white/10 rounded-lg px-3 py-2 text-white font-mono text-sm" />
+                      <label className="text-[10px] uppercase text-zinc-500 block mb-1">Trafos</label>
+                      <input data-testid="project-trafos-input" type="number" value={formData.transformadores_qty} onChange={(e) => setFormData({ ...formData, transformadores_qty: e.target.value })} className="w-full bg-zinc-950/90 border border-white/10 rounded-lg px-3 py-2 text-white font-mono text-sm" />
                     </div>
                     <div>
-                      <label className="text-[10px] uppercase text-zinc-500 block mb-1">Religações</label>
-                      <input data-testid="project-religacoes-input" type="number" value={formData.religacoes} onChange={(e) => setFormData({ ...formData, religacoes: e.target.value })} className="w-full bg-zinc-950/90 border border-white/10 rounded-lg px-3 py-2 text-white font-mono text-sm" />
+                      <label className="text-[10px] uppercase text-zinc-500 block mb-1">Estr. primárias</label>
+                      <input data-testid="project-estr-primarias-input" type="number" value={formData.estruturas_primarias} onChange={(e) => setFormData({ ...formData, estruturas_primarias: e.target.value })} className="w-full bg-zinc-950/90 border border-white/10 rounded-lg px-3 py-2 text-white font-mono text-sm" />
                     </div>
                     <div>
-                      <label className="text-[10px] uppercase text-zinc-500 block mb-1">Desligamentos</label>
-                      <input data-testid="project-desligamentos-input" type="number" value={formData.desligamentos} onChange={(e) => setFormData({ ...formData, desligamentos: e.target.value })} className="w-full bg-zinc-950/90 border border-white/10 rounded-lg px-3 py-2 text-white font-mono text-sm" />
+                      <label className="text-[10px] uppercase text-zinc-500 block mb-1">Estr. secundárias</label>
+                      <input data-testid="project-estr-secundarias-input" type="number" value={formData.estruturas_secundarias} onChange={(e) => setFormData({ ...formData, estruturas_secundarias: e.target.value })} className="w-full bg-zinc-950/90 border border-white/10 rounded-lg px-3 py-2 text-white font-mono text-sm" />
+                    </div>
+                    <div>
+                      <label className="text-[10px] uppercase text-zinc-500 block mb-1">Religadores</label>
+                      <input data-testid="project-religadores-input" type="number" value={formData.religadores_qty} onChange={(e) => setFormData({ ...formData, religadores_qty: e.target.value })} className="w-full bg-zinc-950/90 border border-white/10 rounded-lg px-3 py-2 text-white font-mono text-sm" />
+                    </div>
+                    <div>
+                      <label className="text-[10px] uppercase text-zinc-500 block mb-1">Reguladores</label>
+                      <input data-testid="project-reguladores-input" type="number" value={formData.reguladores_qty} onChange={(e) => setFormData({ ...formData, reguladores_qty: e.target.value })} className="w-full bg-zinc-950/90 border border-white/10 rounded-lg px-3 py-2 text-white font-mono text-sm" />
                     </div>
                   </div>
                 </div>

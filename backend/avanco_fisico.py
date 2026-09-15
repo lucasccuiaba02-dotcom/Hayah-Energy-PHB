@@ -22,14 +22,19 @@ def _brl(v):
     return "R$ " + f"{float(v or 0):,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
 
 
+# Set/2026: removidos ligações novas / religações / desligamentos; adicionados estruturas e equipamentos
 BASE_ITEMS = [
     ("postes", "Postes", "un", "postes_qty"),
-    ("transformadores", "Transformadores", "un", "transformadores_qty"),
     ("km_rede", "Km de Rede", "km", "km_rede"),
-    ("ligacoes", "Ligações Novas", "un", "ligacoes_novas"),
-    ("religacoes", "Religações", "un", "religacoes"),
-    ("desligamentos", "Desligamentos", "un", "desligamentos"),
+    ("estruturas_primarias", "Estruturas Primárias", "un", "estruturas_primarias"),
+    ("estruturas_secundarias", "Estruturas Secundárias", "un", "estruturas_secundarias"),
+    ("transformadores", "Transformadores", "un", "transformadores_qty"),
+    ("religadores", "Religadores", "un", "religadores_qty"),
+    ("reguladores", "Reguladores", "un", "reguladores_qty"),
 ]
+LEGACY_ITEMS = [("ligacoes", "Ligações Novas (legado)", "un", "ligacoes_novas"),
+                ("religacoes", "Religações (legado)", "un", "religacoes"),
+                ("desligamentos", "Desligamentos (legado)", "un", "desligamentos")]
 EXCLUDED_STATUS = ("cancelado", "suspenso")
 # Regra (Set/2026, pedido do usuário): mostrar TODAS as obras acima do limite exceto canceladas/suspensas;
 # aguardando programação entra com aviso "não programada"; concluídas ficam ocultas (toggle).
@@ -88,10 +93,15 @@ def _build_items(p):
         planned = float(p.get(field) or 0)
         if planned > 0:
             items.append({"key": key, "label": label, "unit": unit, "planned_qty": planned, "custom": False})
+    entries = p.get("progress_entries") or []
+    used_keys = {e.get("item_key") for e in entries}
+    for key, label, unit, field in LEGACY_ITEMS:
+        planned = float(p.get(field) or 0)
+        if planned > 0 and key in used_keys:
+            items.append({"key": key, "label": label, "unit": unit, "planned_qty": planned, "custom": False, "legacy": True})
     for c in (p.get("avanco_custom_items") or []):
         items.append({"key": c.get("key"), "label": c.get("label", ""), "unit": c.get("unit", "un"),
                       "planned_qty": float(c.get("planned_qty") or 0), "custom": True})
-    entries = p.get("progress_entries") or []
     for it in items:
         it["executed_qty"] = round(sum(float(e.get("qty") or 0) for e in entries if e.get("item_key") == it["key"]), 3)
         it["pct"] = round(min(100.0, 100.0 * it["executed_qty"] / it["planned_qty"]), 1) if it["planned_qty"] > 0 else 0.0

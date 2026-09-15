@@ -30,6 +30,11 @@ Dashboard, **Buscar Obras**, Operacional, Carteira, Programação, Calendário, 
 - Emails/Push: mantidos
 
 ## Feito em Fev/2026 (últimas iterações)
+- **[15/Set/2026] Quantitativo operacional — novos itens (estruturas + equipamentos)**
+  - Campos novos na obra: `estruturas_primarias`, `estruturas_secundarias`, `religadores_qty`, `reguladores_qty` (ProjectCreate/Update/Response + `ProjectDrawer` inputs `project-estr-primarias-input`, `project-estr-secundarias-input`, `project-religadores-input`, `project-reguladores-input`). Removidos do formulário: Ligações novas, Religações, Desligamentos (campos legados continuam no banco/modelo, só não são exibidos).
+  - `avanco_fisico.BASE_ITEMS` = postes, km_rede, estruturas_primarias, estruturas_secundarias, transformadores, religadores, reguladores. `LEGACY_ITEMS` (ligacoes/religacoes/desligamentos) só aparecem em obras que já tinham lançamentos nesses itens (rótulo "(legado)") — lançamento novo em item removido retorna 400.
+  - Dashboard `kpi-operational-row`: Postes · Km Rede · Estr. Primárias · Estr. Secundárias · Trafos · Religadores · Reguladores · Concluídas Mês · Dias Adiantados (backend `operacional` ganhou `estruturas_primarias/estruturas_secundarias/religadores/reguladores`; chaves antigas mantidas).
+  - Testado via curl (criação com quantitativos, lista de itens do avanço, lançamento aceito/rejeitado, KPIs) + screenshot (drawer e dashboard).
 - **[15/Set/2026] Login — fundo com tema de engenharia elétrica (rotação automática)**
   - `LoginPage.jsx`: `HERO_IMAGES` (6 fotos Unsplash: cesto aéreo, linha viva, poste/caminhão-cesto, trabalho em altura, rede ao pôr do sol, postes e cabos), troca a cada 7s com cross-fade (framer-motion `AnimatePresence`) + leve zoom, pré-carregamento, overlay escuro para legibilidade. Legenda `login-hero-caption` e pontos clicáveis `login-hero-dot-{i}`. Mobile (`<lg`): mesma imagem esmaecida (`login-hero-mobile`) atrás do card. Testado via screenshot (desktop 1920 e mobile 390, sem overflow).
 - **[15/Set/2026] Avanço Físico — regra "mostrar todas" (iter28)**

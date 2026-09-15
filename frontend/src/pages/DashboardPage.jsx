@@ -351,14 +351,15 @@ export const DashboardPage = () => {
             </div>
           </div>
 
-          <div data-testid="kpi-operational-row" className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-3 mb-4">
+          <div data-testid="kpi-operational-row" className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 xl:grid-cols-9 gap-3 mb-4">
             {[
               ['Postes', kpis.operacional.postes],
-              ['Trafos', kpis.operacional.transformadores],
               ['Km Rede', kpis.operacional.km_rede],
-              ['Ligações', kpis.operacional.ligacoes_novas],
-              ['Religações', kpis.operacional.religacoes],
-              ['Desligamentos', kpis.operacional.desligamentos],
+              ['Estr. Primárias', kpis.operacional.estruturas_primarias ?? 0],
+              ['Estr. Secundárias', kpis.operacional.estruturas_secundarias ?? 0],
+              ['Trafos', kpis.operacional.transformadores],
+              ['Religadores', kpis.operacional.religadores ?? 0],
+              ['Reguladores', kpis.operacional.reguladores ?? 0],
               ['Concluídas Mês', kpis.counts.concluidas_mes],
               ['Dias Adiantados', kpis.operacional.dias_adiantados],
             ].map(([label, value]) => (
