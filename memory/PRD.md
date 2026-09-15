@@ -30,6 +30,9 @@ Dashboard, **Buscar Obras**, Operacional, Carteira, Programação, Calendário, 
 - Emails/Push: mantidos
 
 ## Feito em Fev/2026 (últimas iterações)
+- **[15/Set/2026] Avanço Físico — regra "mostrar todas" (iter28)**
+  - Pedido do usuário (obras 0122600622/0122600699): listar **todas** as obras ≥ limite exceto **canceladas/suspensas**; `aguardando_programacao` (e legado None/"") entra com aviso `avanco-not-scheduled-{id}` "Aguardando programação — sem data no calendário"; concluídas seguem ocultas por toggle. `totals.not_scheduled` no resumo; ordenação ativas → aguardando → concluídas. Lookup só aponta valor abaixo do limite / concluída / suspensa-cancelada. `eligible` = valor ≥ limite e status ∉ {cancelado, suspenso}.
+  - Nota: a versão publicada precisa de novo deploy para receber a correção.
 - **[15/Set/2026] BUG: obras programadas não apareciam no Avanço Físico (iter27)**
   - Causa: `update_project` (PUT) não mudava `execution_status` para `programado` ao programar obra já cadastrada (só o POST fazia) → ficava "Aguardando Programação"/vazio e a aba excluía.
   - Fix: (1) `update_project` auto-seta `programado` quando `is_scheduled` + datas e status vazio/aguardando (sem status explícito no payload); (2) backfill idempotente no `startup_db`; (3) `avanco_fisico._status()` (efetivo) + `SCHEDULED_NO_STATUS_Q` na listagem; (4) `GET /api/avanco/lookup?q=` diagnostica motivos (valor abaixo do limite / não programada / concluída / suspensa-cancelada) e a UI mostra cards `avanco-lookup-{id}` "Por que não aparece?" quando a busca não encontra nada, com atalho "Mostrar concluídas".

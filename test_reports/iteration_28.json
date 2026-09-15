@@ -1,0 +1,28 @@
+{
+  "summary": "Iteration 28 — Nova regra Avanço Físico validada. Backend 11/11 pytest verde: (1) DASHKPI-01/0122600087/0122401091 aparecem em /api/avanco/projects com not_scheduled=true e execution_status='aguardando_programacao'; totals.not_scheduled bate com contagem. (2) Ordenação: ativas programadas → aguardando → concluídas. (3) TEST-SUSP 60k suspenso NÃO listada nem com include_completed=1. (4) DASHKPI-10 concluída oculta por padrão (hidden_completed>=1), aparece com include_completed=1 (hidden_completed=0). (5) Legado TEST-LEG2 (is_scheduled=false, sem execution_status, sem schedule_entries) aparece como aguardando_programacao com not_scheduled=true; detail eligible=true. (6) Lookup: DASHKPI-01 eligible=true reasons=[] (aguardando NÃO é mais motivo); DASHKPI-04 (15k suspenso) reasons contêm 'limite' e 'suspens'; DASHKPI-10 reason 'concluída' + hidden_completed=true. (7) Regressão: PUT auto-programa (execution_status='programado') e /api/dashboard/kpis 200. Frontend /avanco: subtítulo contém 'todas exceto canceladas/suspensas · 7 obra(s) · 3 aguardando programação'; 3 badges avanco-not-scheduled-{id} ('Aguardando programação — sem data no calendário'); DASHKPI-01, 0122600087, TEST-00699, TEST-00622 presentes; clicar card aguardando abre detalhe (KPIs Curva S); toggle avanco-toggle-completed adiciona DASHKPI-10; busca 'DASHKPI-04' exibe avanco-lookup-{id} com razões valor+suspensa. Nenhum bug crítico.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "verified_checks": [
+    "GET /api/avanco/projects lista aguardando (DASHKPI-01, 0122600087, 0122401091) com not_scheduled=true e execution_status='aguardando_programacao'",
+    "totals.not_scheduled == len(awaiting_in_response); ordenação active→awaiting→completed via include_completed=1",
+    "TEST-SUSP 60k suspenso não listado (padrão nem include_completed=1); DASHKPI-10 hidden_completed>=1 no padrão, presente com include_completed=1",
+    "Legado (TEST-LEG2 70k, is_scheduled=false, sem execution_status): listed as aguardando_programacao, not_scheduled=true; GET /projects/{id}/avanco eligible=true",
+    "Lookup: DASHKPI-01 eligible=true reasons=[]; DASHKPI-04 reasons=['limite','suspens']; DASHKPI-10 reason='concluída' hidden_completed=true",
+    "PUT /api/projects/{id} is_scheduled=true+schedule_entries → execution_status='programado'; /api/dashboard/kpis 200",
+    "UI /avanco: subtítulo 'todas exceto canceladas/suspensas · N obra(s) · M aguardando programação'; 3 badges Aguardando; clique em card aguardando abre detalhe (Curva S/KPIs); toggle 'Mostrar concluídas' adiciona DASHKPI-10; busca DASHKPI-04 exibe avanco-lookup-{id} com razão valor + suspensa"
+  ],
+  "test_report_links": ["/app/backend/tests/test_iteration28.py", "/app/test_reports/pytest/iter28.xml"],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "avanco_fisico._summary usa _status(p) duas vezes por projeto — micro custo, ok.",
+    "list_projects query 'execution_status': {\"$in\": statuses+[None,''] } inclui 'None'/'' apenas quando ACTIVE_STATUS presente (sempre); isso significa docs legados aparecem sempre → correto e coberto.",
+    "Ordenação usa tupla (is_completed, not_scheduled, -programmed_value) — funciona; considerar tie-break por project_code para estabilidade."
+  ],
+  "updated_files": ["/app/backend/tests/test_iteration28.py"],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "test_credentials": "lucasc.cuiaba02@gmail.com / Hayah$152610",
+  "seed_data_creation": "TEST-SUSP 60k suspenso criado via POST e apagado no finally. TEST-BUG-A 80k criado/apagado. TEST-LEG2 70k inserido direto no Mongo e apagado no finally. Pré-existentes preservados.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Nova regra Set/2026 na aba Avanço Físico: obras aguardando_programacao acima do limite AGORA aparecem com badge 'Aguardando programação — sem data no calendário' (not_scheduled=true); concluídas ocultas por padrão (toggle 'Mostrar concluídas'); suspenso/cancelado sempre excluídas. Lookup só mostra razões de valor/concluída/suspensa (aguardando não é mais motivo). Rodar: pytest backend/tests/test_iteration28.py -o addopts=''"
+}
