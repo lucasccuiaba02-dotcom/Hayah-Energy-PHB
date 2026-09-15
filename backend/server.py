@@ -1612,6 +1612,13 @@ async def update_project(project_id: str, project_data: ProjectUpdate, current_u
             {"$push": {"reschedule_history": history_entry}}
         )
     
+    # Auto-set execution_status ao programar uma obra já cadastrada (Set/2026 — espelha o create_project)
+    will_be_scheduled = update_data.get("is_scheduled", existing.get("is_scheduled"))
+    has_dates = bool(update_data.get("schedule_entries") or update_data.get("start_date") or existing.get("schedule_entries") or existing.get("start_date"))
+    status_after = update_data.get("execution_status", existing.get("execution_status"))
+    if will_be_scheduled and has_dates and "execution_status" not in update_data and status_after in (None, "", "aguardando_programacao"):
+        update_data["execution_status"] = "programado"
+
     # Build unified movement_history entries (Fev/2026)
     movements = _build_movements(existing, update_data, reschedule_reason, "", current_user.get("name", ""))
     
@@ -5409,6 +5416,17 @@ async def startup_db():
     await db.users.create_index("email", unique=True)
     await db.teams.create_index("user_id")
     await db.projects.create_index("user_id")
+    # Backfill idempotente (Set/2026): obra programada no calendário sem status → "programado"
+    try:
+        r = await db.projects.update_many(
+            {"is_scheduled": True, "execution_status": {"$in": [None, "", "aguardando_programacao"]},
+             "$or": [{"schedule_entries.0": {"$exists": True}}, {"start_date": {"$nin": [None, ""]}}]},
+            {"$set": {"execution_status": "programado"}},
+        )
+        if r.modified_count:
+            logger.info(f"Backfill execution_status=programado: {r.modified_count} obra(s)")
+    except Exception as e:
+        logger.warning(f"backfill programado: {e}")
     # Object storage init
     await init_storage()
     # TTL index for live tracking positions — auto-expire after 10 minutes

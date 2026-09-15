@@ -197,6 +197,16 @@ export const AvancoFisicoPage = () => {
     return q ? ps.filter((p) => (p.project_code || '').toLowerCase().includes(q) || (p.name || '').toLowerCase().includes(q) || (p.team_name || '').toLowerCase().includes(q)) : ps;
   }, [list, search]);
 
+  const [lookup, setLookup] = useState(null);
+  useEffect(() => {
+    const q = search.trim();
+    if (!list || q.length < 2 || filteredProjects.length > 0) { setLookup(null); return; }
+    const t = setTimeout(() => {
+      axios.get(`${API}/avanco/lookup`, { params: { q } }).then(({ data }) => setLookup(data)).catch(() => setLookup(null));
+    }, 350);
+    return () => clearTimeout(t);
+  }, [search, list, filteredProjects.length]);
+
   const s = detail?.summary;
   const [pdfOpen, setPdfOpen] = useState(false);
   const deleteEntry = async (eid) => {
@@ -233,9 +243,28 @@ export const AvancoFisicoPage = () => {
           </label>
           <div data-testid="avanco-project-list" className="space-y-2 max-h-[70vh] overflow-y-auto pr-1">
             {!list ? <p className="text-zinc-500 text-sm">Carregando…</p> : filteredProjects.length === 0 ? (
-              <div className="glass-panel rounded-xl p-6 text-center text-zinc-500 text-sm">
-                Nenhuma obra programada, a reprogramar ou em execução acima de {formatCurrency(list.threshold)}.
-                <p className="text-[10px] text-zinc-600 mt-1">Obras aguardando programação entram aqui assim que forem programadas.</p>
+              <div className="space-y-2">
+                <div className="glass-panel rounded-xl p-6 text-center text-zinc-500 text-sm">
+                  {search.trim() ? `Nenhuma obra do Avanço Físico corresponde a "${search.trim()}".` : `Nenhuma obra programada, a reprogramar ou em execução acima de ${formatCurrency(list.threshold)}.`}
+                  <p className="text-[10px] text-zinc-600 mt-1">Obras aguardando programação entram aqui assim que forem programadas.</p>
+                </div>
+                {lookup?.results?.map((r) => (
+                  <div key={r.id} data-testid={`avanco-lookup-${r.id}`} className="glass-panel rounded-xl p-3 border border-[#FF5E00]/40">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="font-mono text-xs font-bold text-[#E0FF00]">{r.project_code || '—'}</span>
+                      <span className="text-[10px] font-bold text-zinc-400">{r.status_label} · {formatCurrency(r.programmed_value)}</span>
+                    </div>
+                    <p className="text-sm text-white font-bold truncate">{r.name}</p>
+                    <p className="text-[10px] uppercase tracking-wider text-[#FF5E00] font-bold mt-1.5">Por que não aparece?</p>
+                    <ul className="text-[11px] text-zinc-300 list-disc pl-4 space-y-0.5">
+                      {r.reasons.map((x, i) => <li key={i}>{x}</li>)}
+                    </ul>
+                    <div className="flex items-center gap-2 mt-2">
+                      {r.hidden_completed && <button data-testid={`avanco-lookup-show-completed-${r.id}`} onClick={() => setShowCompleted(true)} className="text-[11px] font-bold text-[#00F0FF] underline">Mostrar concluídas</button>}
+                      <button onClick={() => navigate(`/projeto/${r.id}`)} className="text-[11px] font-bold text-zinc-300 underline">Abrir obra</button>
+                    </div>
+                  </div>
+                ))}
               </div>
             ) : filteredProjects.map((p) => <ProjectCard key={p.id} p={p} active={p.id === selectedId} onClick={() => select(p.id)} />)}
           </div>

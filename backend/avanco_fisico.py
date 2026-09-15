@@ -16,6 +16,12 @@ from pydantic import BaseModel
 from avanco_pdf import build_avanco_pdf
 
 DEFAULT_THRESHOLD = 45000.0
+
+
+def _brl(v):
+    return "R$ " + f"{float(v or 0):,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+
+
 BASE_ITEMS = [
     ("postes", "Postes", "un", "postes_qty"),
     ("transformadores", "Transformadores", "un", "transformadores_qty"),
@@ -54,6 +60,18 @@ class ItemsConfigBody(BaseModel):
 
 def _d(v):
     return (v or "")[:10]
+
+
+def _status(p):
+    """Status efetivo: obra programada no calendário sem status explícito conta como 'programado'."""
+    s = p.get("execution_status") or "aguardando_programacao"
+    if s == "aguardando_programacao" and p.get("is_scheduled") and (p.get("schedule_entries") or p.get("start_date")):
+        return "programado"
+    return s
+
+
+SCHEDULED_NO_STATUS_Q = {"is_scheduled": True, "execution_status": {"$in": [None, "", "aguardando_programacao"]},
+                         "$or": [{"schedule_entries.0": {"$exists": True}}, {"start_date": {"$nin": [None, ""]}}]}
 
 
 def _first_sched(p):
@@ -125,7 +143,7 @@ def _summary(p, today, team_target):
     return {
         "id": str(p["_id"]), "project_code": p.get("project_code", ""), "name": p.get("name", ""),
         "team_name": p.get("team_name") or "", "location": p.get("location", ""),
-        "execution_status": p.get("execution_status") or "aguardando_programacao",
+        "execution_status": _status(p),
         "programmed_value": prog, "actual_value": actual,
         "pct_fisico": pct_fis, "pct_financeiro": pct_fin, "pct_tempo": pct_tempo, "eficiencia": eficiencia,
         "start": start, "end": end, "total_days": total_days,
@@ -211,7 +229,7 @@ def build_router(db, get_current_user, require_admin, safe_object_id, today_fn, 
         today = today_fn()
         base_q = {"user_id": current_user["_id"], "programmed_value": {"$gte": th}}
         statuses = list(ACTIVE_STATUS) + (list(COMPLETED_STATUS) if include_completed else [])
-        projects = await db.projects.find({**base_q, "execution_status": {"$in": statuses}}).to_list(2000)
+        projects = await db.projects.find({**base_q, "$or": [{"execution_status": {"$in": statuses}}, SCHEDULED_NO_STATUS_Q]}).to_list(2000)
         hidden_completed = 0 if include_completed else await db.projects.count_documents({**base_q, "execution_status": {"$in": list(COMPLETED_STATUS)}})
         out = [_summary(p, today, await _team_target(current_user["_id"], p)) for p in projects]
         out.sort(key=lambda s: (s["execution_status"] in COMPLETED_STATUS, -s["programmed_value"]))
@@ -225,6 +243,35 @@ def build_router(db, get_current_user, require_admin, safe_object_id, today_fn, 
             "hidden_completed": hidden_completed,
         }
         return {"threshold": th, "today": today, "include_completed": bool(include_completed), "totals": totals, "projects": out}
+
+    @router.get("/avanco/lookup")
+    async def lookup(q: str = "", current_user: dict = Depends(get_current_user)):
+        """Diagnóstico: por que uma obra não aparece no Avanço Físico."""
+        q = q.strip()
+        if len(q) < 2:
+            return {"results": []}
+        th = await _threshold(current_user["_id"])
+        rx = {"$regex": q.replace("(", "\\(").replace(")", "\\)"), "$options": "i"}
+        docs = await db.projects.find({"user_id": current_user["_id"], "$or": [{"project_code": rx}, {"name": rx}]}).limit(10).to_list(10)
+        labels = {"aguardando_programacao": "Aguardando Programação", "programado": "Programado", "em_execucao": "Em Execução", "a_reprogramar": "A Reprogramar",
+                  "executada": "Executada", "concluido": "Concluído", "suspenso": "Suspenso", "cancelado": "Cancelado"}
+        results = []
+        for p in docs:
+            st = _status(p)
+            val = float(p.get("programmed_value") or 0)
+            reasons = []
+            if val < th:
+                reasons.append(f"Valor programado {_brl(val)} abaixo do limite de {_brl(th)} (ajuste no Admin ou edite o valor da obra)")
+            if st == "aguardando_programacao":
+                reasons.append("Obra ainda não foi programada no calendário — entra no Avanço Físico assim que for programada")
+            elif st in COMPLETED_STATUS:
+                reasons.append("Obra concluída — marque 'Mostrar concluídas' para visualizar")
+            elif st in ("suspenso", "cancelado"):
+                reasons.append(f"Status {labels.get(st, st)} — obras suspensas/canceladas ficam fora do Avanço Físico")
+            results.append({"id": str(p["_id"]), "project_code": p.get("project_code", ""), "name": p.get("name", ""), "execution_status": st,
+                            "status_label": labels.get(st, st), "programmed_value": val, "is_scheduled": bool(p.get("is_scheduled")),
+                            "eligible": not reasons, "hidden_completed": st in COMPLETED_STATUS and val >= th, "reasons": reasons})
+        return {"threshold": th, "results": results}
 
     async def _detail_payload(p, current_user):
         today = today_fn()
@@ -241,7 +288,7 @@ def build_router(db, get_current_user, require_admin, safe_object_id, today_fn, 
                 "pct_delivered": round(100 * dlv / req, 1) if req > 0 else 0.0,
             })
         th = await _threshold(current_user["_id"])
-        status = p.get("execution_status") or "aguardando_programacao"
+        status = _status(p)
         return {
             "summary": _summary(p, today, await _team_target(current_user["_id"], p)),
             "eligible": float(p.get("programmed_value") or 0) >= th and status in (*ACTIVE_STATUS, *COMPLETED_STATUS),
