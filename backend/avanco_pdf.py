@@ -7,7 +7,7 @@ from reportlab.lib.styles import ParagraphStyle
 from reportlab.lib import colors
 from reportlab.lib.units import mm
 from reportlab.lib.enums import TA_CENTER, TA_RIGHT
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, KeepTogether
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, KeepTogether, Image
 from reportlab.graphics.shapes import Drawing, Rect, String, Line
 from reportlab.graphics.charts.lineplots import LinePlot
 from reportlab.graphics.widgets.markers import makeMarker
@@ -130,7 +130,7 @@ def _curve_drawing(curve, width=186 * mm, height=56 * mm):
     return d
 
 
-def build_avanco_pdf(project: dict, detail: dict) -> bytes:
+def build_avanco_pdf(project: dict, detail: dict, photos: list | None = None) -> bytes:
     S = _S()
     s = detail["summary"]
     buf = io.BytesIO()
@@ -230,6 +230,29 @@ def build_avanco_pdf(project: dict, detail: dict) -> bytes:
                                 ("TOPPADDING", (0, 0), (-1, -1), 2.5), ("BOTTOMPADDING", (0, 0), (-1, -1), 2.5)] + style_extra))
         story.append(mt)
     story.append(Spacer(1, 4 * mm))
+
+    # ── Registro fotográfico (fotos anexadas à obra) — 3 por linha ──────
+    photo_cells = []
+    for ph in (photos or []):
+        try:
+            img = Image(io.BytesIO(ph["bytes"]))
+            img._restrictSize(58 * mm, 44 * mm)
+            cap = Paragraph(ph.get("caption") or "Foto", ParagraphStyle("pc", parent=S["small"], alignment=TA_CENTER, fontSize=6.8, leading=8))
+            inner = Table([[img], [cap]], colWidths=[60 * mm])
+            inner.setStyle(TableStyle([("BOX", (0, 0), (-1, -1), 0.4, BORDER), ("ALIGN", (0, 0), (-1, -1), "CENTER"), ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                                       ("BACKGROUND", (0, 1), (-1, 1), LIGHT), ("TOPPADDING", (0, 0), (-1, -1), 3), ("BOTTOMPADDING", (0, 0), (-1, -1), 3)]))
+            photo_cells.append(inner)
+        except Exception:
+            continue
+    if photo_cells:
+        blocks = [_section(f"REGISTRO FOTOGRÁFICO · {len(photo_cells)} foto(s) anexada(s) à obra", S), Spacer(1, 1.5 * mm)]
+        for i in range(0, len(photo_cells), 3):
+            row = photo_cells[i:i + 3] + [""] * (3 - len(photo_cells[i:i + 3]))
+            gt = Table([row], colWidths=[62 * mm] * 3)
+            gt.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "TOP"), ("LEFTPADDING", (0, 0), (-1, -1), 1), ("RIGHTPADDING", (0, 0), (-1, -1), 1),
+                                    ("TOPPADDING", (0, 0), (-1, -1), 1.5), ("BOTTOMPADDING", (0, 0), (-1, -1), 1.5)]))
+            blocks.append(gt)
+        story += [KeepTogether(blocks[:3]), *blocks[3:], Spacer(1, 4 * mm)]
 
     entries = list(detail.get("entries") or [])[:25]
     label = {i["key"]: (i.get("label"), i.get("unit", "")) for i in items}

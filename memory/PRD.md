@@ -30,6 +30,10 @@ Dashboard, **Buscar Obras**, Operacional, Carteira, Programação, Calendário, 
 - Emails/Push: mantidos
 
 ## Feito em Fev/2026 (últimas iterações)
+- **[15/Set/2026] Avanço Físico — filtro de status + fotos no PDF**
+  - `GET /api/avanco/projects` agora lista só **programado / a_reprogramar / em_execucao** (`ACTIVE_STATUS`); `?include_completed=1` inclui concluido/executada; `totals.hidden_completed` conta as ocultas. Aguardando programação / suspenso / cancelado ficam fora. `eligible` do detalhe exige status ativo ou concluído (card na obra não aparece em aguardando).
+  - UI: checkbox `avanco-toggle-completed` ("Mostrar concluídas") com badge `avanco-hidden-completed`; subtítulo e empty-state explicam a regra.
+  - PDF: seção **REGISTRO FOTOGRÁFICO** (até 6 fotos, 3 por linha) com fotos do diário/checklist (`project.photos[].data_url`, mais recentes primeiro) + anexos de imagem do object storage (`attachments` com content_type image/*). `build_router` recebe `storage_get`; endpoint aceita `?max_photos=`.
 - **[15/Set/2026] Relatório de Avanço Físico em PDF**
   - `backend/avanco_pdf.py` (`build_avanco_pdf`, reportlab, A4 1 página quando possível): cabeçalho Hayah, identificação da obra, 5 KPIs (eficiência com fundo verde/amarelo/vermelho), **Curva S** desenhada com `reportlab.graphics.LinePlot` (planejado tracejado × realizado), tabela de itens com barra de avanço, controle de materiais (solicitado/entregue/aplicado/saldo, pendências em vermelho), últimos 25 lançamentos, assinaturas (Hayah / Fiscal-Cliente) e rodapé com paginação.
   - Endpoint `GET /api/projects/{id}/avanco/pdf` (router avanco). Botões: `avanco-download-pdf` (AvancoFisicoPage, header do detalhe) e `pd-avanco-pdf` (ProjectDetailPage, card Avanço Físico). Download via blob `avanco_fisico_{codigo}.pdf`.

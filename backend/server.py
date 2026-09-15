@@ -5388,7 +5388,7 @@ def _today_cuiaba():
         return datetime.now(ZoneInfo("America/Cuiaba")).strftime("%Y-%m-%d")
     except Exception:
         return datetime.now(timezone.utc).strftime("%Y-%m-%d")
-app.include_router(_build_avanco_router(db, get_current_user, require_admin, safe_object_id, _today_cuiaba))
+app.include_router(_build_avanco_router(db, get_current_user, require_admin, safe_object_id, _today_cuiaba, storage_get))
 
 app.add_middleware(
     CORSMiddleware,

@@ -7,6 +7,7 @@ Threshold em app_settings {user_id, key:'avanco_threshold', value}.
 from datetime import datetime, timezone
 from typing import List
 from uuid import uuid4
+import base64
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import Response
@@ -24,6 +25,8 @@ BASE_ITEMS = [
     ("desligamentos", "Desligamentos", "un", "desligamentos"),
 ]
 EXCLUDED_STATUS = ("cancelado",)
+ACTIVE_STATUS = ("programado", "a_reprogramar", "em_execucao")
+COMPLETED_STATUS = ("concluido", "executada")
 
 
 class ThresholdBody(BaseModel):
@@ -163,7 +166,7 @@ def _curve(p, items, today):
     return out
 
 
-def build_router(db, get_current_user, require_admin, safe_object_id, today_fn):
+def build_router(db, get_current_user, require_admin, safe_object_id, today_fn, storage_get=None):
     router = APIRouter(prefix="/api")
 
     async def _threshold(user_id):
@@ -202,16 +205,16 @@ def build_router(db, get_current_user, require_admin, safe_object_id, today_fn):
         return {"status": "ok", "threshold": float(body.threshold)}
 
     @router.get("/avanco/projects")
-    async def list_projects(current_user: dict = Depends(get_current_user)):
+    async def list_projects(current_user: dict = Depends(get_current_user), include_completed: int = 0):
+        """Só obras programadas / a reprogramar / em execução. Concluídas ficam ocultas (include_completed=1 mostra)."""
         th = await _threshold(current_user["_id"])
         today = today_fn()
-        projects = await db.projects.find({
-            "user_id": current_user["_id"],
-            "programmed_value": {"$gte": th},
-            "execution_status": {"$nin": list(EXCLUDED_STATUS)},
-        }).to_list(2000)
+        base_q = {"user_id": current_user["_id"], "programmed_value": {"$gte": th}}
+        statuses = list(ACTIVE_STATUS) + (list(COMPLETED_STATUS) if include_completed else [])
+        projects = await db.projects.find({**base_q, "execution_status": {"$in": statuses}}).to_list(2000)
+        hidden_completed = 0 if include_completed else await db.projects.count_documents({**base_q, "execution_status": {"$in": list(COMPLETED_STATUS)}})
         out = [_summary(p, today, await _team_target(current_user["_id"], p)) for p in projects]
-        out.sort(key=lambda s: (-s["programmed_value"]))
+        out.sort(key=lambda s: (s["execution_status"] in COMPLETED_STATUS, -s["programmed_value"]))
         totals = {
             "count": len(out),
             "programmed_value": round(sum(s["programmed_value"] for s in out), 2),
@@ -219,8 +222,9 @@ def build_router(db, get_current_user, require_admin, safe_object_id, today_fn):
             "avg_pct_fisico": round(sum(s["pct_fisico"] for s in out) / len(out), 1) if out else 0.0,
             "avg_eficiencia": round(sum(s["eficiencia"] for s in out if s["eficiencia"] is not None) / max(1, sum(1 for s in out if s["eficiencia"] is not None)), 2),
             "critical": sum(1 for s in out if s["eficiencia"] is not None and s["eficiencia"] < 0.8),
+            "hidden_completed": hidden_completed,
         }
-        return {"threshold": th, "today": today, "totals": totals, "projects": out}
+        return {"threshold": th, "today": today, "include_completed": bool(include_completed), "totals": totals, "projects": out}
 
     async def _detail_payload(p, current_user):
         today = today_fn()
@@ -237,9 +241,10 @@ def build_router(db, get_current_user, require_admin, safe_object_id, today_fn):
                 "pct_delivered": round(100 * dlv / req, 1) if req > 0 else 0.0,
             })
         th = await _threshold(current_user["_id"])
+        status = p.get("execution_status") or "aguardando_programacao"
         return {
             "summary": _summary(p, today, await _team_target(current_user["_id"], p)),
-            "eligible": float(p.get("programmed_value") or 0) >= th,
+            "eligible": float(p.get("programmed_value") or 0) >= th and status in (*ACTIVE_STATUS, *COMPLETED_STATUS),
             "threshold": th,
             "items": items,
             "custom_items": p.get("avanco_custom_items") or [],
@@ -255,10 +260,34 @@ def build_router(db, get_current_user, require_admin, safe_object_id, today_fn):
         return await _detail_payload(p, current_user)
 
     @router.get("/projects/{project_id}/avanco/pdf")
-    async def project_pdf(project_id: str, current_user: dict = Depends(get_current_user)):
+    async def project_pdf(project_id: str, current_user: dict = Depends(get_current_user), max_photos: int = 6):
         p = await _get_project(project_id, current_user)
         detail = await _detail_payload(p, current_user)
-        pdf = build_avanco_pdf(p, detail)
+        photos = []
+        # 1) Fotos do diário/checklist (base64 no doc) — mais recentes primeiro
+        for ph in sorted((p.get("photos") or []), key=lambda x: x.get("uploaded_at", ""), reverse=True):
+            du = ph.get("data_url") or ""
+            if du.startswith("data:image") and "," in du:
+                try:
+                    photos.append({"bytes": base64.b64decode(du.split(",", 1)[1]),
+                                   "caption": f"{(ph.get('point') or '').strip() or 'Obra'} · {(ph.get('label') or 'FOTO').upper()} · {(ph.get('uploaded_at') or '')[:10]}"})
+                except Exception:
+                    continue
+            if len(photos) >= max_photos:
+                break
+        # 2) Anexos de imagem (object storage)
+        if len(photos) < max_photos and storage_get:
+            for att in sorted((p.get("attachments") or []), key=lambda a: a.get("uploaded_at", ""), reverse=True):
+                if not (att.get("content_type") or "").startswith("image/") or not att.get("storage_path"):
+                    continue
+                try:
+                    data, _ = await storage_get(att["storage_path"])
+                    photos.append({"bytes": data, "caption": f"Anexo · {att.get('filename') or 'imagem'} · {(att.get('uploaded_at') or '')[:10]}"})
+                except Exception:
+                    continue
+                if len(photos) >= max_photos:
+                    break
+        pdf = build_avanco_pdf(p, detail, photos=photos)
         code = "".join(ch if ch.isalnum() else "_" for ch in (p.get("project_code") or project_id))[:24]
         filename = f"avanco_fisico_{code}_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M')}.pdf"
         return Response(content=pdf, media_type="application/pdf", headers={"Content-Disposition": f'attachment; filename="{filename}"'})

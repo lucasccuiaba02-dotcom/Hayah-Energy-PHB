@@ -170,11 +170,12 @@ export const AvancoFisicoPage = () => {
   const [detail, setDetail] = useState(null);
   const [search, setSearch] = useState('');
   const [configOpen, setConfigOpen] = useState(false);
+  const [showCompleted, setShowCompleted] = useState(false);
   const navigate = useNavigate();
 
   const loadList = useCallback(async () => {
-    try { const { data } = await axios.get(`${API}/avanco/projects`); setList(data); } catch { toast.error('Erro ao carregar avanço físico'); }
-  }, []);
+    try { const { data } = await axios.get(`${API}/avanco/projects`, { params: { include_completed: showCompleted ? 1 : 0 } }); setList(data); } catch { toast.error('Erro ao carregar avanço físico'); }
+  }, [showCompleted]);
   const loadDetail = useCallback(async (id) => {
     if (!id) { setDetail(null); return; }
     try { const { data } = await axios.get(`${API}/projects/${id}/avanco`); setDetail(data); } catch { toast.error('Erro ao carregar obra'); }
@@ -218,7 +219,7 @@ export const AvancoFisicoPage = () => {
   };
 
   return (
-    <AppLayout title="Avanço Físico" subtitle={list ? `Obras acima de ${formatCurrency(list.threshold)} · ${list.totals.count} obra(s)` : 'Obras de ticket grande'}>
+    <AppLayout title="Avanço Físico" subtitle={list ? `Obras acima de ${formatCurrency(list.threshold)} · Programadas · A Reprogramar · Em Execução · ${list.totals.count} obra(s)` : 'Obras de ticket grande'}>
       {list && (
         <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} data-testid="avanco-totals" className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-4">
           <Kpi testid="avanco-total-count" label="Obras" value={list.totals.count} sub={`> ${formatCurrency(list.threshold)}`} color="#E0FF00" icon={TrendingUp} />
@@ -235,9 +236,19 @@ export const AvancoFisicoPage = () => {
             <Search className="w-4 h-4 text-zinc-500" />
             <input data-testid="avanco-search" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Buscar obra, código ou equipe…" className="flex-1 bg-transparent text-sm text-white focus:outline-none" />
           </div>
+          <label data-testid="avanco-toggle-completed" className="flex items-center gap-2 px-1 text-[11px] text-zinc-400 cursor-pointer select-none">
+            <input type="checkbox" checked={showCompleted} onChange={(e) => setShowCompleted(e.target.checked)} className="w-4 h-4 accent-[#00F0FF]" />
+            Mostrar concluídas
+            {!showCompleted && list?.totals?.hidden_completed > 0 && (
+              <span data-testid="avanco-hidden-completed" className="ml-auto px-2 py-0.5 rounded-full bg-[#00F0FF]/15 text-[#00F0FF] font-bold">{list.totals.hidden_completed} oculta(s)</span>
+            )}
+          </label>
           <div data-testid="avanco-project-list" className="space-y-2 max-h-[70vh] overflow-y-auto pr-1">
             {!list ? <p className="text-zinc-500 text-sm">Carregando…</p> : filteredProjects.length === 0 ? (
-              <div className="glass-panel rounded-xl p-6 text-center text-zinc-500 text-sm">Nenhuma obra acima de {formatCurrency(list.threshold)}.</div>
+              <div className="glass-panel rounded-xl p-6 text-center text-zinc-500 text-sm">
+                Nenhuma obra programada, a reprogramar ou em execução acima de {formatCurrency(list.threshold)}.
+                <p className="text-[10px] text-zinc-600 mt-1">Obras aguardando programação entram aqui assim que forem programadas.</p>
+              </div>
             ) : filteredProjects.map((p) => <ProjectCard key={p.id} p={p} active={p.id === selectedId} onClick={() => select(p.id)} />)}
           </div>
         </div>
