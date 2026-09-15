@@ -30,6 +30,14 @@ Dashboard, **Buscar Obras**, Operacional, Carteira, Programação, Calendário, 
 - Emails/Push: mantidos
 
 ## Feito em Fev/2026 (últimas iterações)
+- **[15/Set/2026] Dashboard — Vencidas por Data Vencimento + KPIs de Carteira + Financeiro/Tempo médio corrigidos (iter24)**
+  - **Vencidas** (`/api/dashboard/kpis`): agora usam `expiry_date` (Data Vencimento do cadastro). Excluem concluído/executada/suspenso/cancelado; obra SEM `expiry_date` não conta. Cada item traz `dias_vencida`. `no_prazo`/`vencendo_amanha` também por `expiry_date`. `manager-kpis.operational.overdue` idem.
+  - **Modal Obras Vencidas** (`components/VencidasModal.jsx`, `vencidas-modal`): clique no KPI `kpi-vencidas-card` abre lista detalhada (código, status, tipo, local, equipe, programada, venceu em, há N dias, valor) com botões `Abrir obra` (→ /projeto/:id) e `Ver na Carteira`.
+  - **KPIs de Carteira** (`kpi-carteira-row`): bloco `carteira` no endpoint — `apta` (aguardando_programacao + a_reprogramar + em_execucao), `nao_apta` (cancelado + suspenso), `programadas` (programado), `concluidas` (concluido + executada) com `count/value/actual_value/pct_count/pct_value`. Cards clicáveis → `/carteira?filter=apta|nao_apta|programadas|completed`.
+  - **Financeiro**: `valor_faturado` = Σ actual_value com `billing_stage=pago` (+`faturado_count`); `valor_pendente_faturamento` = Σ actual_value de concluídas/executadas não pagas (+`pendente_count`); **Receita Mês** = Σ actual_value executadas no mês vs `meta_mes` (contract_targets mês → default → 336k) com `receita_pct`, `pago_mes`, `pago_mes_count`.
+  - **Tempo médio**: cada chave virou `{avg, samples}`. Datas reais: `received_date → 1ª data programada`; `1ª programada → exec_date` (execution_finished_at / último daily_return executado / end_date se concluída); `exec → 1ª entrada em billing_history ≥ em_fechamento`; `em_fechamento → pago`. UI mostra `—`/"sem dados suficientes" quando `samples=0`.
+  - **CarteiraPage**: filtros `?filter=` agora suportam `vencidas` (por expiry_date), `vencendo`, `apta`, `nao_apta`, `programadas`, além de `completed`/`active`.
+  - Seed de teste: `backend/tests/seed_dashboard_kpis.py` (prefixo DASHKPI-). Testes: `backend/tests/test_dashboard_kpis_v2.py` (13/13 verdes).
 - **[13/Fev/2026] Meta configurável por equipe + Meta contratual editável no Admin + Alerta automático**
   - **Meta por Equipe**: campo `daily_target` (R$/dia) em `Team` model + endpoints POST/PUT + `TeamDrawer` com input dedicado (default R$ 4.000) + card em `EquipesPage` mostrando meta diária e projeção mensal (×22 dias)
   - **Meta Contratual no Admin**: nova collection `contract_targets` (mês específico ou "default" global) + 3 endpoints (`GET/POST/DELETE /admin/contract-target`) + componente `ContractTargetSection.jsx` na `AdminUsuariosPage` com formulário de edição, badge da meta vigente + fallback (mês → global → sistema R$ 336k) e histórico completo com botão de remover
