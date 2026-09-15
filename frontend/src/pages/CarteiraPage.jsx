@@ -95,13 +95,23 @@ export const CarteiraPage = () => {
       if (endDateFilter && ps && ps > endDateFilter) return false;
       // Drill-down filters (URL params)
       if (teamNameFilter && (p.team_name || '') !== teamNameFilter) return false;
+      const st = p.execution_status || 'aguardando_programacao';
+      const xd = (p.expiry_date || '').slice(0, 10);
       if (statusFilter === 'vencidas') {
-        const ed = (p.end_date || '').slice(0, 10);
-        if (!(ed && ed < today && !INACTIVE.includes(p.execution_status))) return false;
+        if (!(xd && xd < today && !INACTIVE.includes(st))) return false;
+      } else if (statusFilter === 'vencendo') {
+        const tomorrow = new Date(Date.now() + 86400000).toISOString().slice(0, 10);
+        if (!(xd === tomorrow && !INACTIVE.includes(st))) return false;
       } else if (statusFilter === 'completed') {
-        if (!['executada', 'concluido'].includes(p.execution_status)) return false;
+        if (!['executada', 'concluido'].includes(st)) return false;
       } else if (statusFilter === 'active') {
-        if (INACTIVE.includes(p.execution_status)) return false;
+        if (INACTIVE.includes(st)) return false;
+      } else if (statusFilter === 'apta') {
+        if (!['aguardando_programacao', 'a_reprogramar', 'em_execucao'].includes(st)) return false;
+      } else if (statusFilter === 'nao_apta') {
+        if (!['cancelado', 'suspenso'].includes(st)) return false;
+      } else if (statusFilter === 'programadas') {
+        if (st !== 'programado') return false;
       }
       return true;
     });
@@ -119,8 +129,12 @@ export const CarteiraPage = () => {
   const drillDownLabel = useMemo(() => {
     const parts = [];
     if (statusFilter === 'vencidas') parts.push('Obras vencidas');
+    else if (statusFilter === 'vencendo') parts.push('Vencendo amanhã');
     else if (statusFilter === 'completed') parts.push('Obras concluídas');
     else if (statusFilter === 'active') parts.push('Obras ativas');
+    else if (statusFilter === 'apta') parts.push('Carteira Apta');
+    else if (statusFilter === 'nao_apta') parts.push('Carteira Não Apta');
+    else if (statusFilter === 'programadas') parts.push('Obras programadas');
     if (teamNameFilter) parts.push(`Equipe: ${teamNameFilter}`);
     if (typeFilter && searchParams.get('type')) parts.push(`Tipo: ${PROJECT_TYPE_LABEL[typeFilter] || typeFilter}`);
     return parts.join(' · ');
@@ -128,12 +142,14 @@ export const CarteiraPage = () => {
 
   const vencidas = useMemo(() => {
     const today = new Date().toISOString().slice(0, 10);
-    return projects.filter((p) => p.end_date && p.end_date.slice(0, 10) < today && !['executada', 'concluido', 'cancelado'].includes(p.execution_status));
+    const INACTIVE = ['executada', 'concluido', 'cancelado', 'suspenso'];
+    return projects.filter((p) => p.expiry_date && p.expiry_date.slice(0, 10) < today && !INACTIVE.includes(p.execution_status || 'aguardando_programacao'));
   }, [projects]);
 
   const vencendoAmanha = useMemo(() => {
     const tomorrow = new Date(Date.now() + 86400000).toISOString().slice(0, 10);
-    return projects.filter((p) => (p.end_date || '').slice(0, 10) === tomorrow && !['executada', 'concluido', 'cancelado'].includes(p.execution_status));
+    const INACTIVE = ['executada', 'concluido', 'cancelado', 'suspenso'];
+    return projects.filter((p) => (p.expiry_date || '').slice(0, 10) === tomorrow && !INACTIVE.includes(p.execution_status || 'aguardando_programacao'));
   }, [projects]);
 
   const totalLabor = filtered.reduce((s, p) => s + (p.labor_cost || 0), 0);

@@ -1056,25 +1056,83 @@ async def dashboard_kpis(current_user: dict = Depends(get_current_user)):
     projects = await db.projects.find({"user_id": current_user["_id"]}).to_list(5000)
 
     def date_str(v): return (v or "")[:10]
+    def status_of(p): return p.get("execution_status") or "aguardando_programacao"
+    def prog(p): return float(p.get("programmed_value") or 0)
+    def prod(p): return float(p.get("actual_value") or 0)
     INACTIVE_STATUS = ("executada", "concluido", "cancelado", "suspenso")
-    in_andamento = [p for p in projects if p.get("execution_status") in ("programado", "em_execucao")]
-    concluidas_mes = [p for p in projects if p.get("execution_status") in ("executada", "concluido") and date_str(p.get("execution_finished_at") or p.get("end_date") or "") >= month_start]
-    # Vencidas/atrasadas: excluir obras INATIVAS (executadas, concluídas, canceladas, suspensas)
-    atrasadas = [p for p in projects if p.get("end_date") and date_str(p["end_date"]) < today and p.get("execution_status") not in INACTIVE_STATUS]
-    no_prazo = [p for p in projects if p.get("end_date") and date_str(p["end_date"]) >= today and p.get("execution_status") not in ("cancelado", "suspenso")]
-    vencendo_amanha = [p for p in projects if p.get("end_date") and date_str(p["end_date"]) == tomorrow and p.get("execution_status") not in INACTIVE_STATUS]
-    vencidas = atrasadas
+    in_andamento = [p for p in projects if status_of(p) in ("programado", "em_execucao")]
+
+    # Vencidas: baseadas na DATA VENCIMENTO do cadastro (expiry_date). Sem data → não conta.
+    def is_vencivel(p): return bool(p.get("expiry_date")) and status_of(p) not in INACTIVE_STATUS
+    vencidas = [p for p in projects if is_vencivel(p) and date_str(p["expiry_date"]) < today]
+    no_prazo = [p for p in projects if is_vencivel(p) and date_str(p["expiry_date"]) >= today]
+    vencendo_amanha = [p for p in projects if is_vencivel(p) and date_str(p["expiry_date"]) == tomorrow]
+    atrasadas = vencidas
+    for p in vencidas:
+        p["dias_vencida"] = (datetime.fromisoformat(today) - datetime.fromisoformat(date_str(p["expiry_date"]))).days
+    vencidas.sort(key=lambda p: date_str(p["expiry_date"]))
 
     total = len(projects)
-    concluidas_all = [p for p in projects if p.get("execution_status") in ("executada", "concluido")]
+    concluidas_all = [p for p in projects if status_of(p) in ("executada", "concluido")]
     perc_conclusao = round(100 * len(concluidas_all) / total, 1) if total else 0
 
-    valor_faturado = sum((p.get("billing_value") or 0) for p in concluidas_all)
-    valor_pendente = sum((p.get("programmed_value") or 0) - (p.get("billing_value") or 0) for p in projects if p.get("execution_status") not in ("cancelado",))
-    receita_prevista_mes = sum((p.get("programmed_value") or 0) for p in projects if date_str(p.get("start_date")) >= month_start)
-    receita_realizada = sum((p.get("actual_value") or 0) for p in concluidas_all)
-    meta_total = sum((p.get("programmed_value") or 0) for p in projects)
-    realizado_total = sum((p.get("actual_value") or 0) for p in projects)
+    # ---- Carteira: Apta / Não Apta / Programadas / Concluídas (qtd + valor + %) ----
+    CARTEIRA_GROUPS = {
+        "apta": ("aguardando_programacao", "a_reprogramar", "em_execucao"),
+        "nao_apta": ("cancelado", "suspenso"),
+        "programadas": ("programado",),
+        "concluidas": ("concluido", "executada"),
+    }
+    carteira_total_value = sum(prog(p) for p in projects)
+    carteira = {}
+    for key, statuses in CARTEIRA_GROUPS.items():
+        grp = [p for p in projects if status_of(p) in statuses]
+        val = sum(prog(p) for p in grp)
+        carteira[key] = {
+            "count": len(grp),
+            "value": round(val, 2),
+            "actual_value": round(sum(prod(p) for p in grp), 2),
+            "pct_count": round(100 * len(grp) / total, 1) if total else 0.0,
+            "pct_value": round(100 * val / carteira_total_value, 1) if carteira_total_value else 0.0,
+            "statuses": list(statuses),
+        }
+    carteira["total"] = {"count": total, "value": round(carteira_total_value, 2)}
+
+    # ---- Financeiro: Faturado (Pago) / Pendente (concluídas não pagas) / Receita do mês ----
+    def exec_date(p):
+        """Data real de execução: execution_finished_at → último retorno executado → end_date (se concluída)."""
+        if p.get("execution_finished_at"):
+            return date_str(p["execution_finished_at"])
+        done = sorted(r.get("date", "") for r in (p.get("daily_returns") or []) if r.get("executed") and r.get("date"))
+        if done:
+            return done[-1]
+        return date_str(p.get("end_date")) if status_of(p) in ("executada", "concluido") else ""
+
+    def stage_entered(p, stage):
+        """1ª data em que a obra entrou no estágio (ou em estágio posterior, se pulou)."""
+        idx = BILLING_STAGES.index(stage)
+        hist = sorted((h for h in (p.get("billing_history") or []) if h.get("changed_at")), key=lambda h: h["changed_at"])
+        for h in hist:
+            if h.get("stage") in BILLING_STAGES and BILLING_STAGES.index(h["stage"]) >= idx:
+                return date_str(h["changed_at"])
+        return ""
+
+    pagas = [p for p in projects if p.get("billing_stage") == "pago"]
+    valor_faturado = sum(prod(p) for p in pagas)
+    pendentes = [p for p in concluidas_all if p.get("billing_stage") != "pago"]
+    valor_pendente = sum(prod(p) for p in pendentes)
+
+    ct_current = await db.contract_targets.find_one({"user_id": current_user["_id"], "month": now.strftime("%Y-%m")})
+    ct_global = await db.contract_targets.find_one({"user_id": current_user["_id"], "month": "default"})
+    meta_mes = float((ct_current or ct_global or {}).get("target") or 336000.0)
+    executadas_mes = [p for p in concluidas_all if exec_date(p) >= month_start]
+    concluidas_mes = executadas_mes
+    receita_realizada = sum(prod(p) for p in executadas_mes)
+    pagas_mes = [p for p in pagas if stage_entered(p, "pago") >= month_start]
+    pago_mes = sum(prod(p) for p in pagas_mes)
+    receita_prevista_mes = meta_mes
+    meta_total = sum(prog(p) for p in projects)
+    realizado_total = sum(prod(p) for p in projects)
 
     postes = sum((p.get("postes_qty") or 0) for p in projects)
     trafos = sum((p.get("transformadores_qty") or 0) for p in projects)
@@ -1091,20 +1149,23 @@ async def dashboard_kpis(current_user: dict = Depends(get_current_user)):
             return max(0, (db_ - da).days)
         except Exception:
             return None
-    diff_recebimento_programacao = [days_between(p.get("received_date"), p.get("start_date")) for p in projects if p.get("received_date") and p.get("start_date")]
-    diff_programacao_execucao = [days_between(p.get("start_date"), p.get("execution_finished_at") or p.get("end_date")) for p in projects if p.get("start_date") and (p.get("execution_finished_at") or p.get("end_date"))]
-    diff_execucao_fechamento = [days_between(p.get("execution_finished_at") or p.get("end_date"), p.get("closed_at")) for p in projects if (p.get("execution_finished_at") or p.get("end_date")) and p.get("closed_at")]
-    diff_fechamento_faturamento = [days_between(p.get("closed_at"), p.get("billed_at")) for p in projects if p.get("closed_at") and p.get("billed_at")]
+    def first_sched(p):
+        dates = sorted(date_str(e.get("date")) for e in (p.get("schedule_entries") or []) if e.get("date"))
+        return dates[0] if dates else date_str(p.get("start_date"))
+    diff_recebimento_programacao = [days_between(p["received_date"], first_sched(p)) for p in projects if p.get("received_date") and first_sched(p)]
+    diff_programacao_execucao = [days_between(first_sched(p), exec_date(p)) for p in projects if first_sched(p) and exec_date(p)]
+    diff_execucao_fechamento = [days_between(exec_date(p), stage_entered(p, "em_fechamento")) for p in projects if exec_date(p) and stage_entered(p, "em_fechamento")]
+    diff_fechamento_faturamento = [days_between(stage_entered(p, "em_fechamento"), stage_entered(p, "pago")) for p in projects if stage_entered(p, "em_fechamento") and stage_entered(p, "pago")]
     def avg(lst):
         vs = [v for v in lst if v is not None]
-        return round(sum(vs) / len(vs), 1) if vs else 0
+        return {"avg": round(sum(vs) / len(vs), 1) if vs else 0, "samples": len(vs)}
 
     # Serviços concluídos por dia (últimos 14 dias)
     from collections import defaultdict
     by_day = defaultdict(int)
     cutoff = (now - td(days=14)).strftime("%Y-%m-%d")
     for p in concluidas_all:
-        d = date_str(p.get("execution_finished_at") or p.get("end_date"))
+        d = exec_date(p)
         if d and d >= cutoff:
             by_day[d] += 1
     servicos_por_dia = sorted([{"date": k, "count": v} for k, v in by_day.items()], key=lambda x: x["date"])
@@ -1118,6 +1179,11 @@ async def dashboard_kpis(current_user: dict = Depends(get_current_user)):
             d = days_between(fim, end)
             if d: dias_adiantados += d
 
+    def vencida_item(p):
+        item = build_project_response(p).model_dump()
+        item["dias_vencida"] = p.get("dias_vencida", 0)
+        return item
+
     return {
         "counts": {
             "total": total,
@@ -1128,12 +1194,21 @@ async def dashboard_kpis(current_user: dict = Depends(get_current_user)):
             "vencidas": len(vencidas),
             "vencendo_amanha": len(vencendo_amanha),
         },
+        "carteira": carteira,
         "financeiro": {
             "perc_conclusao": perc_conclusao,
             "valor_faturado": round(valor_faturado, 2),
+            "faturado_count": len(pagas),
             "valor_pendente_faturamento": round(valor_pendente, 2),
+            "pendente_count": len(pendentes),
             "receita_prevista_mes": round(receita_prevista_mes, 2),
+            "meta_mes": round(meta_mes, 2),
+            "meta_source": "month" if ct_current else ("default" if ct_global else "system_default"),
             "receita_realizada": round(receita_realizada, 2),
+            "receita_realizada_count": len(executadas_mes),
+            "receita_pct": round(100 * receita_realizada / meta_mes, 1) if meta_mes else 0.0,
+            "pago_mes": round(pago_mes, 2),
+            "pago_mes_count": len(pagas_mes),
             "meta_total": round(meta_total, 2),
             "realizado_total": round(realizado_total, 2),
         },
@@ -1154,7 +1229,7 @@ async def dashboard_kpis(current_user: dict = Depends(get_current_user)):
             "fechamento_faturamento": avg(diff_fechamento_faturamento),
         },
         "servicos_por_dia": servicos_por_dia,
-        "vencidas": [build_project_response(p).model_dump() for p in vencidas[:20]],
+        "vencidas": [vencida_item(p) for p in vencidas[:50]],
         "vencendo_amanha_list": [build_project_response(p).model_dump() for p in vencendo_amanha[:20]],
     }
 
@@ -2086,7 +2161,7 @@ async def manager_kpis(
     INACTIVE = ("cancelado", "suspenso")
     active = [p for p in projects if p.get("execution_status") not in INACTIVE]
     completed = [p for p in projects if p.get("execution_status") in ("executada", "concluido")]
-    overdue = [p for p in projects if p.get("end_date") and _dstr(p["end_date"]) < today
+    overdue = [p for p in projects if p.get("expiry_date") and _dstr(p["expiry_date"]) < today
                and p.get("execution_status") not in ("executada", "concluido", *INACTIVE)]
 
     total_programmed = sum(float(p.get("programmed_value") or 0) for p in active)

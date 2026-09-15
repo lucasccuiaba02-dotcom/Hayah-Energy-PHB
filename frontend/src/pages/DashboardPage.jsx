@@ -2,11 +2,12 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { motion } from 'framer-motion';
 import axios from 'axios';
 import { toast } from 'sonner';
-import { AlertTriangle, TrendingUp, Activity, DollarSign, Users, Briefcase, Calendar, BellRing, BellOff } from 'lucide-react';
+import { AlertTriangle, TrendingUp, Activity, DollarSign, Users, Briefcase, Calendar, BellRing, BellOff, CheckCircle2, Ban, CalendarCheck, ClipboardList } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { AppLayout } from '../components/AppLayout';
 import { ProjectFilters } from '../components/ProjectFilters';
 import { SearchBar } from '../components/SearchBar';
+import { VencidasModal } from '../components/VencidasModal';
 import { formatCurrency } from '../lib/constants';
 import { isPushSupported, currentPushStatus, subscribeToPush, unsubscribeFromPush } from '../lib/push';
 import { PushBlockedHelpModal } from '../components/PushBlockedHelpModal';
@@ -24,6 +25,7 @@ export const DashboardPage = () => {
   const [filters, setFilters] = useState({ startDate: '', endDate: '', teamId: '', minValue: '', maxValue: '' });
   const [search, setSearch] = useState('');
   const [kpis, setKpis] = useState(null);
+  const [vencidasOpen, setVencidasOpen] = useState(false);
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -248,12 +250,12 @@ export const DashboardPage = () => {
       {kpis && (
         <>
           <div data-testid="kpi-critical-row" className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-4">
-            <button onClick={() => navigate('/carteira?filter=vencidas')} className="glass-panel rounded-xl p-4 text-left border-l-4 border-[#FF003C] hover:border-[#FF003C]">
+            <button data-testid="kpi-vencidas-card" onClick={() => setVencidasOpen(true)} className="glass-panel rounded-xl p-4 text-left border-l-4 border-[#FF003C] hover:bg-[#FF003C]/10 transition">
               <p className="text-[10px] tracking-[0.2em] uppercase font-bold text-[#FF003C] mb-1">Vencidas</p>
               <p className="font-mono text-3xl font-black text-white">{kpis.counts.vencidas}</p>
-              <p className="text-[10px] text-zinc-500 mt-1">passaram do prazo</p>
+              <p className="text-[10px] text-zinc-500 mt-1">pela data de vencimento · clique p/ ver</p>
             </button>
-            <button onClick={() => navigate('/carteira?filter=vencendo')} className="glass-panel rounded-xl p-4 text-left border-l-4 border-[#FF5E00]">
+            <button data-testid="kpi-vencendo-card" onClick={() => navigate('/carteira?filter=vencendo')} className="glass-panel rounded-xl p-4 text-left border-l-4 border-[#FF5E00]">
               <p className="text-[10px] tracking-[0.2em] uppercase font-bold text-[#FF5E00] mb-1">Vencendo Amanhã</p>
               <p className="font-mono text-3xl font-black text-white">{kpis.counts.vencendo_amanha}</p>
               <p className="text-[10px] text-zinc-500 mt-1">agenda apertada</p>
@@ -266,7 +268,7 @@ export const DashboardPage = () => {
             <div className="glass-panel rounded-xl p-4 border-l-4 border-[#39FF14]">
               <p className="text-[10px] tracking-[0.2em] uppercase font-bold text-[#39FF14] mb-1">No Prazo</p>
               <p className="font-mono text-3xl font-black text-white">{kpis.counts.no_prazo}</p>
-              <p className="text-[10px] text-zinc-500 mt-1">dentro do combinado</p>
+              <p className="text-[10px] text-zinc-500 mt-1">vencimento ainda não chegou</p>
             </div>
             <div data-testid="kpi-on-time-pct" className="glass-panel rounded-xl p-4 border-l-4 border-[#00F0FF]">
               <p className="text-[10px] tracking-[0.2em] uppercase font-bold text-[#00F0FF] mb-1">% No Prazo</p>
@@ -278,29 +280,71 @@ export const DashboardPage = () => {
                   return denom > 0 ? Math.round((noP / denom) * 100) : 100;
                 })()}<span className="text-lg text-zinc-500">%</span>
               </p>
-              <p className="text-[10px] text-zinc-500 mt-1">obras programadas no prazo</p>
+              <p className="text-[10px] text-zinc-500 mt-1">obras ativas com vencimento</p>
             </div>
           </div>
+
+          {kpis.carteira && (
+            <div data-testid="kpi-carteira-row" className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
+              {[
+                ['apta', 'Carteira Apta', 'Aguard. Programação · A Reprogramar · Em Execução', '#39FF14', CheckCircle2, '/carteira?filter=apta'],
+                ['nao_apta', 'Carteira Não Apta', 'Cancelado · Suspenso', '#FF003C', Ban, '/carteira?filter=nao_apta'],
+                ['programadas', 'Obras Programadas', 'Status Programado', '#E0FF00', CalendarCheck, '/carteira?filter=programadas'],
+                ['concluidas', 'Obras Concluídas', 'Concluído · Executada', '#00F0FF', ClipboardList, '/carteira?filter=completed'],
+              ].map(([key, label, hint, color, Icon, path]) => {
+                const c = kpis.carteira[key];
+                return (
+                  <button key={key} data-testid={`kpi-carteira-${key}`} onClick={() => navigate(path)} className="glass-panel rounded-xl p-4 text-left relative overflow-hidden group hover:scale-[1.01] transition-transform">
+                    <span className="absolute -top-6 -right-6 w-24 h-24 rounded-full blur-2xl opacity-20 group-hover:opacity-40 transition-opacity" style={{ background: color }}></span>
+                    <div className="flex items-center justify-between mb-2">
+                      <p className="text-[10px] tracking-[0.2em] uppercase font-bold" style={{ color }}>{label}</p>
+                      <Icon className="w-4 h-4" style={{ color }} />
+                    </div>
+                    <div className="flex items-end gap-2 flex-wrap">
+                      <p className="font-mono text-3xl font-black text-white leading-none">{c.count}</p>
+                      <span className="font-mono text-sm font-bold mb-0.5" style={{ color }}>{c.pct_count}%</span>
+                      <span className="text-[10px] text-zinc-500 mb-1">das obras</span>
+                    </div>
+                    <p className="font-mono text-sm md:text-base font-bold text-white mt-2 truncate">{formatCurrency(c.value)}</p>
+                    <p className="text-[10px] text-zinc-500 mt-0.5">{c.pct_value}% do valor da carteira</p>
+                    {key === 'concluidas' && <p className="text-[10px] text-[#39FF14] font-bold truncate">Realizado {formatCurrency(c.actual_value)}</p>}
+                    <div className="mt-2 h-1 rounded bg-white/5 overflow-hidden">
+                      <div className="h-full" style={{ width: `${Math.min(100, c.pct_value)}%`, background: color }}></div>
+                    </div>
+                    <p className="text-[9px] text-zinc-600 mt-1.5 truncate">{hint}</p>
+                  </button>
+                );
+              })}
+            </div>
+          )}
 
           <div data-testid="kpi-financial-row" className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
             <div className="glass-panel rounded-xl p-4">
               <p className="text-[10px] tracking-[0.2em] uppercase font-bold text-zinc-500 mb-1">% Conclusão</p>
               <p className="font-mono text-2xl font-bold text-[#39FF14]">{kpis.financeiro.perc_conclusao}%</p>
+              <p className="text-[10px] text-zinc-500 mt-1">{kpis.carteira?.concluidas?.count ?? 0} de {kpis.counts.total} obras</p>
             </div>
-            <div className="glass-panel rounded-xl p-4">
-              <p className="text-[10px] tracking-[0.2em] uppercase font-bold text-zinc-500 mb-1">Valor Faturado</p>
-              <p className="font-mono text-lg font-bold text-white">{formatCurrency(kpis.financeiro.valor_faturado)}</p>
-            </div>
-            <div className="glass-panel rounded-xl p-4">
+            <button data-testid="kpi-valor-faturado" onClick={() => navigate('/faturamento')} className="glass-panel rounded-xl p-4 text-left hover:bg-white/[0.03]">
+              <p className="text-[10px] tracking-[0.2em] uppercase font-bold text-zinc-500 mb-1">Valor Faturado (Pago)</p>
+              <p className="font-mono text-lg font-bold text-[#39FF14]">{formatCurrency(kpis.financeiro.valor_faturado)}</p>
+              <p className="text-[10px] text-zinc-500 mt-1">{kpis.financeiro.faturado_count} obra{kpis.financeiro.faturado_count !== 1 ? 's' : ''} pagas · produção realizada</p>
+            </button>
+            <button data-testid="kpi-valor-pendente" onClick={() => navigate('/faturamento?view=backlog')} className="glass-panel rounded-xl p-4 text-left hover:bg-white/[0.03]">
               <p className="text-[10px] tracking-[0.2em] uppercase font-bold text-zinc-500 mb-1">Pendente Faturamento</p>
               <p className="font-mono text-lg font-bold text-[#FF5E00]">{formatCurrency(kpis.financeiro.valor_pendente_faturamento)}</p>
-            </div>
-            <div className="glass-panel rounded-xl p-4">
-              <p className="text-[10px] tracking-[0.2em] uppercase font-bold text-zinc-500 mb-1">Receita Mês (prev./real.)</p>
-              <p className="font-mono text-xs text-zinc-400"><span className="text-white text-sm font-bold">{formatCurrency(kpis.financeiro.receita_realizada)}</span> / {formatCurrency(kpis.financeiro.receita_prevista_mes)}</p>
-              <div className="mt-1 h-1 rounded bg-white/5 overflow-hidden">
-                <div className="h-full bg-[#39FF14]" style={{ width: `${Math.min(100, (kpis.financeiro.receita_realizada / Math.max(1, kpis.financeiro.receita_prevista_mes)) * 100).toFixed(0)}%` }}></div>
+              <p className="text-[10px] text-zinc-500 mt-1">{kpis.financeiro.pendente_count} concluída{kpis.financeiro.pendente_count !== 1 ? 's' : ''} ainda não pagas</p>
+            </button>
+            <div data-testid="kpi-receita-mes" className="glass-panel rounded-xl p-4">
+              <div className="flex items-center justify-between mb-1">
+                <p className="text-[10px] tracking-[0.2em] uppercase font-bold text-zinc-500">Receita Mês</p>
+                <span className="font-mono text-xs font-black" style={{ color: kpis.financeiro.receita_pct >= 100 ? '#39FF14' : kpis.financeiro.receita_pct >= 60 ? '#E0FF00' : '#FF5E00' }}>{kpis.financeiro.receita_pct}%</span>
               </div>
+              <p className="font-mono text-lg font-bold text-white leading-tight">{formatCurrency(kpis.financeiro.receita_realizada)}</p>
+              <p className="text-[10px] text-zinc-500">meta contratual {formatCurrency(kpis.financeiro.meta_mes)}</p>
+              <div className="mt-1.5 h-1.5 rounded bg-white/5 overflow-hidden">
+                <div className="h-full bg-[#39FF14]" style={{ width: `${Math.min(100, kpis.financeiro.receita_pct)}%` }}></div>
+              </div>
+              <p className="text-[10px] text-zinc-500 mt-1">{kpis.financeiro.receita_realizada_count} executadas no mês · Pago no mês: <span className="text-[#39FF14] font-bold">{formatCurrency(kpis.financeiro.pago_mes)}</span></p>
             </div>
           </div>
 
@@ -323,19 +367,30 @@ export const DashboardPage = () => {
           </div>
 
           <div data-testid="kpi-tempo-medio" className="glass-panel rounded-2xl p-4 mb-6">
-            <p className="text-[10px] tracking-[0.2em] uppercase font-bold text-zinc-500 mb-3">Tempo Médio (dias)</p>
+            <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+              <p className="text-[10px] tracking-[0.2em] uppercase font-bold text-zinc-500">Tempo Médio entre Processos (dias)</p>
+              <p className="text-[10px] text-zinc-600">média calculada com datas reais · "n" = obras consideradas</p>
+            </div>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
               {[
-                ['Recebimento → Programação', kpis.tempo_medio.recebimento_programacao, '#00F0FF'],
-                ['Programação → Execução', kpis.tempo_medio.programacao_execucao, '#E0FF00'],
-                ['Execução → Fechamento', kpis.tempo_medio.execucao_fechamento, '#39FF14'],
-                ['Fechamento → Faturamento', kpis.tempo_medio.fechamento_faturamento, '#FF5E00'],
-              ].map(([label, value, color]) => (
-                <div key={label} className="rounded-lg p-3 bg-white/[0.02] border-l-2" style={{ borderColor: color }}>
-                  <p className="text-[10px] text-zinc-400">{label}</p>
-                  <p className="font-mono text-xl font-bold" style={{ color }}>{value}<span className="text-xs text-zinc-500 ml-1">d</span></p>
-                </div>
-              ))}
+                ['recebimento_programacao', 'Recebimento → Programação', 'Data recebimento → 1ª data programada', '#00F0FF'],
+                ['programacao_execucao', 'Programação → Execução', '1ª data programada → data de execução', '#E0FF00'],
+                ['execucao_fechamento', 'Execução → Fechamento', 'Execução → entrada em "Em Fechamento"', '#39FF14'],
+                ['fechamento_faturamento', 'Fechamento → Pagamento', '"Em Fechamento" → "Pago"', '#FF5E00'],
+              ].map(([key, label, hint, color]) => {
+                const tm = kpis.tempo_medio[key] || {};
+                const has = (tm.samples || 0) > 0;
+                return (
+                  <div key={key} data-testid={`tempo-medio-${key}`} className="rounded-lg p-3 bg-white/[0.02] border-l-2" style={{ borderColor: color }}>
+                    <p className="text-[10px] text-zinc-400">{label}</p>
+                    <p className="font-mono text-xl font-bold" style={{ color: has ? color : '#52525b' }}>
+                      {has ? tm.avg : '—'}{has && <span className="text-xs text-zinc-500 ml-1">d</span>}
+                    </p>
+                    <p className="text-[10px] text-zinc-500">{has ? `n = ${tm.samples} obra${tm.samples !== 1 ? 's' : ''}` : 'sem dados suficientes'}</p>
+                    <p className="text-[9px] text-zinc-600 mt-1">{hint}</p>
+                  </div>
+                );
+              })}
             </div>
           </div>
 
@@ -345,15 +400,16 @@ export const DashboardPage = () => {
                 <AlertTriangle className="w-4 h-4 text-[#FF003C]" />
                 <h3 className="font-heading font-black text-lg tracking-tighter text-white">Obras Vencidas</h3>
                 <span className="text-xs text-zinc-500">({kpis.vencidas.length})</span>
+                <button data-testid="vencidas-list-open-modal" onClick={() => setVencidasOpen(true)} className="ml-auto text-[11px] font-bold text-[#FF003C] underline">Ver detalhes</button>
               </div>
               <div className="space-y-2 max-h-60 overflow-y-auto">
                 {kpis.vencidas.map((p) => (
                   <button key={p.id} onClick={() => navigate(`/projeto/${p.id}`)} className="w-full text-left flex items-center gap-3 rounded-lg p-2 bg-[#FF003C]/5 border border-[#FF003C]/20 hover:bg-[#FF003C]/10 transition">
                     <span className="font-mono text-[10px] text-[#FF003C]">{p.project_code || '—'}</span>
                     <span className="text-xs text-white flex-1 truncate">{p.name}</span>
-                    <span className="text-[10px] text-zinc-500">venceu {(p.end_date || '').slice(0, 10)}</span>
-                    <span className="px-2 py-0.5 rounded-full text-[9px] font-bold bg-white/5 text-zinc-400">
-                      programada {(p.reschedule_history?.length || 0) + 1}x
+                    <span className="text-[10px] text-zinc-500">venceu {(p.expiry_date || '').slice(0, 10).split('-').reverse().join('/')}</span>
+                    <span className="px-2 py-0.5 rounded-full text-[9px] font-bold bg-[#FF5E00]/15 text-[#FF5E00]">
+                      há {p.dias_vencida}d
                     </span>
                   </button>
                 ))}
@@ -362,6 +418,8 @@ export const DashboardPage = () => {
           )}
         </>
       )}
+
+      <VencidasModal open={vencidasOpen} onClose={() => setVencidasOpen(false)} items={kpis?.vencidas || []} />
 
       <motion.div
         initial={{ opacity: 0, y: 20 }}
