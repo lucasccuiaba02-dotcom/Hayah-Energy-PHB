@@ -3552,7 +3552,7 @@ async def get_calendar_view(
 # Operacional do dia (dashboard mobile-friendly)
 @api_router.get("/operacional/today")
 async def get_today_operations(current_user: dict = Depends(get_current_user)):
-    """Projects scheduled for today - grouped by team for the encarregado"""
+    """Obras com a data de HOJE no calendário da equipe (schedule_entries) — agrupadas pela equipe daquela data."""
     from datetime import datetime as dt
     try:
         from zoneinfo import ZoneInfo
@@ -3562,29 +3562,37 @@ async def get_today_operations(current_user: dict = Depends(get_current_user)):
     projects = await db.projects.find({
         "user_id": current_user["_id"],
         "is_scheduled": True,
-    }).to_list(1000)
-    
-    # Filter to today's projects (in date range)
-    today_projects = []
+        "execution_status": {"$nin": ["concluido", "cancelado", "suspenso"]},
+    }).to_list(2000)
+
+    grouped: dict = {}
+    today_projects: list = []
     for p in projects:
-        ps = (p.get("start_date") or "")[:10]
-        pe = (p.get("end_date") or "")[:10]
-        if not ps:
+        entries = p.get("schedule_entries") or []
+        teams_today: list = []
+        if entries:
+            for e in entries:
+                if (e.get("date") or "")[:10] != today:
+                    continue
+                names = e.get("team_names") or []
+                ids = e.get("team_ids") or []
+                if not names and ids:
+                    names = [(await db.teams.find_one({"_id": safe_object_id(t)}) or {}).get("name", "") for t in ids]
+                teams_today.extend([n for n in names if n] or ["Sem equipe"])
+        elif (p.get("start_date") or "")[:10] == today:
+            teams_today = [n for n in [p.get("team_name"), p.get("additional_team_name")] if n] or ["Sem equipe"]
+        if not teams_today:
             continue
-        if ps <= today <= (pe or ps):
-            today_projects.append(p)
-    
-    # Group by team
-    grouped = {}
-    for p in today_projects:
-        team_name = p.get("team_name") or "Sem equipe"
-        if team_name not in grouped:
-            grouped[team_name] = []
-        grouped[team_name].append(build_project_response(p).model_dump())
-    
+        today_projects.append(p)
+        item = build_project_response(p).model_dump()
+        item["shutdown_today"] = today in (p.get("shutdown_dates") or []) or (not p.get("shutdown_dates") and bool(p.get("shutdown_info")))
+        item["teams_today"] = sorted(set(teams_today))
+        for name in item["teams_today"]:
+            grouped.setdefault(name, []).append(item)
+
     total_value = sum(p.get("programmed_value", 0) for p in today_projects)
     hot_line_count = sum(1 for p in today_projects if p.get("requires_hot_line"))
-    
+
     return {
         "date": today,
         "total_projects": len(today_projects),
@@ -3610,13 +3618,19 @@ class EquipamentoBody(BaseModel):
     tensao_primaria: str = ""
     tensao_secundaria: str = ""
     notas: str = ""
+    # Vínculo com a obra (Set/2026)
+    project_id: str = ""
+    project_code: str = ""
+    project_name: str = ""
 
 
 @api_router.get("/equipamentos")
-async def list_equipamentos(current_user: dict = Depends(get_current_user), tipo: str = ""):
+async def list_equipamentos(current_user: dict = Depends(get_current_user), tipo: str = "", project_id: str = ""):
     q = {"user_id": current_user["_id"]}
     if tipo:
         q["tipo"] = tipo
+    if project_id:
+        q["project_id"] = project_id
     docs = await db.equipamentos.find(q).sort("created_at", -1).to_list(2000)
     return [{
         "id": str(d["_id"]),
@@ -3632,6 +3646,9 @@ async def list_equipamentos(current_user: dict = Depends(get_current_user), tipo
         "tensao_primaria": d.get("tensao_primaria", ""),
         "tensao_secundaria": d.get("tensao_secundaria", ""),
         "notas": d.get("notas", ""),
+        "project_id": d.get("project_id", "") or "",
+        "project_code": d.get("project_code", "") or "",
+        "project_name": d.get("project_name", "") or "",
         "photos": [p for p in (d.get("photos", []) or []) if not p.get("is_deleted")],
         "created_at": (d.get("created_at").isoformat() if hasattr(d.get("created_at"), "isoformat") else d.get("created_at", "")),
         "created_by": d.get("created_by", ""),

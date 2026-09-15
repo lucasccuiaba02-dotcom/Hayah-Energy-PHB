@@ -3,8 +3,9 @@ import axios from 'axios';
 import { toast } from 'sonner';
 import { motion } from 'framer-motion';
 import {
-  Plus, X, Zap, Package, Upload, Edit3, Trash2, Camera, Search, Filter, Image as ImageIcon,
+  Plus, X, Zap, Package, Upload, Edit3, Trash2, Camera, Search, Filter, Image as ImageIcon, Briefcase,
 } from 'lucide-react';
+import { Link } from 'react-router-dom';
 import { AppLayout } from '../components/AppLayout';
 import { PinchZoomImage } from '../components/PinchZoomImage';
 import { todayISO } from '../lib/constants';
@@ -25,6 +26,65 @@ const emptyForm = {
   patrimonio: '', numero_serie: '', codigo_material: '', descricao: '',
   potencia: '', data_fabricacao: '', condicao: 'novo',
   fabricante: '', tensao_primaria: '', tensao_secundaria: '', notas: '',
+  project_id: '', project_code: '', project_name: '',
+};
+
+const ProjectPicker = ({ projects, value, onChange }) => {
+  const [q, setQ] = useState('');
+  const [open, setOpen] = useState(false);
+  const matches = useMemo(() => {
+    const s = q.trim().toLowerCase();
+    const list = s ? projects.filter((p) => (p.project_code || '').toLowerCase().includes(s) || (p.name || '').toLowerCase().includes(s)) : projects;
+    return list.slice(0, 30);
+  }, [projects, q]);
+  if (value?.project_id) {
+    return (
+      <div data-testid="equip-project-selected" className="flex items-center gap-2 bg-[#E0FF00]/10 border border-[#E0FF00]/40 rounded-lg px-3 py-2">
+        <Briefcase className="w-4 h-4 text-[#E0FF00] flex-shrink-0" />
+        <div className="flex-1 min-w-0">
+          <p className="font-mono text-xs font-bold text-[#E0FF00]">{value.project_code || 'sem código'}</p>
+          <p className="text-[11px] text-zinc-300 truncate">{value.project_name}</p>
+        </div>
+        <button type="button" data-testid="equip-project-clear" onClick={() => onChange({ project_id: '', project_code: '', project_name: '' })} className="text-zinc-400 hover:text-[#FF003C]">
+          <X className="w-4 h-4" />
+        </button>
+      </div>
+    );
+  }
+  return (
+    <div className="relative">
+      <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-zinc-500" />
+      <input
+        data-testid="equip-project-search"
+        type="text"
+        value={q}
+        onChange={(e) => { setQ(e.target.value); setOpen(true); }}
+        onFocus={() => setOpen(true)}
+        onBlur={() => setTimeout(() => setOpen(false), 150)}
+        placeholder="Digite o nº/código ou nome da obra…"
+        className="w-full pl-9 pr-3 py-2 bg-zinc-950/90 border border-white/10 rounded-lg text-sm text-white font-mono focus:border-[#E0FF00] focus:outline-none"
+      />
+      {open && (
+        <div data-testid="equip-project-options" className="absolute z-20 mt-1 w-full max-h-52 overflow-y-auto rounded-lg border border-white/10 bg-[#0b0b0d] shadow-2xl">
+          {matches.length === 0 && <p className="px-3 py-2 text-xs text-zinc-500">Nenhuma obra encontrada</p>}
+          {matches.map((p) => (
+            <button
+              key={p.id}
+              type="button"
+              data-testid={`equip-project-option-${p.id}`}
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => { onChange({ project_id: p.id, project_code: p.project_code || '', project_name: p.name || '' }); setQ(''); setOpen(false); }}
+              className="w-full text-left px-3 py-2 hover:bg-[#E0FF00]/10 border-b border-white/5 last:border-0"
+            >
+              <span className="font-mono text-xs font-bold text-[#E0FF00]">{p.project_code || '—'}</span>
+              <span className="text-xs text-zinc-300 ml-2">{p.name}</span>
+              {p.location && <span className="text-[10px] text-zinc-500 ml-2">· {p.location}</span>}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
 };
 
 const EquipCard = ({ equip, onEdit, onDelete, onOpenPhotos }) => {
@@ -49,6 +109,18 @@ const EquipCard = ({ equip, onEdit, onDelete, onOpenPhotos }) => {
             <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${equip.condicao === 'novo' ? 'bg-[#39FF14]/20 text-[#39FF14] border border-[#39FF14]/40' : 'bg-[#FFB800]/20 text-[#FFB800] border border-[#FFB800]/40'}`}>
               {equip.condicao === 'novo' ? 'Novo' : 'Reforma'}
             </span>
+            {equip.project_id ? (
+              <Link
+                to={`/projeto/${equip.project_id}`}
+                data-testid={`equip-project-badge-${equip.id}`}
+                title={equip.project_name}
+                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold font-mono bg-[#E0FF00]/15 text-[#E0FF00] border border-[#E0FF00]/40 hover:bg-[#E0FF00]/25"
+              >
+                <Briefcase className="w-3 h-3" /> {equip.project_code || 'OBRA'}
+              </Link>
+            ) : (
+              <span data-testid={`equip-project-badge-${equip.id}`} className="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase bg-white/5 text-zinc-500 border border-white/10">Sem obra</span>
+            )}
           </div>
           <p className="text-white font-bold text-sm truncate">{equip.descricao || '—'}</p>
           <p className="text-[11px] text-zinc-500 font-mono">
@@ -89,10 +161,10 @@ const EquipCard = ({ equip, onEdit, onDelete, onOpenPhotos }) => {
   );
 };
 
-const EquipModal = ({ open, initial, onClose, onSaved }) => {
+const EquipModal = ({ open, initial, onClose, onSaved, projects = [] }) => {
   const [form, setForm] = useState(initial || emptyForm);
   const [saving, setSaving] = useState(false);
-  useEffect(() => { setForm(initial || emptyForm); }, [initial]);
+  useEffect(() => { setForm({ ...emptyForm, ...(initial || {}) }); }, [initial]);
   if (!open) return null;
   const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
   const isEdit = !!initial?.id;
@@ -102,9 +174,10 @@ const EquipModal = ({ open, initial, onClose, onSaved }) => {
     setSaving(true);
     try {
       const url = isEdit ? `${API}/equipamentos/${initial.id}` : `${API}/equipamentos`;
-      const { data } = isEdit ? await axios.patch(url, form) : await axios.post(url, form);
+      const payload = Object.fromEntries(Object.keys(emptyForm).map((k) => [k, form[k] ?? '']));
+      const { data } = isEdit ? await axios.patch(url, payload) : await axios.post(url, payload);
       toast.success(isEdit ? 'Equipamento atualizado' : 'Equipamento cadastrado');
-      onSaved({ ...(initial || {}), ...form, id: data.id || initial?.id });
+      onSaved({ ...(initial || {}), ...payload, id: data.id || initial?.id });
       onClose();
     } catch (err) {
       toast.error(err?.response?.data?.detail || 'Erro');
@@ -119,6 +192,14 @@ const EquipModal = ({ open, initial, onClose, onSaved }) => {
           <button onClick={onClose} className="w-8 h-8 rounded-full bg-white/5 border border-white/10 text-zinc-400 hover:text-white">✕</button>
         </div>
         <div className="grid md:grid-cols-2 gap-3">
+          <div className="md:col-span-2">
+            <label className="text-[10px] uppercase tracking-wider text-zinc-500 font-bold mb-1 block">Obra vinculada (nº do projeto)</label>
+            <ProjectPicker
+              projects={projects}
+              value={{ project_id: form.project_id, project_code: form.project_code, project_name: form.project_name }}
+              onChange={(v) => setForm((f) => ({ ...f, ...v }))}
+            />
+          </div>
           <div className="md:col-span-2">
             <label className="text-[10px] uppercase tracking-wider text-zinc-500 font-bold mb-1 block">Tipo</label>
             <div className="grid grid-cols-3 gap-2">
@@ -288,6 +369,7 @@ const PhotosModal = ({ open, equip, onClose, onChange }) => {
 
 export const EquipamentosPage = () => {
   const [items, setItems] = useState([]);
+  const [projects, setProjects] = useState([]);
   const [loading, setLoading] = useState(false);
   const [tipoFilter, setTipoFilter] = useState('');
   const [search, setSearch] = useState('');
@@ -307,6 +389,9 @@ export const EquipamentosPage = () => {
     } finally { setLoading(false); }
   };
   useEffect(() => { load(); }, [tipoFilter]);
+  useEffect(() => {
+    axios.get(`${API}/projects`).then(({ data }) => setProjects(Array.isArray(data) ? data : [])).catch(() => {});
+  }, []);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -315,7 +400,9 @@ export const EquipamentosPage = () => {
       (it.descricao || '').toLowerCase().includes(q) ||
       (it.patrimonio || '').toLowerCase().includes(q) ||
       (it.numero_serie || '').toLowerCase().includes(q) ||
-      (it.codigo_material || '').toLowerCase().includes(q)
+      (it.codigo_material || '').toLowerCase().includes(q) ||
+      (it.project_code || '').toLowerCase().includes(q) ||
+      (it.project_name || '').toLowerCase().includes(q)
     );
   }, [items, search]);
 
@@ -394,6 +481,7 @@ export const EquipamentosPage = () => {
       <EquipModal
         open={modalOpen}
         initial={editing}
+        projects={projects}
         onClose={() => { setModalOpen(false); setEditing(null); }}
         onSaved={() => load()}
       />

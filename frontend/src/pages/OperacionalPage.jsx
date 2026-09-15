@@ -77,7 +77,8 @@ export const OperacionalPage = () => {
           {Object.keys(data.by_team).length === 0 ? (
             <div className="glass-panel rounded-2xl p-12 text-center">
               <Clock className="w-12 h-12 text-zinc-700 mx-auto mb-3" />
-              <p className="text-zinc-400 text-lg">Nenhuma obra programada para hoje.</p>
+              <p className="text-zinc-400 text-lg">Nenhuma obra no calendário das equipes para hoje.</p>
+              <p className="text-zinc-600 text-xs mt-1">Só aparecem aqui obras com a data de hoje na programação (Calendário / Programação).</p>
             </div>
           ) : (
             <div className="space-y-6">
@@ -108,6 +109,9 @@ export const OperacionalPage = () => {
                               )}
                               <h3 className="text-white font-bold text-base">{p.name}</h3>
                               <p className="text-xs text-zinc-500 mt-1">{PROJECT_TYPE_LABEL[p.project_type]}</p>
+                              {(p.teams_today || []).length > 1 && (
+                                <p className="text-[10px] text-[#00F0FF] mt-1 flex items-center gap-1"><Users className="w-3 h-3" /> Hoje com: {p.teams_today.join(' + ')}</p>
+                              )}
                               {p.location && (
                                 <p className="text-xs text-zinc-300 mt-2 flex items-start gap-1">
                                   <MapPin className="w-3 h-3 mt-0.5 flex-shrink-0 text-zinc-500" />
@@ -165,7 +169,7 @@ export const OperacionalPage = () => {
                                 </div>
                               </label>
                             )}
-                            {p.shutdown_info && (
+                            {(p.shutdown_today || p.shutdown_info) && (
                               <label className="flex items-center gap-3 p-2 rounded-lg bg-[#E0FF00]/10 border border-[#E0FF00]/30 cursor-pointer">
                                 <input
                                   data-testid={`op-check-shutdown-${p.id}`}
@@ -176,8 +180,8 @@ export const OperacionalPage = () => {
                                 />
                                 <AlertTriangle className="w-4 h-4 text-[#E0FF00] flex-shrink-0" />
                                 <div className="flex-1">
-                                  <p className="text-sm font-bold text-[#E0FF00]">Desligamento Confirmado?</p>
-                                  <p className="text-xs text-zinc-400">"{p.shutdown_info}"</p>
+                                  <p className="text-sm font-bold text-[#E0FF00]">Desligamento Confirmado?{p.shutdown_today ? ' · HOJE' : ''}</p>
+                                  {p.shutdown_info && <p className="text-xs text-zinc-400">"{p.shutdown_info}"</p>}
                                 </div>
                               </label>
                             )}

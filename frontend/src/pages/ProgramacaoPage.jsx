@@ -177,6 +177,7 @@ export const ProgramacaoPage = () => {
     const teamList = Array.from(teamSet);
     return { dateList, teamList, map };
   }, [expanded]);
+  const todayStr = todayISO();
 
   return (
     <AppLayout
@@ -309,14 +310,25 @@ export const ProgramacaoPage = () => {
               <thead>
                 <tr className="border-b border-white/10 bg-white/[0.02]">
                   <th className="sticky left-0 bg-[#09090b] text-left px-3 py-2 text-[10px] tracking-[0.15em] uppercase font-bold text-zinc-500 w-40 z-10">Equipe</th>
-                  {matrix.dateList.map((date) => (
-                    <th key={date} className="text-left px-3 py-2 text-[10px] tracking-[0.15em] uppercase font-bold text-[#E0FF00] min-w-[200px]">
-                      <span className="inline-flex items-center gap-1">
-                        <Calendar className="w-3 h-3" />
-                        {date === 'Sem data' ? date : new Date(date + 'T00:00:00').toLocaleDateString('pt-BR', { weekday: 'short', day: '2-digit', month: '2-digit' })}
-                      </span>
-                    </th>
-                  ))}
+                  {matrix.dateList.map((date) => {
+                    const isToday = date === todayStr;
+                    const isPast = date !== 'Sem data' && date < todayStr;
+                    return (
+                      <th
+                        key={date}
+                        data-testid={`matrix-date-${date}`}
+                        data-today={isToday ? 'true' : undefined}
+                        className={`text-left px-3 py-2 text-[10px] tracking-[0.15em] uppercase font-bold min-w-[220px] ${isToday ? 'text-black bg-[#E0FF00]' : isPast ? 'text-zinc-500' : 'text-[#E0FF00]'}`}
+                      >
+                        <span className="inline-flex items-center gap-1">
+                          <Calendar className="w-3 h-3" />
+                          {date === 'Sem data' ? date : new Date(date + 'T00:00:00').toLocaleDateString('pt-BR', { weekday: 'short', day: '2-digit', month: '2-digit' })}
+                          {isToday && <span className="ml-1 px-1.5 py-0 rounded-full bg-black text-[#E0FF00] text-[9px] font-black">HOJE</span>}
+                          {isPast && <span className="ml-1 text-[9px] font-bold text-zinc-600 normal-case tracking-normal">passado</span>}
+                        </span>
+                      </th>
+                    );
+                  })}
                 </tr>
               </thead>
               <tbody>
@@ -335,20 +347,23 @@ export const ProgramacaoPage = () => {
                       </td>
                       {matrix.dateList.map((date) => {
                         const cellProjects = (matrix.map[date] || {})[tid] || [];
+                        const isToday = date === todayStr;
+                        const isPast = date !== 'Sem data' && date < todayStr;
                         return (
-                          <td key={date} className="px-2 py-2">
+                          <td key={date} className={`px-2 py-2 ${isToday ? 'bg-[#E0FF00]/[0.06]' : ''} ${isPast ? 'opacity-60 grayscale-[35%]' : ''}`}>
                             <div className="space-y-2">
                               {cellProjects.length === 0 ? (
                                 <span className="text-[10px] text-zinc-700">—</span>
                               ) : cellProjects.map((p) => {
-                                const execStatus = EXECUTION_STATUS_LABEL[p.execution_status];
+                                const execStatus = EXECUTION_STATUS_LABEL[p.execution_status || 'aguardando_programacao'];
                                 const bgColor = p.requires_hot_line ? '#FF5E00' : execStatus?.color || '#94A3B8';
+                                const hasShutdown = (p.shutdown_dates || []).includes(date) || (!(p.shutdown_dates || []).length && !!p.shutdown_info);
                                 return (
                                   <div
                                     key={`${p.id}-${p._teamColId}`}
                                     data-testid={`matrix-cell-${p.id}-${p._teamColId}`}
-                                    className="rounded-lg p-2 border text-[11px] cursor-pointer hover:brightness-125 transition"
-                                    style={{ backgroundColor: `${bgColor}12`, borderColor: `${bgColor}40` }}
+                                    className="rounded-lg p-2.5 border text-[11px] cursor-pointer hover:brightness-125 transition"
+                                    style={{ backgroundColor: `${bgColor}12`, borderColor: `${bgColor}50`, borderLeftWidth: 3, borderLeftColor: bgColor }}
                                     onClick={() => { setEditing(p); setIsDrawerOpen(true); }}
                                   >
                                     <div className="flex items-center gap-1 mb-1 flex-wrap">
@@ -356,10 +371,31 @@ export const ProgramacaoPage = () => {
                                       {p._isAdditional && (
                                         <span title="Equipe adicional" className="px-1.5 py-0 rounded-full text-[9px] font-bold bg-[#00F0FF]/20 border border-[#00F0FF]/50 text-[#00F0FF]">2ª</span>
                                       )}
-                                      {p.requires_hot_line && <Zap className="w-3 h-3 text-[#FF5E00]" />}
+                                      {p.requires_hot_line && (
+                                        <span title="Linha Viva" className="inline-flex items-center gap-0.5 px-1.5 py-0 rounded-full text-[9px] font-bold bg-[#FF5E00]/20 border border-[#FF5E00] text-[#FF5E00]"><Zap className="w-2.5 h-2.5" />LV</span>
+                                      )}
+                                      {hasShutdown && (
+                                        <span title={p.shutdown_info || 'Desligamento programado'} className="px-1.5 py-0 rounded-full text-[9px] font-bold bg-[#E0FF00]/20 border border-[#E0FF00] text-[#E0FF00]">DESL.</span>
+                                      )}
                                     </div>
-                                    <p className="text-zinc-300 truncate">{p.name}</p>
-                                    <p className="font-mono text-[10px] text-zinc-500">{formatCurrency(p.programmed_value)}</p>
+                                    <p className="text-white font-medium truncate" title={p.name}>{p.name}</p>
+                                    {p.location && (
+                                      <p className="text-[10px] text-zinc-400 flex items-center gap-1 truncate" title={p.location}>
+                                        <MapPin className="w-2.5 h-2.5 flex-shrink-0" />{p.location}
+                                      </p>
+                                    )}
+                                    <p className="text-[10px] text-zinc-400 flex items-center gap-1 truncate">
+                                      <UsersIcon className="w-2.5 h-2.5 flex-shrink-0" />{p._teamColName || t?.name || 'Sem equipe'}{p.additional_team_name && !p._isAdditional ? ` + ${p.additional_team_name}` : ''}
+                                    </p>
+                                    <div className="flex items-center justify-between gap-1 mt-1.5">
+                                      <span
+                                        className="px-1.5 py-0.5 rounded-full text-[9px] font-bold border whitespace-nowrap"
+                                        style={{ backgroundColor: `${execStatus?.color}20`, borderColor: `${execStatus?.color}60`, color: execStatus?.color }}
+                                      >
+                                        {execStatus?.label}
+                                      </span>
+                                      <span className="font-mono text-[10px] text-zinc-300 font-bold">{formatCurrency(p.programmed_value)}</span>
+                                    </div>
                                   </div>
                                 );
                               })}

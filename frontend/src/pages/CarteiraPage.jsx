@@ -8,10 +8,29 @@ import { SearchBar } from '../components/SearchBar';
 import { AppLayout } from '../components/AppLayout';
 import { ProjectDrawer } from '../components/ProjectDrawer';
 import { HScroller } from '../components/HScroller';
-import { PROJECT_TYPE_LABEL, MATERIAL_STATUS_LABEL, formatCurrency } from '../lib/constants';
+import { PROJECT_TYPE_LABEL, MATERIAL_STATUS_LABEL, EXECUTION_STATUS_LABEL, formatCurrency } from '../lib/constants';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
+
+const VencimentoCell = ({ expiry, status }) => {
+  const d = (expiry || '').slice(0, 10);
+  if (!d) return <span className="text-xs text-zinc-600">—</span>;
+  const INACTIVE = ['executada', 'concluido', 'cancelado', 'suspenso'];
+  const today = new Date().toISOString().slice(0, 10);
+  const days = Math.round((new Date(d + 'T00:00:00') - new Date(today + 'T00:00:00')) / 86400000);
+  const active = !INACTIVE.includes(status || 'aguardando_programacao');
+  let color = '#a1a1aa', hint = '';
+  if (active && days < 0) { color = '#FF003C'; hint = `vencida há ${-days}d`; }
+  else if (active && days <= 7) { color = '#FF5E00'; hint = days === 0 ? 'vence hoje' : `vence em ${days}d`; }
+  const [y, m, dd] = d.split('-');
+  return (
+    <div className="whitespace-nowrap">
+      <span className="font-mono text-xs font-bold" style={{ color }}>{dd}/{m}/{y}</span>
+      {hint && <p className="text-[9px] font-bold uppercase tracking-wider" style={{ color }}>{hint}</p>}
+    </div>
+  );
+};
 
 export const CarteiraPage = () => {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -304,27 +323,35 @@ export const CarteiraPage = () => {
             <thead>
               <tr className="border-b border-white/5">
                 <th className="text-left px-4 py-3 text-xs tracking-[0.15em] uppercase font-bold text-zinc-500">Nome</th>
+                <th className="text-left px-4 py-3 text-xs tracking-[0.15em] uppercase font-bold text-zinc-500">Vencimento</th>
                 <th className="text-left px-4 py-3 text-xs tracking-[0.15em] uppercase font-bold text-zinc-500">Tipo</th>
                 <th className="text-left px-4 py-3 text-xs tracking-[0.15em] uppercase font-bold text-zinc-500">Localidade</th>
                 <th className="text-right px-4 py-3 text-xs tracking-[0.15em] uppercase font-bold text-zinc-500">Mão Obra</th>
                 <th className="text-right px-4 py-3 text-xs tracking-[0.15em] uppercase font-bold text-zinc-500">Material</th>
                 <th className="text-right px-4 py-3 text-xs tracking-[0.15em] uppercase font-bold text-zinc-500">Programado</th>
                 <th className="text-center px-3 py-3 text-xs tracking-[0.15em] uppercase font-bold text-zinc-500">Material</th>
-                <th className="text-center px-3 py-3 text-xs tracking-[0.15em] uppercase font-bold text-zinc-500">Prog.</th>
+                <th className="text-center px-3 py-3 text-xs tracking-[0.15em] uppercase font-bold text-zinc-500">Status</th>
                 <th className="text-right px-4 py-3 text-xs tracking-[0.15em] uppercase font-bold text-zinc-500">Ações</th>
               </tr>
             </thead>
             <tbody>
               {filtered.length === 0 ? (
                 <tr>
-                  <td colSpan={9} className="text-center py-12 text-zinc-500">Nenhum projeto na carteira.</td>
+                  <td colSpan={10} className="text-center py-12 text-zinc-500">Nenhum projeto na carteira.</td>
                 </tr>
               ) : (
                 filtered.map((p, i) => {
                   const mStatus = MATERIAL_STATUS_LABEL[p.material_status];
+                  const exec = EXECUTION_STATUS_LABEL[p.execution_status || 'aguardando_programacao'];
                   return (
                     <tr key={p.id} data-testid={`carteira-row-${i}`} className="border-b border-white/5 hover:bg-white/[0.02]">
-                      <td className="px-4 py-3 text-white text-sm">{p.name}</td>
+                      <td className="px-4 py-3 text-white text-sm">
+                        {p.project_code && <p className="font-mono text-[10px] text-[#E0FF00] font-bold">{p.project_code}</p>}
+                        {p.name}
+                      </td>
+                      <td className="px-4 py-3" data-testid={`carteira-vencimento-${i}`}>
+                        <VencimentoCell expiry={p.expiry_date} status={p.execution_status} />
+                      </td>
                       <td className="px-4 py-3 text-xs text-zinc-400">{PROJECT_TYPE_LABEL[p.project_type] || p.project_type}</td>
                       <td className="px-4 py-3 text-xs text-zinc-400">
                         <span className="flex items-center gap-1">
@@ -344,14 +371,14 @@ export const CarteiraPage = () => {
                           {mStatus?.label}
                         </span>
                       </td>
-                      <td className="px-3 py-3 text-center">
-                        {p.is_scheduled ? (
-                          <span className="px-2 py-1 rounded-full text-[10px] font-bold bg-[#E0FF00]/15 border border-[#E0FF00]/40 text-[#E0FF00]">
-                            Programada
-                          </span>
-                        ) : (
-                          <span className="text-xs text-zinc-700">-</span>
-                        )}
+                      <td className="px-3 py-3 text-center" data-testid={`carteira-status-${i}`}>
+                        <span className="px-2 py-1 rounded-full text-[10px] font-bold border whitespace-nowrap" style={{
+                          backgroundColor: `${exec?.color || '#94A3B8'}15`,
+                          borderColor: `${exec?.color || '#94A3B8'}40`,
+                          color: exec?.color || '#94A3B8',
+                        }}>
+                          {exec?.label || p.execution_status}
+                        </span>
                       </td>
                       <td className="px-4 py-3 text-right">
                         <div className="flex items-center justify-end gap-2">
