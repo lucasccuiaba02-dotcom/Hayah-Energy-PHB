@@ -30,6 +30,12 @@ Dashboard, **Buscar Obras**, Operacional, Carteira, Programação, Calendário, 
 - Emails/Push: mantidos
 
 ## Feito em Fev/2026 (últimas iterações)
+- **[15/Set/2026] Carteira Vencimento/Status · Operacional só HOJE · Equipamentos↔Obra · Matriz Programação (iter25)**
+  - **Carteira**: coluna **Vencimento** após Nome (`VencimentoCell`: vermelho vencida + "vencida há Nd", laranja ≤7d + "vence em Nd", cinza ok, "—" vazio; inativas nunca colorem). Coluna **Status** (ex-"Prog.") mostra badge real de `execution_status`. Nome exibe `project_code` acima.
+  - **Operacional** `GET /api/operacional/today`: só obras com a data de HOJE (America/Cuiaba) em `schedule_entries[].date` (fallback `start_date==hoje`), exclui concluido/cancelado/suspenso, agrupa pela(s) equipe(s) da entrada (obra com 2 equipes aparece nos 2 grupos). Item traz `teams_today[]` e `shutdown_today`. UI mostra "Hoje com: A + B" e "Desligamento Confirmado? · HOJE".
+  - **Equipamentos**: `EquipamentoBody` + listagem ganharam `project_id/project_code/project_name`; `GET /api/equipamentos?project_id=` filtra. Modal com `ProjectPicker` (busca por código/nome, `equip-project-search/option/selected/clear`), badge `equip-project-badge-{id}` no card (link /projeto/:id) ou "Sem obra"; busca da página filtra por obra. (Não exibido na página da obra — opção do usuário.)
+  - **Programação (matriz)**: coluna de HOJE com fundo amarelo + badge HOJE (`th[data-today]`), datas passadas com "passado" e células com opacidade; cards com código, badges LV/DESL./2ª, nome, local, equipe, badge de status e valor.
+  - Seeds: `backend/tests/seed_operacional_hoje.py` (OPHOJE-01..05 + equipamento PAT-OPHOJE). Testes: `backend/tests/test_iteration25.py` (8/8).
 - **[15/Set/2026] Dashboard — Vencidas por Data Vencimento + KPIs de Carteira + Financeiro/Tempo médio corrigidos (iter24)**
   - **Vencidas** (`/api/dashboard/kpis`): agora usam `expiry_date` (Data Vencimento do cadastro). Excluem concluído/executada/suspenso/cancelado; obra SEM `expiry_date` não conta. Cada item traz `dias_vencida`. `no_prazo`/`vencendo_amanha` também por `expiry_date`. `manager-kpis.operational.overdue` idem.
   - **Modal Obras Vencidas** (`components/VencidasModal.jsx`, `vencidas-modal`): clique no KPI `kpi-vencidas-card` abre lista detalhada (código, status, tipo, local, equipe, programada, venceu em, há N dias, valor) com botões `Abrir obra` (→ /projeto/:id) e `Ver na Carteira`.

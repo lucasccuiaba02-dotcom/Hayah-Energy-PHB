@@ -1,0 +1,32 @@
+{
+  "summary": "Iteration 25 — Full E2E verification of Carteira (Vencimento column + Status badge), Operacional /today with schedule_entries date filter and multi-team grouping, Equipamentos project link (backend+UI), Programação matrix HOJE column highlight. All 8 backend pytest cases passed. All UI checks passed. TEST equipments cleaned up at end.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "verified_checks": [
+    "GET /api/operacional/today: OPHOJE-01 appears in Equipe 1 + Equipe 2 with shutdown_today=true and teams_today=['Equipe 1','Equipe 2']",
+    "OPHOJE-02 only in Equipe 2; OPHOJE-03/04/05 absent from all teams",
+    "total_projects=3 distinct (OPHOJE-01 counted once)",
+    "POST /api/equipamentos accepts project_id/project_code/project_name; GET returns those fields",
+    "GET /api/equipamentos?project_id=<pid> returns only linked; legacy items have project_id=''",
+    "PATCH /api/equipamentos clears the link (project_id='')",
+    "Carteira headers: Nome, Vencimento (right after Nome), ..., Status (replaced Prog.)",
+    "carteira-vencimento cells show dd/mm/aaaa; DASHKPI-01 red 'vencida há 12d'; DASHKPI-02 red 'vencida há 3d'; DASHKPI-07 orange 'vence em 1d'; DASHKPI-03/04/05/06 (concluído/suspenso/cancelado/executada) no hint; DASHKPI-09 shows '—'",
+    "carteira-status shows real EXECUTION_STATUS_LABEL (Aguardando Programação, A Reprogramar, Concluído, Suspenso, Cancelado, Executada, Programado, Em Execução)",
+    "Operacional: op-stat-projects=3, groups op-team-Equipe_1 and op-team-Equipe_2 present, OPHOJE-01 renders 'Hoje com: Equipe 1 + Equipe 2' + 'Desligamento Confirmado? · HOJE'",
+    "Programação matriz: th[data-today='true']='matrix-date-2026-09-15' with badge HOJE; 6 columns with 'passado' label; matrix-cell OPHOJE-01 for Equipe 2 shows '2ª' + LV + DESL. + CUIABÁ + Equipe 2 + Programado + R$ 10.000,00",
+    "Equipamentos: equip-add opens modal; ProjectPicker (equip-project-search) lists OPHOJE-* options; selecting shows equip-project-selected; equip-save creates equipment with equip-project-badge-{id} showing 'OPHOJE-01'; equip-search 'OPHOJE-01' filters cards; cards without project show default state (Sem obra)",
+    "Regression: /api/dashboard/kpis=200; drill-down ?filter=vencidas returns exactly DASHKPI-01 + DASHKPI-02"
+  ],
+  "test_report_links": ["/app/backend/tests/test_iteration25.py", "/app/test_reports/pytest/iter25.xml"],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "Hint texts in Vencimento cells are lowercase 'vencida há'/'vence em' — the spec text sample used uppercase (VENCIDA HÁ…). If uppercase visual is desired it should be enforced via CSS uppercase (currently the visible text is lowercase). Not blocking."
+  ],
+  "updated_files": ["/app/backend/tests/test_iteration25.py"],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "test_credentials": "lucasc.cuiaba02@gmail.com / Hayah$152610",
+  "seed_data_creation": "Re-ran /app/backend/tests/seed_operacional_hoje.py + seed_dashboard_kpis.py (idempotent). Cleaned up TEST-UI-25 and TEST-REL equipments after UI test.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Backend tests live in /app/backend/tests/test_iteration25.py (8 tests, all green). Seeds OPHOJE-* + DASHKPI-* are current for today (America/Cuiaba). PAT-OPHOJE seed equipment linked to OPHOJE-01 remains for regression."
+}
