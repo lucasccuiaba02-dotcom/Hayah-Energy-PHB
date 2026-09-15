@@ -30,6 +30,8 @@ Dashboard, **Buscar Obras**, Operacional, Carteira, Programação, Calendário, 
 - Emails/Push: mantidos
 
 ## Feito em Fev/2026 (últimas iterações)
+- **[15/Set/2026] Equipamentos na Obra (ProjectDetailPage · aba Arquivos)**
+  - Nova seção `pd-arquivos-equipamentos` entre Materiais e Fotos por Ponto: fetch `GET /api/equipamentos?project_id={id}`; header com contagem por tipo (trafos/religadores/reguladores) + botão `pd-equip-open-page` (→ /equipamentos); cada linha `pd-equip-{id}` mostra tipo, condição, potência, descrição, patrimônio/série/código/fabricante e até 3 miniaturas de fotos (`pd-equip-photo-{fid}`). Empty state orienta vincular na aba Equipamentos.
 - **[15/Set/2026] Carteira Vencimento/Status · Operacional só HOJE · Equipamentos↔Obra · Matriz Programação (iter25)**
   - **Carteira**: coluna **Vencimento** após Nome (`VencimentoCell`: vermelho vencida + "vencida há Nd", laranja ≤7d + "vence em Nd", cinza ok, "—" vazio; inativas nunca colorem). Coluna **Status** (ex-"Prog.") mostra badge real de `execution_status`. Nome exibe `project_code` acima.
   - **Operacional** `GET /api/operacional/today`: só obras com a data de HOJE (America/Cuiaba) em `schedule_entries[].date` (fallback `start_date==hoje`), exclui concluido/cancelado/suspenso, agrupa pela(s) equipe(s) da entrada (obra com 2 equipes aparece nos 2 grupos). Item traz `teams_today[]` e `shutdown_today`. UI mostra "Hoje com: A + B" e "Desligamento Confirmado? · HOJE".

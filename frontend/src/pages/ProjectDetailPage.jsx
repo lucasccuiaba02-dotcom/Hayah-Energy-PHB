@@ -51,6 +51,7 @@ export const ProjectDetailPage = () => {
   const [aprList, setAprList] = useState([]);
   const [aprSelected, setAprSelected] = useState(null); // objeto ou null para nova
   const [teams, setTeams] = useState([]);
+  const [equipamentos, setEquipamentos] = useState([]);
 
   useEffect(() => {
     axios.get(`${API}/projects/${id}`).then(({ data }) => setProject(data)).catch(() => toast.error('Projeto não encontrado'));
@@ -58,9 +59,10 @@ export const ProjectDetailPage = () => {
       setChecklist(data.checklist || {});
       setPhotos(data.photos || []);
     }).catch(() => { /* offline OK */ });
-    // APRs + teams
+    // APRs + teams + equipamentos vinculados
     axios.get(`${API}/projects/${id}/aprs`).then(({ data }) => setAprList(data || [])).catch(() => {});
     axios.get(`${API}/teams`).then(({ data }) => setTeams(data || [])).catch(() => {});
+    axios.get(`${API}/equipamentos?project_id=${id}`).then(({ data }) => setEquipamentos(Array.isArray(data) ? data : [])).catch(() => {});
 
     const onOn = () => {
       setOnline(true);
@@ -799,6 +801,70 @@ export const ProjectDetailPage = () => {
                     })}
                   </tbody>
                 </table>
+              </div>
+            )}
+          </div>
+
+          {/* Equipamentos vinculados à obra (Set/2026) */}
+          <div data-testid="pd-arquivos-equipamentos" className="glass-panel rounded-2xl overflow-hidden border border-[#E0FF00]/25">
+            <div className="px-4 py-3 border-b border-white/5 bg-[#E0FF00]/[0.04] flex items-center gap-2">
+              <Zap className="w-4 h-4 text-[#E0FF00]" />
+              <div className="flex-1">
+                <p className="text-[10px] tracking-[0.25em] uppercase font-bold text-[#E0FF00]">Equipamentos na Obra</p>
+                <p className="text-[11px] text-zinc-400">
+                  {equipamentos.length} equipamento(s) · {equipamentos.filter((e) => e.tipo === 'transformador').length} trafo(s) · {equipamentos.filter((e) => e.tipo === 'religador').length} religador(es) · {equipamentos.filter((e) => e.tipo === 'regulador_tensao').length} regulador(es)
+                </p>
+              </div>
+              <button
+                data-testid="pd-equip-open-page"
+                onClick={() => navigate('/equipamentos')}
+                className="text-[10px] font-bold px-3 py-1.5 rounded-full bg-[#E0FF00]/15 border border-[#E0FF00]/40 text-[#E0FF00] hover:bg-[#E0FF00]/25"
+              >
+                Gerenciar
+              </button>
+            </div>
+            {equipamentos.length === 0 ? (
+              <p className="px-4 py-6 text-[11px] text-zinc-500 italic text-center">
+                Nenhum equipamento vinculado. Na aba Equipamentos, selecione esta obra no campo "Obra vinculada".
+              </p>
+            ) : (
+              <div className="divide-y divide-white/5">
+                {equipamentos.map((e) => {
+                  const meta = { transformador: ['Transformador', '#E0FF00'], religador: ['Religador', '#00F0FF'], regulador_tensao: ['Regulador de Tensão', '#FF5E00'] }[e.tipo] || [e.tipo, '#94A3B8'];
+                  const fotos = e.photos || [];
+                  return (
+                    <div key={e.id} data-testid={`pd-equip-${e.id}`} className="px-4 py-3 flex items-start gap-3 flex-wrap">
+                      <div className="w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0" style={{ background: `${meta[1]}15`, border: `1px solid ${meta[1]}40` }}>
+                        <Zap className="w-4 h-4" style={{ color: meta[1] }} />
+                      </div>
+                      <div className="flex-1 min-w-[180px]">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="px-2 py-0.5 rounded-full text-[9px] font-bold uppercase" style={{ background: `${meta[1]}20`, color: meta[1], border: `1px solid ${meta[1]}40` }}>{meta[0]}</span>
+                          <span className={`px-2 py-0.5 rounded-full text-[9px] font-bold uppercase ${e.condicao === 'novo' ? 'bg-[#39FF14]/20 text-[#39FF14] border border-[#39FF14]/40' : 'bg-[#FFB800]/20 text-[#FFB800] border border-[#FFB800]/40'}`}>{e.condicao === 'novo' ? 'Novo' : 'Reforma'}</span>
+                          {e.potencia && <span className="font-mono text-[10px] text-zinc-400">{e.potencia}</span>}
+                        </div>
+                        <p className="text-sm font-bold text-white mt-1">{e.descricao || '—'}</p>
+                        <p className="text-[11px] text-zinc-400 font-mono">
+                          Patrimônio: <span className="text-white">{e.patrimonio || '—'}</span> · Série: <span className="text-white">{e.numero_serie || '—'}</span>
+                          {e.codigo_material && <> · Cód: <span className="text-white">{e.codigo_material}</span></>}
+                          {e.fabricante && <> · {e.fabricante}</>}
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        {fotos.slice(0, 3).map((f) => (
+                          <img
+                            key={f.id}
+                            data-testid={`pd-equip-photo-${f.id}`}
+                            src={`${API}/equipamentos/${e.id}/photos/${f.id}`}
+                            alt={f.filename}
+                            className="w-12 h-12 rounded-md object-cover border border-white/10"
+                          />
+                        ))}
+                        {fotos.length === 0 && <span className="text-[10px] text-zinc-600 italic">sem fotos</span>}
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             )}
           </div>
