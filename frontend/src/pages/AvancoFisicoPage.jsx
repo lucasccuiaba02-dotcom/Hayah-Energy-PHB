@@ -41,6 +41,11 @@ const ProjectCard = ({ p, active, onClick }) => {
       </div>
       <p className="text-sm text-white font-bold truncate">{p.name}</p>
       <p className="text-[10px] text-zinc-500 truncate">{p.team_name || 'Sem equipe'} · {formatCurrency(p.programmed_value)}</p>
+      {p.not_scheduled && (
+        <p data-testid={`avanco-not-scheduled-${p.id}`} className="mt-1 inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-bold bg-[#FF5E00]/15 border border-[#FF5E00]/40 text-[#FF5E00]">
+          <AlertTriangle className="w-3 h-3" /> Aguardando programação — sem data no calendário
+        </p>
+      )}
       <div className="mt-2 flex items-center gap-2">
         <div className="flex-1"><ProgressBar pct={p.pct_fisico} color="#39FF14" h="h-1.5" /></div>
         <span className="font-mono text-[11px] font-bold text-[#39FF14]">{p.pct_fisico}%</span>
@@ -217,7 +222,7 @@ export const AvancoFisicoPage = () => {
   };
 
   return (
-    <AppLayout title="Avanço Físico" subtitle={list ? `Obras acima de ${formatCurrency(list.threshold)} · Programadas · A Reprogramar · Em Execução · ${list.totals.count} obra(s)` : 'Obras de ticket grande'}>
+    <AppLayout title="Avanço Físico" subtitle={list ? `Obras acima de ${formatCurrency(list.threshold)} · todas exceto canceladas/suspensas · ${list.totals.count} obra(s)${list.totals.not_scheduled ? ` · ${list.totals.not_scheduled} aguardando programação` : ''}` : 'Obras de ticket grande'}>
       {list && (
         <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} data-testid="avanco-totals" className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-4">
           <Kpi testid="avanco-total-count" label="Obras" value={list.totals.count} sub={`> ${formatCurrency(list.threshold)}`} color="#E0FF00" icon={TrendingUp} />
@@ -245,8 +250,8 @@ export const AvancoFisicoPage = () => {
             {!list ? <p className="text-zinc-500 text-sm">Carregando…</p> : filteredProjects.length === 0 ? (
               <div className="space-y-2">
                 <div className="glass-panel rounded-xl p-6 text-center text-zinc-500 text-sm">
-                  {search.trim() ? `Nenhuma obra do Avanço Físico corresponde a "${search.trim()}".` : `Nenhuma obra programada, a reprogramar ou em execução acima de ${formatCurrency(list.threshold)}.`}
-                  <p className="text-[10px] text-zinc-600 mt-1">Obras aguardando programação entram aqui assim que forem programadas.</p>
+                  {search.trim() ? `Nenhuma obra do Avanço Físico corresponde a "${search.trim()}".` : `Nenhuma obra acima de ${formatCurrency(list.threshold)} (canceladas e suspensas ficam fora).`}
+                  <p className="text-[10px] text-zinc-600 mt-1">Obras concluídas ficam ocultas — use "Mostrar concluídas".</p>
                 </div>
                 {lookup?.results?.map((r) => (
                   <div key={r.id} data-testid={`avanco-lookup-${r.id}`} className="glass-panel rounded-xl p-3 border border-[#FF5E00]/40">

@@ -30,8 +30,10 @@ BASE_ITEMS = [
     ("religacoes", "Religações", "un", "religacoes"),
     ("desligamentos", "Desligamentos", "un", "desligamentos"),
 ]
-EXCLUDED_STATUS = ("cancelado",)
-ACTIVE_STATUS = ("programado", "a_reprogramar", "em_execucao")
+EXCLUDED_STATUS = ("cancelado", "suspenso")
+# Regra (Set/2026, pedido do usuário): mostrar TODAS as obras acima do limite exceto canceladas/suspensas;
+# aguardando programação entra com aviso "não programada"; concluídas ficam ocultas (toggle).
+ACTIVE_STATUS = ("aguardando_programacao", "programado", "a_reprogramar", "em_execucao")
 COMPLETED_STATUS = ("concluido", "executada")
 
 
@@ -144,6 +146,7 @@ def _summary(p, today, team_target):
         "id": str(p["_id"]), "project_code": p.get("project_code", ""), "name": p.get("name", ""),
         "team_name": p.get("team_name") or "", "location": p.get("location", ""),
         "execution_status": _status(p),
+        "not_scheduled": _status(p) == "aguardando_programacao",
         "programmed_value": prog, "actual_value": actual,
         "pct_fisico": pct_fis, "pct_financeiro": pct_fin, "pct_tempo": pct_tempo, "eficiencia": eficiencia,
         "start": start, "end": end, "total_days": total_days,
@@ -229,12 +232,14 @@ def build_router(db, get_current_user, require_admin, safe_object_id, today_fn, 
         today = today_fn()
         base_q = {"user_id": current_user["_id"], "programmed_value": {"$gte": th}}
         statuses = list(ACTIVE_STATUS) + (list(COMPLETED_STATUS) if include_completed else [])
-        projects = await db.projects.find({**base_q, "$or": [{"execution_status": {"$in": statuses}}, SCHEDULED_NO_STATUS_Q]}).to_list(2000)
+        # None/"" (legado) contam como aguardando_programacao
+        projects = await db.projects.find({**base_q, "execution_status": {"$in": statuses + [None, ""]}}).to_list(2000)
         hidden_completed = 0 if include_completed else await db.projects.count_documents({**base_q, "execution_status": {"$in": list(COMPLETED_STATUS)}})
         out = [_summary(p, today, await _team_target(current_user["_id"], p)) for p in projects]
-        out.sort(key=lambda s: (s["execution_status"] in COMPLETED_STATUS, -s["programmed_value"]))
+        out.sort(key=lambda s: (s["execution_status"] in COMPLETED_STATUS, s["not_scheduled"], -s["programmed_value"]))
         totals = {
             "count": len(out),
+            "not_scheduled": sum(1 for s in out if s["not_scheduled"]),
             "programmed_value": round(sum(s["programmed_value"] for s in out), 2),
             "actual_value": round(sum(s["actual_value"] for s in out), 2),
             "avg_pct_fisico": round(sum(s["pct_fisico"] for s in out) / len(out), 1) if out else 0.0,
@@ -262,11 +267,9 @@ def build_router(db, get_current_user, require_admin, safe_object_id, today_fn, 
             reasons = []
             if val < th:
                 reasons.append(f"Valor programado {_brl(val)} abaixo do limite de {_brl(th)} (ajuste no Admin ou edite o valor da obra)")
-            if st == "aguardando_programacao":
-                reasons.append("Obra ainda não foi programada no calendário — entra no Avanço Físico assim que for programada")
-            elif st in COMPLETED_STATUS:
+            if st in COMPLETED_STATUS:
                 reasons.append("Obra concluída — marque 'Mostrar concluídas' para visualizar")
-            elif st in ("suspenso", "cancelado"):
+            elif st in EXCLUDED_STATUS:
                 reasons.append(f"Status {labels.get(st, st)} — obras suspensas/canceladas ficam fora do Avanço Físico")
             results.append({"id": str(p["_id"]), "project_code": p.get("project_code", ""), "name": p.get("name", ""), "execution_status": st,
                             "status_label": labels.get(st, st), "programmed_value": val, "is_scheduled": bool(p.get("is_scheduled")),
@@ -291,7 +294,7 @@ def build_router(db, get_current_user, require_admin, safe_object_id, today_fn, 
         status = _status(p)
         return {
             "summary": _summary(p, today, await _team_target(current_user["_id"], p)),
-            "eligible": float(p.get("programmed_value") or 0) >= th and status in (*ACTIVE_STATUS, *COMPLETED_STATUS),
+            "eligible": float(p.get("programmed_value") or 0) >= th and status not in EXCLUDED_STATUS,
             "threshold": th,
             "items": items,
             "custom_items": p.get("avanco_custom_items") or [],
