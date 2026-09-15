@@ -306,7 +306,10 @@ export const DashboardPage = () => {
                       <span className="text-[10px] text-zinc-500 mb-1">das obras</span>
                     </div>
                     <p className="font-mono text-sm md:text-base font-bold text-white mt-2 truncate">{formatCurrency(c.value)}</p>
-                    <p className="text-[10px] text-zinc-500 mt-0.5">{c.pct_value}% do valor da carteira</p>
+                    <p className="text-[10px] text-zinc-500 mt-0.5">
+                      {c.value_basis === 'labor_cost' ? `mão de obra cadastrada · ${c.pct_value}% da M.O. da carteira` : `${c.pct_value}% do valor da carteira`}
+                    </p>
+                    {key === 'apta' && <p className="text-[10px] text-zinc-500 truncate">Programado {formatCurrency(c.programmed_value)}</p>}
                     {key === 'concluidas' && <p className="text-[10px] text-[#39FF14] font-bold truncate">Realizado {formatCurrency(c.actual_value)}</p>}
                     <div className="mt-2 h-1 rounded bg-white/5 overflow-hidden">
                       <div className="h-full" style={{ width: `${Math.min(100, c.pct_value)}%`, background: color }}></div>

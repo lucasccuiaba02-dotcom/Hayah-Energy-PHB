@@ -1084,19 +1084,30 @@ async def dashboard_kpis(current_user: dict = Depends(get_current_user)):
         "concluidas": ("concluido", "executada"),
     }
     carteira_total_value = sum(prog(p) for p in projects)
+    carteira_total_labor = sum(float(p.get("labor_cost") or 0) for p in projects)
     carteira = {}
     for key, statuses in CARTEIRA_GROUPS.items():
         grp = [p for p in projects if status_of(p) in statuses]
-        val = sum(prog(p) for p in grp)
+        # Carteira Apta: valor = soma da MÃO DE OBRA cadastrada (labor_cost); demais = valor programado
+        if key == "apta":
+            val = sum(float(p.get("labor_cost") or 0) for p in grp)
+            pct_value = round(100 * val / carteira_total_labor, 1) if carteira_total_labor else 0.0
+            basis = "labor_cost"
+        else:
+            val = sum(prog(p) for p in grp)
+            pct_value = round(100 * val / carteira_total_value, 1) if carteira_total_value else 0.0
+            basis = "programmed_value"
         carteira[key] = {
             "count": len(grp),
             "value": round(val, 2),
+            "value_basis": basis,
+            "programmed_value": round(sum(prog(p) for p in grp), 2),
             "actual_value": round(sum(prod(p) for p in grp), 2),
             "pct_count": round(100 * len(grp) / total, 1) if total else 0.0,
-            "pct_value": round(100 * val / carteira_total_value, 1) if carteira_total_value else 0.0,
+            "pct_value": pct_value,
             "statuses": list(statuses),
         }
-    carteira["total"] = {"count": total, "value": round(carteira_total_value, 2)}
+    carteira["total"] = {"count": total, "value": round(carteira_total_value, 2), "labor_value": round(carteira_total_labor, 2)}
 
     # ---- Financeiro: Faturado (Pago) / Pendente (concluídas não pagas) / Receita do mês ----
     def exec_date(p):
