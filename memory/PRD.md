@@ -10,7 +10,7 @@ Matriz de programação de projetos com equipes, datas, valores programados, met
 - CRS: SIRGAS 2000 / UTM Zone 21 South (Cuiabá/MT)
 
 ## Módulos (abas no sidebar)
-Dashboard, **Buscar Obras**, Operacional, Carteira, Programação, Calendário, **Faturamento**, Geolocalização, Materiais, **Estoque**, Análise, Relatórios, Equipes, Improdutividade, Indisponibilidade, Admin
+Dashboard, **Buscar Obras**, Operacional, Carteira, Programação, Calendário, **Faturamento**, **Avanço Físico**, Geolocalização, Materiais, **Estoque**, Análise, Relatórios, Equipes, Improdutividade, Indisponibilidade, Admin
 
 ## Regras chave
 - `project_code` único (409)
@@ -30,6 +30,10 @@ Dashboard, **Buscar Obras**, Operacional, Carteira, Programação, Calendário, 
 - Emails/Push: mantidos
 
 ## Feito em Fev/2026 (últimas iterações)
+- **[15/Set/2026] Avanço Físico — obras de ticket grande (iter26)**
+  - **Backend** `backend/avanco_fisico.py` (router montado em server.py): `GET/POST /api/avanco/threshold` (app_settings `avanco_threshold`, default R$ 45.000, POST só admin), `GET /api/avanco/projects` (obras ≥ limite, exclui cancelado; totals + resumo por obra), `GET /api/projects/{id}/avanco` (summary, items, custom_items, weights, entries, curve, materials, eligible), `POST/DELETE /api/projects/{id}/avanco/entries`, `PUT /api/projects/{id}/avanco/items` (custom_items + weights). Dados no doc da obra: `progress_entries[]`, `avanco_custom_items[]`, `avanco_weights{}`. `PATCH /projects/{id}/materials/{item}` aceita `qty_applied`.
+  - **Cálculo**: itens = quantitativos > 0 (postes, trafos, km_rede, ligações, religações, desligamentos) + etapas custom; `% físico = Σ peso × min(1, exec/plan) / Σ pesos`; `% financeiro = actual/programmed`; `% tempo = (hoje − 1ª data programada) / (expiry_date|end_date − 1ª data)`; `eficiência = %físico ÷ %tempo`; `R$/dia = actual / dias trabalhados (datas programadas ≤ hoje ∪ datas de lançamento)` vs `team.daily_target`. Curva S: planejado linear × realizado acumulado por data.
+  - **Frontend**: `pages/AvancoFisicoPage.jsx` (/avanco, nav-avanco, perm `avanco`): totals, lista lateral com busca, detalhe com 5 KPIs, lançamento rápido, "Etapas & pesos", Curva S (recharts), itens, controle de materiais com "Aplicado" editável, timeline com remoção. `components/AvancoWidgets.jsx` (AvancoQuickEntry/AvancoItemsTable/AvancoTimeline/ProgressBar/effColor) reutilizado em `ProjectDetailPage` (card `pd-avanco-card` na aba Operacional só se `eligible`). `components/AvancoThresholdSection.jsx` no Admin. Testes: `backend/tests/test_iteration26.py` (11/11).
 - **[15/Set/2026] Equipamentos na Obra (ProjectDetailPage · aba Arquivos)**
   - Nova seção `pd-arquivos-equipamentos` entre Materiais e Fotos por Ponto: fetch `GET /api/equipamentos?project_id={id}`; header com contagem por tipo (trafos/religadores/reguladores) + botão `pd-equip-open-page` (→ /equipamentos); cada linha `pd-equip-{id}` mostra tipo, condição, potência, descrição, patrimônio/série/código/fabricante e até 3 miniaturas de fotos (`pd-equip-photo-{fid}`). Empty state orienta vincular na aba Equipamentos.
 - **[15/Set/2026] Carteira Vencimento/Status · Operacional só HOJE · Equipamentos↔Obra · Matriz Programação (iter25)**

@@ -1,0 +1,36 @@
+{
+  "summary": "Iteration 26 — Full E2E verification of the new Avanço Físico feature (backend + frontend). 11/11 pytest cases green, all UI testids present and functional on desktop (/avanco) and mobile (/projeto/:id Operacional). Threshold restored to R$45.000. No blocking issues found.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "verified_checks": [
+    "GET /api/avanco/threshold → {threshold:45000, default:45000}",
+    "POST /api/avanco/threshold {60000} filters list: DASHKPI-08 (70k) stays, DASHKPI-01 (50k) leaves; restored to 45000",
+    "POST /api/avanco/threshold with 0/-5 → 400",
+    "GET /api/avanco/projects returns projects with pct_fisico, pct_financeiro, dias_trabalhados, produzido_por_dia, meta_diaria, materials{items,pct_delivered,pending_items,total_value} and totals{count,programmed_value,actual_value,avg_pct_fisico,critical}; no cancelado projects",
+    "GET /api/projects/{DASHKPI-08}/avanco: eligible=true; items postes planned=30/exec=8/pct=26.7/weight=2, km_rede exec=2.5/pct=50, Locação custom present; summary.pct_fisico≈17.2; curve with date+planned_pct; materials include qty_applied",
+    "POST /avanco/entries validates item_key inválido (400) e qty=0 (400); entrada válida retorna entry+pct_fisico atualizado; DELETE remove e pct volta ao baseline",
+    "PUT /avanco/items cria etapa 'c_xxx', ignora label vazio; lançar avanço na etapa custom recém-criada funciona; cleanup restaurando Locação OK",
+    "PATCH /projects/{id}/materials/{item_id} qty_applied=12 reflete em materials[].qty_applied e summary.materials.qty_applied; m1 restaurado para 8",
+    "Regressão: /api/dashboard/kpis, /api/operacional/today, /api/equipamentos → 200",
+    "UI /avanco desktop: header avanco-total-count '6', busca, lista com 6 cards (avanco-project-{id}), busca funcional; clique carrega detalhe com todos os KPIs (fisico/financeiro/tempo/eficiencia/dia), avanco-curve (recharts), avanco-items, avanco-materials, avanco-timeline",
+    "URL /avanco?obra=<pid> pré-seleciona DASHKPI-08 (header 'DASHKPI-08 · No prazo em execução · 01/09/2026 → 15/10/2026')",
+    "avanco-quick-entry: select 'Postes (8/30 un)' + qty=1 + save → toast + nova entry na timeline; delete via avanco-entry-del-{id} com confirm → toast 'Lançamento removido'",
+    "avanco-toggle-config abre avanco-items-config; avanco-weight-postes editável; etapas personalizadas com Locação",
+    "Admin /admin/usuarios: avanco-threshold-section renderiza R$ 45.000,00; alterar para 60000 + save → 'R$ 60.000,00'; restaurado para 45000",
+    "Mobile 390px /projeto/{DASHKPI-08} aba Operacional: pd-avanco-card + pd-avanco-open visíveis; /projeto/{OPHOJE-01} (10k) NÃO mostra pd-avanco-card",
+    "Sidebar: nav-avanco presente"
+  ],
+  "test_report_links": ["/app/backend/tests/test_iteration26.py", "/app/test_reports/pytest/iter26.xml"],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "avanco_fisico._pct_fisico usa sum(i['weight']) sem tratar itens com weight=0 caso estejam misturados (denominador tw ficará >0 mas o item de peso 0 não contribui). Comportamento OK.",
+    "GET /api/avanco/projects percorre projects em O(n) chamando _team_target por projeto (com find_one em teams). Para grande volume, considerar cachear teams por user."
+  ],
+  "updated_files": ["/app/backend/tests/test_iteration26.py"],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "test_credentials": "lucasc.cuiaba02@gmail.com / Hayah$152610",
+  "seed_data_creation": "Nenhum novo seed criado; usados DASHKPI-08 (enriquecido) e OPHOJE-01 existentes. Threshold restaurado para 45000 no final de cada bloco de teste.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Backend tests em /app/backend/tests/test_iteration26.py (11 casos, todos passando). Use `pytest backend/tests/test_iteration26.py -o addopts=''` para evitar o xdist do pytest.ini. Threshold sempre restaurado para 45000. DASHKPI-08 (id 6aa964cdf355fbf64d8e03ea) possui 2 lançamentos + etapa Locação como seed permanente."
+}
