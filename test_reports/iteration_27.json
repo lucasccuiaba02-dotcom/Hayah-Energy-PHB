@@ -1,0 +1,31 @@
+{
+  "summary": "Iteration 27 — Bug 00699/00622 na aba Avanço Físico. Backend 9/9 pytest verde (auto-programar via PUT, preserva status explícito, PUT não-programador mantém aguardando, doc legado sem status, lookup reasons por valor/aguardando/concluída, curto q, regressão intacta). Frontend /avanco: TEST-00699 e TEST-00622 aparecem com badge Programado; buscar DASHKPI-01 exibe card avanco-lookup-<id> com razão 'não foi programada'; buscar DASHKPI-10 exibe card avanco-lookup-<id> com razão 'Obra concluída' + botão avanco-lookup-show-completed-<id> que ativa o toggle e faz a obra aparecer. Nenhum bug crítico encontrado.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "verified_checks": [
+    "POST /api/projects TEST-BUG-A aguardando 80k → NÃO listada em /api/avanco/projects; /api/avanco/lookup?q=TEST-BUG-A retorna eligible=false com reason 'não foi programada'",
+    "PUT /api/projects/{id} {is_scheduled:true, schedule_entries:[{date:'2026-09-20', team_names:['Equipe 1']}]} → response.execution_status='programado' e obra passa a listar",
+    "PUT com execution_status:'em_execucao' explícito preserva o status enviado",
+    "PUT que só altera location numa obra aguardando NÃO muda o status para programado",
+    "Doc legado inserido direto no Mongo (is_scheduled=true + schedule_entries, sem execution_status) → GET /api/avanco/projects lista com execution_status 'programado' via _status/$or (independente do backfill); lookup status_label='Programado' eligible=true; detail /api/projects/{id}/avanco eligible=true",
+    "Lookup: OPHOJE-01 (10k) reason menciona 'limite'; DASHKPI-10 (concluído 80k) reason 'concluída' e hidden_completed=true; q='D' → results:[]",
+    "Regressão: GET /api/dashboard/kpis, /api/operacional/today, /api/projects → 200; DASHKPI-02 continua 'a_reprogramar'; DASHKPI-10 continua 'concluido' (backfill de startup não afetou)",
+    "UI /avanco: lista lateral mostra TEST Legado 00622 e TEST Rede 00699 com badge 'Programado'; header '4 obra(s)'",
+    "UI busca DASHKPI-01: mensagem 'Nenhuma obra do Avanço Físico corresponde a DASHKPI-01' + card avanco-lookup-<id> com título DASHKPI-01, status_label 'Aguardando Programação', 'POR QUE NÃO APARECE?' e razão 'Obra ainda não foi programada no calendário — entra no Avanço Físico assim que for programada' + botão 'Abrir obra'",
+    "UI busca DASHKPI-10: card avanco-lookup-<id> com status 'Concluído', razão 'Obra concluída — marque Mostrar concluídas' e botão avanco-lookup-show-completed-<id>. Clique no botão ativa avanco-toggle-completed e DASHKPI-10 (Concluída pendente) aparece na lista"
+  ],
+  "test_report_links": ["/app/backend/tests/test_iteration27.py", "/app/test_reports/pytest/iter27.xml"],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "avanco_fisico.SCHEDULED_NO_STATUS_Q usa $or dentro do dict; ao ser embutido em outra query com $or externo (list_projects usa $or de statuses OR SCHEDULED_NO_STATUS_Q), Mongo aceita $or aninhados. Ok, mas atenção caso adicione mais condições.",
+    "server.py update_project usa `has_dates = bool(update_data.get('schedule_entries') or update_data.get('start_date') or existing... )`. Se PUT enviar schedule_entries=[] (vazio) para 'desprogramar' junto com is_scheduled=false, o campo existing.schedule_entries continuará contando. Cenário atual não impactado, mas vale documentar.",
+    "Frontend AvancoFisicoPage carrega /api/avanco/lookup por debounce sem cancelar requisições anteriores; para digitação rápida pode haver race condition (última resposta vence). Baixo impacto."
+  ],
+  "updated_files": ["/app/backend/tests/test_iteration27.py"],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "test_credentials": "lucasc.cuiaba02@gmail.com / Hayah$152610",
+  "seed_data_creation": "Docs TEST-BUG-A / TEST-BUG-A2 / TEST-BUG-A3 criados via POST /api/projects e removidos ao final. Doc legado TEST-BUG-B inserido direto no Mongo e removido ao final. TEST-00699 e TEST-00622 pré-existentes preservados.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Fix iteration 27: server.update_project auto-programa (linhas 1615-1620), startup backfill (linhas 5419-5429), avanco_fisico._status + SCHEDULED_NO_STATUS_Q + lookup (arquivo /app/backend/avanco_fisico.py), UI cards avanco-lookup-{id} + botão avanco-lookup-show-completed-{id} (AvancoFisicoPage.jsx). Threshold=45000 restaurado. Rodar: pytest backend/tests/test_iteration27.py -o addopts=''."
+}

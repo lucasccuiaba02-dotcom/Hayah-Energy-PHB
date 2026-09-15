@@ -30,6 +30,9 @@ Dashboard, **Buscar Obras**, Operacional, Carteira, Programação, Calendário, 
 - Emails/Push: mantidos
 
 ## Feito em Fev/2026 (últimas iterações)
+- **[15/Set/2026] BUG: obras programadas não apareciam no Avanço Físico (iter27)**
+  - Causa: `update_project` (PUT) não mudava `execution_status` para `programado` ao programar obra já cadastrada (só o POST fazia) → ficava "Aguardando Programação"/vazio e a aba excluía.
+  - Fix: (1) `update_project` auto-seta `programado` quando `is_scheduled` + datas e status vazio/aguardando (sem status explícito no payload); (2) backfill idempotente no `startup_db`; (3) `avanco_fisico._status()` (efetivo) + `SCHEDULED_NO_STATUS_Q` na listagem; (4) `GET /api/avanco/lookup?q=` diagnostica motivos (valor abaixo do limite / não programada / concluída / suspensa-cancelada) e a UI mostra cards `avanco-lookup-{id}` "Por que não aparece?" quando a busca não encontra nada, com atalho "Mostrar concluídas".
 - **[15/Set/2026] Escolher fotos do PDF de Avanço Físico**
   - Backend: `GET /api/projects/{id}/avanco/photos` → catálogo (`photos[]` com id/source photo|attachment/point/label/uploaded_at/thumb(data_url)/caption + `default_ids` = 6 mais recentes). `GET .../avanco/pdf?photo_ids=a,b` inclui só as escolhidas (`photo_ids=none` → sem galeria; sem parâmetro → padrão 6 recentes).
   - Frontend: `components/AvancoPdfModal.jsx` (`avanco-pdf-modal`, `avanco-pdf-photo-{id}` com `data-selected`, `avanco-pdf-select-all/none`, `avanco-pdf-generate`, `avanco-pdf-modal-close`) usado pelo botão `avanco-download-pdf` (AvancoFisicoPage) e `pd-avanco-pdf` (ProjectDetailPage). Grade 2–3 colunas com thumbs, checkbox visual e data.
