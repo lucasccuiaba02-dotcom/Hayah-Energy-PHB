@@ -259,34 +259,49 @@ def build_router(db, get_current_user, require_admin, safe_object_id, today_fn, 
         p = await _get_project(project_id, current_user)
         return await _detail_payload(p, current_user)
 
-    @router.get("/projects/{project_id}/avanco/pdf")
-    async def project_pdf(project_id: str, current_user: dict = Depends(get_current_user), max_photos: int = 6):
-        p = await _get_project(project_id, current_user)
-        detail = await _detail_payload(p, current_user)
-        photos = []
-        # 1) Fotos do diário/checklist (base64 no doc) — mais recentes primeiro
+    def _photo_catalog(p):
+        """Fotos disponíveis para o relatório: diário/checklist (base64) + anexos de imagem."""
+        out = []
         for ph in sorted((p.get("photos") or []), key=lambda x: x.get("uploaded_at", ""), reverse=True):
             du = ph.get("data_url") or ""
             if du.startswith("data:image") and "," in du:
-                try:
-                    photos.append({"bytes": base64.b64decode(du.split(",", 1)[1]),
-                                   "caption": f"{(ph.get('point') or '').strip() or 'Obra'} · {(ph.get('label') or 'FOTO').upper()} · {(ph.get('uploaded_at') or '')[:10]}"})
-                except Exception:
-                    continue
-            if len(photos) >= max_photos:
-                break
-        # 2) Anexos de imagem (object storage)
-        if len(photos) < max_photos and storage_get:
-            for att in sorted((p.get("attachments") or []), key=lambda a: a.get("uploaded_at", ""), reverse=True):
-                if not (att.get("content_type") or "").startswith("image/") or not att.get("storage_path"):
-                    continue
-                try:
+                out.append({"id": ph.get("id") or "", "source": "photo", "point": (ph.get("point") or "").strip(), "label": (ph.get("label") or "").upper(),
+                            "uploaded_at": ph.get("uploaded_at") or "", "thumb": du,
+                            "caption": f"{(ph.get('point') or '').strip() or 'Obra'} · {(ph.get('label') or 'FOTO').upper()} · {(ph.get('uploaded_at') or '')[:10]}"})
+        for att in sorted((p.get("attachments") or []), key=lambda a: a.get("uploaded_at", ""), reverse=True):
+            if (att.get("content_type") or "").startswith("image/") and att.get("storage_path"):
+                out.append({"id": att.get("id") or "", "source": "attachment", "point": "", "label": "ANEXO", "filename": att.get("filename") or "imagem",
+                            "uploaded_at": att.get("uploaded_at") or "", "thumb": "",
+                            "caption": f"Anexo · {att.get('filename') or 'imagem'} · {(att.get('uploaded_at') or '')[:10]}"})
+        return [x for x in out if x["id"]]
+
+    @router.get("/projects/{project_id}/avanco/photos")
+    async def project_photos(project_id: str, current_user: dict = Depends(get_current_user)):
+        p = await _get_project(project_id, current_user)
+        cat = _photo_catalog(p)
+        return {"photos": cat, "default_ids": [x["id"] for x in cat[:6]]}
+
+    @router.get("/projects/{project_id}/avanco/pdf")
+    async def project_pdf(project_id: str, current_user: dict = Depends(get_current_user), max_photos: int = 6, photo_ids: str = ""):
+        p = await _get_project(project_id, current_user)
+        detail = await _detail_payload(p, current_user)
+        catalog = _photo_catalog(p)
+        if photo_ids.strip():
+            wanted = [x for x in photo_ids.split(",") if x.strip()]
+            chosen = [c for c in catalog if c["id"] in wanted] if wanted else []
+        else:
+            chosen = catalog[:max_photos]
+        photos = []
+        for c in chosen:
+            try:
+                if c["source"] == "photo":
+                    data = base64.b64decode(c["thumb"].split(",", 1)[1])
+                else:
+                    att = next(a for a in (p.get("attachments") or []) if a.get("id") == c["id"])
                     data, _ = await storage_get(att["storage_path"])
-                    photos.append({"bytes": data, "caption": f"Anexo · {att.get('filename') or 'imagem'} · {(att.get('uploaded_at') or '')[:10]}"})
-                except Exception:
-                    continue
-                if len(photos) >= max_photos:
-                    break
+                photos.append({"bytes": data, "caption": c["caption"]})
+            except Exception:
+                continue
         pdf = build_avanco_pdf(p, detail, photos=photos)
         code = "".join(ch if ch.isalnum() else "_" for ch in (p.get("project_code") or project_id))[:24]
         filename = f"avanco_fisico_{code}_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M')}.pdf"

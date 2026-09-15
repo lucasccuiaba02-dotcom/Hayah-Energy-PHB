@@ -7,6 +7,7 @@ import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, CartesianG
 import { TrendingUp, Gauge, Clock, DollarSign, Package, Plus, Trash2, Save, ExternalLink, Search, AlertTriangle, FileDown } from 'lucide-react';
 import { AppLayout } from '../components/AppLayout';
 import { AvancoQuickEntry, AvancoItemsTable, AvancoTimeline, ProgressBar, effColor } from '../components/AvancoWidgets';
+import { AvancoPdfModal } from '../components/AvancoPdfModal';
 import { formatCurrency, EXECUTION_STATUS_LABEL } from '../lib/constants';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
@@ -197,20 +198,7 @@ export const AvancoFisicoPage = () => {
   }, [list, search]);
 
   const s = detail?.summary;
-  const [pdfLoading, setPdfLoading] = useState(false);
-  const downloadPdf = async () => {
-    setPdfLoading(true);
-    try {
-      const { data } = await axios.get(`${API}/projects/${selectedId}/avanco/pdf`, { responseType: 'blob' });
-      const url = window.URL.createObjectURL(new Blob([data], { type: 'application/pdf' }));
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `avanco_fisico_${(s?.project_code || selectedId).replace(/[^A-Za-z0-9]/g, '_')}.pdf`;
-      document.body.appendChild(a); a.click(); a.remove();
-      window.URL.revokeObjectURL(url);
-      toast.success('Relatório de Avanço Físico gerado!');
-    } catch { toast.error('Erro ao gerar o PDF'); } finally { setPdfLoading(false); }
-  };
+  const [pdfOpen, setPdfOpen] = useState(false);
   const deleteEntry = async (eid) => {
     if (!window.confirm('Remover este lançamento?')) return;
     await axios.delete(`${API}/projects/${selectedId}/avanco/entries/${eid}`);
@@ -270,7 +258,7 @@ export const AvancoFisicoPage = () => {
                   <p className="text-[10px] text-zinc-500">Realizado <span className="text-[#00F0FF] font-bold">{formatCurrency(s.actual_value)}</span></p>
                 </div>
                 <div className="flex flex-col gap-2">
-                  <button data-testid="avanco-download-pdf" disabled={pdfLoading} onClick={downloadPdf} className="inline-flex items-center justify-center gap-1 text-[11px] font-bold px-3 py-1.5 rounded-full bg-[#E0FF00] text-black hover:bg-[#C8E600] disabled:opacity-50"><FileDown className="w-3.5 h-3.5" /> {pdfLoading ? 'Gerando…' : 'Relatório PDF'}</button>
+                  <button data-testid="avanco-download-pdf" onClick={() => setPdfOpen(true)} className="inline-flex items-center justify-center gap-1 text-[11px] font-bold px-3 py-1.5 rounded-full bg-[#E0FF00] text-black hover:bg-[#C8E600]"><FileDown className="w-3.5 h-3.5" /> Relatório PDF</button>
                   <button data-testid="avanco-open-project" onClick={() => navigate(`/projeto/${s.id}`)} className="inline-flex items-center justify-center gap-1 text-[11px] font-bold px-3 py-1.5 rounded-full border border-white/15 text-zinc-300 hover:bg-white/10"><ExternalLink className="w-3 h-3" /> Abrir obra</button>
                 </div>
               </div>
@@ -317,6 +305,7 @@ export const AvancoFisicoPage = () => {
           )}
         </div>
       </div>
+      <AvancoPdfModal open={pdfOpen} projectId={selectedId} projectCode={s?.project_code} onClose={() => setPdfOpen(false)} />
     </AppLayout>
   );
 };

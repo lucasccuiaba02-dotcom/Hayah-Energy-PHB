@@ -30,6 +30,9 @@ Dashboard, **Buscar Obras**, Operacional, Carteira, Programação, Calendário, 
 - Emails/Push: mantidos
 
 ## Feito em Fev/2026 (últimas iterações)
+- **[15/Set/2026] Escolher fotos do PDF de Avanço Físico**
+  - Backend: `GET /api/projects/{id}/avanco/photos` → catálogo (`photos[]` com id/source photo|attachment/point/label/uploaded_at/thumb(data_url)/caption + `default_ids` = 6 mais recentes). `GET .../avanco/pdf?photo_ids=a,b` inclui só as escolhidas (`photo_ids=none` → sem galeria; sem parâmetro → padrão 6 recentes).
+  - Frontend: `components/AvancoPdfModal.jsx` (`avanco-pdf-modal`, `avanco-pdf-photo-{id}` com `data-selected`, `avanco-pdf-select-all/none`, `avanco-pdf-generate`, `avanco-pdf-modal-close`) usado pelo botão `avanco-download-pdf` (AvancoFisicoPage) e `pd-avanco-pdf` (ProjectDetailPage). Grade 2–3 colunas com thumbs, checkbox visual e data.
 - **[15/Set/2026] Avanço Físico — filtro de status + fotos no PDF**
   - `GET /api/avanco/projects` agora lista só **programado / a_reprogramar / em_execucao** (`ACTIVE_STATUS`); `?include_completed=1` inclui concluido/executada; `totals.hidden_completed` conta as ocultas. Aguardando programação / suspenso / cancelado ficam fora. `eligible` do detalhe exige status ativo ou concluído (card na obra não aparece em aguardando).
   - UI: checkbox `avanco-toggle-completed` ("Mostrar concluídas") com badge `avanco-hidden-completed`; subtítulo e empty-state explicam a regra.

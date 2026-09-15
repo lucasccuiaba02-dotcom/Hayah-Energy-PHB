@@ -9,6 +9,7 @@ import { PROJECT_TYPE_LABEL, EXECUTION_STATUS_LABEL, formatCurrency, resolveMate
 import { APREditor } from '../components/APREditor';
 import { PinchZoomImage } from '../components/PinchZoomImage';
 import { AvancoQuickEntry, AvancoItemsTable, ProgressBar, effColor } from '../components/AvancoWidgets';
+import { AvancoPdfModal } from '../components/AvancoPdfModal';
 import { enqueue, syncQueue } from '../lib/offline';
 import { enqueuePhoto, syncPhotoQueue, getQueuedPhotoCount } from '../lib/photoQueue';
 
@@ -54,6 +55,7 @@ export const ProjectDetailPage = () => {
   const [teams, setTeams] = useState([]);
   const [equipamentos, setEquipamentos] = useState([]);
   const [avanco, setAvanco] = useState(null);
+  const [avancoPdfOpen, setAvancoPdfOpen] = useState(false);
   const loadAvanco = () => axios.get(`${API}/projects/${id}/avanco`).then(({ data }) => setAvanco(data)).catch(() => {});
 
   useEffect(() => {
@@ -480,21 +482,13 @@ export const ProjectDetailPage = () => {
               <button data-testid="pd-avanco-open" onClick={() => navigate(`/avanco?obra=${id}`)} className="text-[11px] font-bold text-[#39FF14] underline">Ver curva S, materiais e histórico completo</button>
               <button
                 data-testid="pd-avanco-pdf"
-                onClick={async () => {
-                  try {
-                    const { data } = await axios.get(`${API}/projects/${id}/avanco/pdf`, { responseType: 'blob' });
-                    const url = window.URL.createObjectURL(new Blob([data], { type: 'application/pdf' }));
-                    const a = document.createElement('a');
-                    a.href = url; a.download = `avanco_fisico_${(project?.project_code || id).replace(/[^A-Za-z0-9]/g, '_')}.pdf`;
-                    document.body.appendChild(a); a.click(); a.remove(); window.URL.revokeObjectURL(url);
-                    toast.success('Relatório de Avanço Físico gerado!');
-                  } catch { toast.error('Erro ao gerar o PDF'); }
-                }}
+                onClick={() => setAvancoPdfOpen(true)}
                 className="text-[11px] font-bold px-3 py-1 rounded-full bg-[#39FF14]/15 border border-[#39FF14]/40 text-[#39FF14]"
               >
                 Relatório PDF
               </button>
             </div>
+            <AvancoPdfModal open={avancoPdfOpen} projectId={id} projectCode={project?.project_code} onClose={() => setAvancoPdfOpen(false)} />
           </div>
         )}
 
