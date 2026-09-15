@@ -24,6 +24,7 @@ import { DocumentosPage } from './pages/DocumentosPage';
 import { SettingsPage } from './pages/SettingsPage';
 import { ImprodutividadePage } from './pages/ImprodutividadePage';
 import { EquipamentosPage } from './pages/EquipamentosPage';
+import { AvancoFisicoPage } from './pages/AvancoFisicoPage';
 import { ProtectedRoute } from './components/ProtectedRoute';
 import { OfflineBanner } from './components/OfflineBanner';
 import '@/App.css';
@@ -60,6 +61,7 @@ function AppRoutes() {
       <Route path="/configuracoes" element={<ProtectedRoute><SettingsPage /></ProtectedRoute>} />
       <Route path="/improdutividade" element={<ProtectedRoute><ImprodutividadePage /></ProtectedRoute>} />
       <Route path="/equipamentos" element={<ProtectedRoute><EquipamentosPage /></ProtectedRoute>} />
+      <Route path="/avanco" element={<ProtectedRoute><AvancoFisicoPage /></ProtectedRoute>} />
     </Routes>
   );
 }

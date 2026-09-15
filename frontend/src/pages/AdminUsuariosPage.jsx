@@ -6,6 +6,7 @@ import { Shield, CheckCircle2, XCircle, Trash2, Save, Clock, LogOut, KeyRound, T
 import { AppLayout } from '../components/AppLayout';
 import { PERMISSION_TABS } from '../lib/constants';
 import { ContractTargetSection } from '../components/ContractTargetSection';
+import { AvancoThresholdSection } from '../components/AvancoThresholdSection';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -190,6 +191,8 @@ export const AdminUsuariosPage = () => {
         <div className="space-y-6">
           {/* Meta Contratual configurável (Fev/2026) */}
           <ContractTargetSection />
+          {/* Limite Avanço Físico (Set/2026) */}
+          <AvancoThresholdSection />
 
           {pending.length > 0 && (
             <section>

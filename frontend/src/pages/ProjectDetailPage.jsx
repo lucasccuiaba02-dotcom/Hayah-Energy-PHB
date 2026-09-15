@@ -8,6 +8,7 @@ import { HayahLogo } from '../components/HayahLogo';
 import { PROJECT_TYPE_LABEL, EXECUTION_STATUS_LABEL, formatCurrency, resolveMaterialCodeAndDesc } from '../lib/constants';
 import { APREditor } from '../components/APREditor';
 import { PinchZoomImage } from '../components/PinchZoomImage';
+import { AvancoQuickEntry, AvancoItemsTable, ProgressBar, effColor } from '../components/AvancoWidgets';
 import { enqueue, syncQueue } from '../lib/offline';
 import { enqueuePhoto, syncPhotoQueue, getQueuedPhotoCount } from '../lib/photoQueue';
 
@@ -52,6 +53,8 @@ export const ProjectDetailPage = () => {
   const [aprSelected, setAprSelected] = useState(null); // objeto ou null para nova
   const [teams, setTeams] = useState([]);
   const [equipamentos, setEquipamentos] = useState([]);
+  const [avanco, setAvanco] = useState(null);
+  const loadAvanco = () => axios.get(`${API}/projects/${id}/avanco`).then(({ data }) => setAvanco(data)).catch(() => {});
 
   useEffect(() => {
     axios.get(`${API}/projects/${id}`).then(({ data }) => setProject(data)).catch(() => toast.error('Projeto não encontrado'));
@@ -59,10 +62,11 @@ export const ProjectDetailPage = () => {
       setChecklist(data.checklist || {});
       setPhotos(data.photos || []);
     }).catch(() => { /* offline OK */ });
-    // APRs + teams + equipamentos vinculados
+    // APRs + teams + equipamentos vinculados + avanço físico
     axios.get(`${API}/projects/${id}/aprs`).then(({ data }) => setAprList(data || [])).catch(() => {});
     axios.get(`${API}/teams`).then(({ data }) => setTeams(data || [])).catch(() => {});
     axios.get(`${API}/equipamentos?project_id=${id}`).then(({ data }) => setEquipamentos(Array.isArray(data) ? data : [])).catch(() => {});
+    loadAvanco();
 
     const onOn = () => {
       setOnline(true);
@@ -451,6 +455,30 @@ export const ProjectDetailPage = () => {
           )}
           {project.team_name && <p className="text-xs text-zinc-500 mt-2">Equipe: <span className="text-white">{project.team_name}</span></p>}
         </div>
+
+        {/* Set/2026 · Avanço Físico (obras de ticket grande) */}
+        {avanco?.eligible && (
+          <div data-testid="pd-avanco-card" className="glass-panel rounded-2xl p-4 border border-[#39FF14]/30">
+            <div className="flex items-center justify-between mb-2 gap-2 flex-wrap">
+              <div>
+                <p className="text-[10px] tracking-[0.2em] uppercase font-bold text-[#39FF14]">Avanço Físico</p>
+                <p className="text-xs text-zinc-500">Obra de ticket grande · lance o executado do dia</p>
+              </div>
+              <div className="text-right">
+                <p className="font-mono text-2xl font-black text-[#39FF14] leading-none">{avanco.summary.pct_fisico}%</p>
+                <p className="text-[10px] text-zinc-500">
+                  tempo {avanco.summary.pct_tempo === null ? '—' : `${avanco.summary.pct_tempo}%`} · efic. <span className="font-bold" style={{ color: effColor(avanco.summary.eficiencia) }}>{avanco.summary.eficiencia === null ? '—' : avanco.summary.eficiencia.toFixed(2)}</span>
+                </p>
+              </div>
+            </div>
+            <ProgressBar pct={avanco.summary.pct_fisico} color="#39FF14" />
+            <div className="mt-3">
+              <AvancoQuickEntry projectId={id} items={avanco.items} compact onSaved={loadAvanco} />
+            </div>
+            {avanco.items.length > 0 && <div className="mt-3"><AvancoItemsTable items={avanco.items} /></div>}
+            <button data-testid="pd-avanco-open" onClick={() => navigate(`/avanco?obra=${id}`)} className="mt-3 text-[11px] font-bold text-[#39FF14] underline">Ver curva S, materiais e histórico completo</button>
+          </div>
+        )}
 
         {/* Fev/2026 · APR (Análise Preliminar de Risco) */}
         <div className="glass-panel rounded-2xl p-4 border border-[#FF003C]/30">

@@ -1,0 +1,287 @@
+"""Avanço Físico — obras de ticket grande (Set/2026).
+Router montado em server.py via build_router(). Dados ficam no doc da obra:
+  avanco_custom_items: [{key,label,unit,planned_qty}]  · avanco_weights: {key: peso}
+  progress_entries: [{id,date,item_key,qty,notes,registered_by,created_at}]
+Threshold em app_settings {user_id, key:'avanco_threshold', value}.
+"""
+from datetime import datetime, timezone
+from typing import Optional, List
+from uuid import uuid4
+
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
+
+DEFAULT_THRESHOLD = 45000.0
+BASE_ITEMS = [
+    ("postes", "Postes", "un", "postes_qty"),
+    ("transformadores", "Transformadores", "un", "transformadores_qty"),
+    ("km_rede", "Km de Rede", "km", "km_rede"),
+    ("ligacoes", "Ligações Novas", "un", "ligacoes_novas"),
+    ("religacoes", "Religações", "un", "religacoes"),
+    ("desligamentos", "Desligamentos", "un", "desligamentos"),
+]
+EXCLUDED_STATUS = ("cancelado",)
+
+
+class ThresholdBody(BaseModel):
+    threshold: float
+
+
+class EntryBody(BaseModel):
+    date: str
+    item_key: str
+    qty: float
+    notes: str = ""
+
+
+class CustomItem(BaseModel):
+    key: str = ""
+    label: str
+    unit: str = "un"
+    planned_qty: float = 0.0
+
+
+class ItemsConfigBody(BaseModel):
+    custom_items: List[CustomItem] = []
+    weights: dict = {}
+
+
+def _d(v):
+    return (v or "")[:10]
+
+
+def _first_sched(p):
+    dates = sorted(_d(e.get("date")) for e in (p.get("schedule_entries") or []) if e.get("date"))
+    return dates[0] if dates else _d(p.get("start_date"))
+
+
+def _build_items(p):
+    weights = p.get("avanco_weights") or {}
+    items = []
+    for key, label, unit, field in BASE_ITEMS:
+        planned = float(p.get(field) or 0)
+        if planned > 0:
+            items.append({"key": key, "label": label, "unit": unit, "planned_qty": planned, "custom": False})
+    for c in (p.get("avanco_custom_items") or []):
+        items.append({"key": c.get("key"), "label": c.get("label", ""), "unit": c.get("unit", "un"),
+                      "planned_qty": float(c.get("planned_qty") or 0), "custom": True})
+    entries = p.get("progress_entries") or []
+    for it in items:
+        it["executed_qty"] = round(sum(float(e.get("qty") or 0) for e in entries if e.get("item_key") == it["key"]), 3)
+        it["pct"] = round(min(100.0, 100.0 * it["executed_qty"] / it["planned_qty"]), 1) if it["planned_qty"] > 0 else 0.0
+        it["weight"] = float(weights.get(it["key"], 1.0) or 0)
+    return items
+
+
+def _pct_fisico(items):
+    tw = sum(i["weight"] for i in items)
+    if tw <= 0:
+        return 0.0
+    return round(sum(i["weight"] * min(1.0, i["executed_qty"] / i["planned_qty"] if i["planned_qty"] > 0 else 0) for i in items) / tw * 100, 1)
+
+
+def _materials_summary(p):
+    mats = p.get("materials_list") or []
+    req = sum(float(m.get("qty_requested") or m.get("quantity") or 0) for m in mats)
+    dlv = sum(float(m.get("qty_delivered") or 0) for m in mats)
+    app = sum(float(m.get("qty_applied") or 0) for m in mats)
+    pending = sum(1 for m in mats if float(m.get("qty_delivered") or 0) < float(m.get("qty_requested") or m.get("quantity") or 0))
+    return {
+        "items": len(mats),
+        "qty_requested": round(req, 2), "qty_delivered": round(dlv, 2), "qty_applied": round(app, 2),
+        "pct_delivered": round(100 * dlv / req, 1) if req > 0 else 0.0,
+        "pct_applied": round(100 * app / dlv, 1) if dlv > 0 else 0.0,
+        "pending_items": pending,
+        "total_value": round(sum(float(m.get("total_cost") or 0) for m in mats), 2),
+    }
+
+
+def _summary(p, today, team_target):
+    items = _build_items(p)
+    entries = p.get("progress_entries") or []
+    prog = float(p.get("programmed_value") or 0)
+    actual = float(p.get("actual_value") or 0)
+    pct_fis = _pct_fisico(items)
+    pct_fin = round(100 * actual / prog, 1) if prog > 0 else 0.0
+    start = _first_sched(p)
+    end = _d(p.get("expiry_date")) or _d(p.get("end_date"))
+    pct_tempo = None
+    total_days = None
+    if start and end and end > start:
+        total_days = (datetime.fromisoformat(end) - datetime.fromisoformat(start)).days
+        elapsed = (datetime.fromisoformat(min(today, end)) - datetime.fromisoformat(start)).days
+        pct_tempo = round(max(0.0, min(100.0, 100 * elapsed / total_days)), 1)
+    eficiencia = round(pct_fis / pct_tempo, 2) if pct_tempo else None
+    worked = {_d(e.get("date")) for e in (p.get("schedule_entries") or []) if e.get("date") and _d(e["date"]) <= today}
+    worked |= {_d(e.get("date")) for e in entries if e.get("date")}
+    dias = len(worked)
+    por_dia = round(actual / dias, 2) if dias else 0.0
+    return {
+        "id": str(p["_id"]), "project_code": p.get("project_code", ""), "name": p.get("name", ""),
+        "team_name": p.get("team_name") or "", "location": p.get("location", ""),
+        "execution_status": p.get("execution_status") or "aguardando_programacao",
+        "programmed_value": prog, "actual_value": actual,
+        "pct_fisico": pct_fis, "pct_financeiro": pct_fin, "pct_tempo": pct_tempo, "eficiencia": eficiencia,
+        "start": start, "end": end, "total_days": total_days,
+        "dias_trabalhados": dias, "produzido_por_dia": por_dia, "meta_diaria": team_target,
+        "aderencia_diaria": round(100 * por_dia / team_target, 1) if team_target else 0.0,
+        "items_count": len(items), "entries_count": len(entries),
+        "last_entry": max((e.get("date", "") for e in entries), default=""),
+        "materials": _materials_summary(p),
+    }
+
+
+def _curve(p, items, today):
+    """Curva S: % físico acumulado por data de lançamento + linha planejada linear."""
+    entries = sorted((e for e in (p.get("progress_entries") or []) if e.get("date")), key=lambda e: e["date"])
+    start = _first_sched(p) or (entries[0]["date"] if entries else today)
+    end = _d(p.get("expiry_date")) or _d(p.get("end_date")) or today
+    tw = sum(i["weight"] for i in items) or 1.0
+    planned = {i["key"]: i["planned_qty"] for i in items}
+    weight = {i["key"]: i["weight"] for i in items}
+    dates = sorted({start, end, today} | {_d(e["date"]) for e in entries})
+    cum = {k: 0.0 for k in planned}
+    idx = 0
+    out = []
+    for d in dates:
+        while idx < len(entries) and _d(entries[idx]["date"]) <= d:
+            e = entries[idx]
+            if e.get("item_key") in cum:
+                cum[e["item_key"]] += float(e.get("qty") or 0)
+            idx += 1
+        real = sum(weight[k] * min(1.0, cum[k] / planned[k] if planned[k] > 0 else 0) for k in planned) / tw * 100
+        if end > start:
+            span = (datetime.fromisoformat(end) - datetime.fromisoformat(start)).days
+            el = (datetime.fromisoformat(d) - datetime.fromisoformat(start)).days
+            plan = max(0.0, min(100.0, 100 * el / span))
+        else:
+            plan = 100.0 if d >= end else 0.0
+        out.append({"date": d, "real_pct": round(real, 1) if d <= today else None, "planned_pct": round(plan, 1)})
+    return out
+
+
+def build_router(db, get_current_user, require_admin, safe_object_id, today_fn):
+    router = APIRouter(prefix="/api")
+
+    async def _threshold(user_id):
+        doc = await db.app_settings.find_one({"user_id": user_id, "key": "avanco_threshold"})
+        return float(doc.get("value")) if doc and doc.get("value") else DEFAULT_THRESHOLD
+
+    async def _team_target(user_id, p):
+        if p.get("team_id"):
+            try:
+                t = await db.teams.find_one({"_id": safe_object_id(p["team_id"]), "user_id": user_id})
+                if t:
+                    return float(t.get("daily_target") or 4000.0)
+            except HTTPException:
+                pass
+        return 4000.0
+
+    async def _get_project(project_id, user):
+        p = await db.projects.find_one({"_id": safe_object_id(project_id), "user_id": user["_id"]})
+        if not p:
+            raise HTTPException(status_code=404, detail="Obra não encontrada")
+        return p
+
+    @router.get("/avanco/threshold")
+    async def get_threshold(current_user: dict = Depends(get_current_user)):
+        return {"threshold": await _threshold(current_user["_id"]), "default": DEFAULT_THRESHOLD}
+
+    @router.post("/avanco/threshold")
+    async def set_threshold(body: ThresholdBody, current_user: dict = Depends(require_admin)):
+        if body.threshold <= 0:
+            raise HTTPException(status_code=400, detail="Limite deve ser maior que zero")
+        await db.app_settings.update_one(
+            {"user_id": current_user["_id"], "key": "avanco_threshold"},
+            {"$set": {"value": float(body.threshold), "updated_by": current_user.get("email", ""), "updated_at": datetime.now(timezone.utc)}},
+            upsert=True,
+        )
+        return {"status": "ok", "threshold": float(body.threshold)}
+
+    @router.get("/avanco/projects")
+    async def list_projects(current_user: dict = Depends(get_current_user)):
+        th = await _threshold(current_user["_id"])
+        today = today_fn()
+        projects = await db.projects.find({
+            "user_id": current_user["_id"],
+            "programmed_value": {"$gte": th},
+            "execution_status": {"$nin": list(EXCLUDED_STATUS)},
+        }).to_list(2000)
+        out = [_summary(p, today, await _team_target(current_user["_id"], p)) for p in projects]
+        out.sort(key=lambda s: (-s["programmed_value"]))
+        totals = {
+            "count": len(out),
+            "programmed_value": round(sum(s["programmed_value"] for s in out), 2),
+            "actual_value": round(sum(s["actual_value"] for s in out), 2),
+            "avg_pct_fisico": round(sum(s["pct_fisico"] for s in out) / len(out), 1) if out else 0.0,
+            "avg_eficiencia": round(sum(s["eficiencia"] for s in out if s["eficiencia"] is not None) / max(1, sum(1 for s in out if s["eficiencia"] is not None)), 2),
+            "critical": sum(1 for s in out if s["eficiencia"] is not None and s["eficiencia"] < 0.8),
+        }
+        return {"threshold": th, "today": today, "totals": totals, "projects": out}
+
+    @router.get("/projects/{project_id}/avanco")
+    async def project_detail(project_id: str, current_user: dict = Depends(get_current_user)):
+        p = await _get_project(project_id, current_user)
+        today = today_fn()
+        items = _build_items(p)
+        entries = sorted((p.get("progress_entries") or []), key=lambda e: (e.get("date", ""), e.get("created_at", "")), reverse=True)
+        mats = []
+        for m in (p.get("materials_list") or []):
+            req = float(m.get("qty_requested") or m.get("quantity") or 0)
+            dlv = float(m.get("qty_delivered") or 0)
+            mats.append({
+                "id": m.get("id"), "code": m.get("code", ""), "item": m.get("item") or m.get("description", ""),
+                "unit": m.get("unit", ""), "qty_requested": req, "qty_delivered": dlv,
+                "qty_applied": float(m.get("qty_applied") or 0), "total_cost": float(m.get("total_cost") or 0),
+                "pct_delivered": round(100 * dlv / req, 1) if req > 0 else 0.0,
+            })
+        th = await _threshold(current_user["_id"])
+        return {
+            "summary": _summary(p, today, await _team_target(current_user["_id"], p)),
+            "eligible": float(p.get("programmed_value") or 0) >= th,
+            "threshold": th,
+            "items": items,
+            "custom_items": p.get("avanco_custom_items") or [],
+            "weights": p.get("avanco_weights") or {},
+            "entries": entries,
+            "curve": _curve(p, items, today),
+            "materials": mats,
+        }
+
+    @router.post("/projects/{project_id}/avanco/entries")
+    async def add_entry(project_id: str, body: EntryBody, current_user: dict = Depends(get_current_user)):
+        p = await _get_project(project_id, current_user)
+        keys = {i["key"] for i in _build_items(p)}
+        if body.item_key not in keys:
+            raise HTTPException(status_code=400, detail="Item de avanço inválido para esta obra")
+        if body.qty == 0:
+            raise HTTPException(status_code=400, detail="Quantidade deve ser diferente de zero")
+        entry = {
+            "id": uuid4().hex[:12], "date": body.date[:10], "item_key": body.item_key, "qty": float(body.qty),
+            "notes": body.notes or "", "registered_by": current_user.get("name", "") or current_user.get("email", ""),
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        }
+        await db.projects.update_one({"_id": p["_id"]}, {"$push": {"progress_entries": entry}})
+        p["progress_entries"] = (p.get("progress_entries") or []) + [entry]
+        return {"status": "ok", "entry": entry, "pct_fisico": _pct_fisico(_build_items(p))}
+
+    @router.delete("/projects/{project_id}/avanco/entries/{entry_id}")
+    async def delete_entry(project_id: str, entry_id: str, current_user: dict = Depends(get_current_user)):
+        p = await _get_project(project_id, current_user)
+        await db.projects.update_one({"_id": p["_id"]}, {"$pull": {"progress_entries": {"id": entry_id}}})
+        return {"status": "deleted"}
+
+    @router.put("/projects/{project_id}/avanco/items")
+    async def set_items(project_id: str, body: ItemsConfigBody, current_user: dict = Depends(get_current_user)):
+        p = await _get_project(project_id, current_user)
+        customs = []
+        for c in body.custom_items:
+            if not c.label.strip():
+                continue
+            customs.append({"key": c.key or f"c_{uuid4().hex[:8]}", "label": c.label.strip(), "unit": c.unit or "un", "planned_qty": float(c.planned_qty or 0)})
+        weights = {k: float(v) for k, v in (body.weights or {}).items() if v is not None and float(v) >= 0}
+        await db.projects.update_one({"_id": p["_id"]}, {"$set": {"avanco_custom_items": customs, "avanco_weights": weights}})
+        p["avanco_custom_items"], p["avanco_weights"] = customs, weights
+        return {"status": "ok", "items": _build_items(p)}
+
+    return router

@@ -259,7 +259,7 @@ class UserResponse(BaseModel):
 ALL_PERMISSIONS = [
     "dashboard", "carteira", "programacao", "calendario",
     "operacional", "geolocalizacao", "materiais", "analise",
-    "relatorios", "equipes", "estoque", "faturamento", "documentos", "settings", "admin",
+    "relatorios", "equipes", "estoque", "faturamento", "documentos", "settings", "admin", "avanco",
 ]
 
 class TeamCreate(BaseModel):
@@ -4139,9 +4139,9 @@ async def update_material_item(
     current_user: dict = Depends(get_current_user),
 ):
     """Update quantity/unit/warehouse_status/code/item fields on a material item."""
-    allowed = {"qty_requested", "qty_separated", "qty_written_off", "qty_delivered", "notes",
+    allowed = {"qty_requested", "qty_separated", "qty_written_off", "qty_delivered", "qty_applied", "notes",
                "unit", "warehouse_status", "code", "item"}
-    numeric = {"qty_requested", "qty_separated", "qty_written_off", "qty_delivered"}
+    numeric = {"qty_requested", "qty_separated", "qty_written_off", "qty_delivered", "qty_applied"}
     updates = {}
     for k, v in body.items():
         if k not in allowed:
@@ -5381,6 +5381,14 @@ async def download_receipt_photo(
 
 
 app.include_router(api_router)
+
+from avanco_fisico import build_router as _build_avanco_router
+def _today_cuiaba():
+    try:
+        return datetime.now(ZoneInfo("America/Cuiaba")).strftime("%Y-%m-%d")
+    except Exception:
+        return datetime.now(timezone.utc).strftime("%Y-%m-%d")
+app.include_router(_build_avanco_router(db, get_current_user, require_admin, safe_object_id, _today_cuiaba))
 
 app.add_middleware(
     CORSMiddleware,
