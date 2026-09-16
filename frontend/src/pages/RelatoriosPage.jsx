@@ -4,6 +4,7 @@ import axios from 'axios';
 import { toast } from 'sonner';
 import { AppLayout } from '../components/AppLayout';
 import { ProjectFilters } from '../components/ProjectFilters';
+import { MaterialLedgerPanel } from '../components/MaterialLedgerPanel';
 import { FileSpreadsheet, Download, TrendingUp, Briefcase, Activity, DollarSign, Mail, Users, CalendarX, TrendingDown, ClipboardCheck } from 'lucide-react';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
@@ -25,12 +26,14 @@ const EXTRA_REPORTS = [
 
 export const RelatoriosPage = () => {
   const [teams, setTeams] = useState([]);
+  const [projects, setProjects] = useState([]);
   const [filters, setFilters] = useState({ startDate: '', endDate: '', teamId: '' });
   const [downloading, setDownloading] = useState('');
   const [sendingEmail, setSendingEmail] = useState(false);
 
   useEffect(() => {
     axios.get(`${API}/teams`).then(({ data }) => setTeams(data));
+    axios.get(`${API}/projects`).then(({ data }) => setProjects(data)).catch(() => {});
   }, []);
 
   const downloadReport = async (reportKey) => {
@@ -191,6 +194,11 @@ export const RelatoriosPage = () => {
         </div>
       </motion.div>
 
+      <div className="mb-3 flex items-center gap-2">
+        <p className="text-[11px] tracking-[0.25em] uppercase font-bold text-zinc-500">Materiais · Inventário e Controle</p>
+        <div className="flex-1 h-px bg-white/5" />
+      </div>
+      <MaterialLedgerPanel projects={projects} />
 
       <motion.div
         initial={{ opacity: 0, y: 20 }}

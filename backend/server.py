@@ -13,6 +13,7 @@ from typing import List, Optional, Tuple
 from datetime import datetime, timezone, timedelta
 import os
 import json
+import re
 import logging
 import bcrypt
 import jwt
@@ -29,6 +30,7 @@ from push_notifications import ensure_vapid_keys, broadcast_push
 from daily_log_pdf import build_daily_log_pdf
 from route_pdf import build_route_pdf
 from material_requisition_pdf import build_requisition_pdf
+from material_ledger import build_material_ledger, build_material_ledger_pdf, build_material_ledger_xlsx
 
 # Module-level cache for geocoding (TTL 60s handled per request)
 _geocode_cache: dict = {}
@@ -4141,11 +4143,17 @@ async def import_materials_list(
             "unit": str(unit) or "un",
             "unit_cost": cost,
             "total_cost": total,
+            "imported_at": datetime.now(timezone.utc).isoformat(),
+            "imported_by": current_user.get("name") or current_user.get("email") or "",
         })
 
     if not normalized:
         raise HTTPException(status_code=400, detail="Nenhum item válido encontrado. Verifique colunas: item/descricao, quantidade, unidade, preco.")
 
+    await _log_material_event(project_id, {
+        "type": "import", "qty": len(normalized), "by": current_user.get("name") or current_user.get("email") or "",
+        "detail": f"{'Substituiu' if replace else 'Acrescentou'} {len(normalized)} item(ns) via planilha {file.filename or ''}".strip(),
+    })
     if replace:
         await db.projects.update_one(
             {"_id": safe_object_id(project_id)},
@@ -4165,6 +4173,12 @@ async def import_materials_list(
 
 # Material request with PDF attachments
 
+async def _log_material_event(project_id: str, event: dict):
+    """Auditoria de materiais (edições manuais, avulsos, importações) → project.material_events."""
+    event = {"id": secrets.token_urlsafe(6), "ts": datetime.now(timezone.utc).isoformat(), **event}
+    await db.projects.update_one({"_id": safe_object_id(project_id)}, {"$push": {"material_events": event}})
+
+
 @api_router.patch("/projects/{project_id}/materials/{item_id}")
 async def update_material_item(
     project_id: str,
@@ -4176,17 +4190,28 @@ async def update_material_item(
     allowed = {"qty_requested", "qty_separated", "qty_written_off", "qty_delivered", "qty_applied", "notes",
                "unit", "warehouse_status", "code", "item"}
     numeric = {"qty_requested", "qty_separated", "qty_written_off", "qty_delivered", "qty_applied"}
+    project = await db.projects.find_one({"_id": safe_object_id(project_id), "user_id": current_user["_id"], "materials_list.id": item_id},
+                                         {"materials_list": 1})
+    if not project:
+        raise HTTPException(status_code=404, detail="Item não encontrado")
+    current = next((m for m in project.get("materials_list", []) if m.get("id") == item_id), {})
     updates = {}
+    changes = []
     for k, v in body.items():
         if k not in allowed:
             continue
         if k in numeric:
             try:
-                updates[f"materials_list.$.{k}"] = float(v)
+                new_val = float(v)
             except Exception:
-                updates[f"materials_list.$.{k}"] = 0
+                new_val = 0
+            old_val = current.get(k, current.get("quantity", 0) if k == "qty_requested" else 0)
         else:
-            updates[f"materials_list.$.{k}"] = str(v or "")
+            new_val = str(v or "")
+            old_val = current.get(k, "")
+        updates[f"materials_list.$.{k}"] = new_val
+        if str(old_val or "") != str(new_val or ""):
+            changes.append((k, old_val, new_val))
     if not updates:
         raise HTTPException(status_code=400, detail="Nenhum campo válido")
     result = await db.projects.update_one(
@@ -4195,6 +4220,13 @@ async def update_material_item(
     )
     if result.matched_count == 0:
         raise HTTPException(status_code=404, detail="Item não encontrado")
+    who = current_user.get("name") or current_user.get("email") or ""
+    for field, old_val, new_val in changes:
+        await _log_material_event(project_id, {
+            "type": "edit", "material_id": item_id, "code": current.get("code", ""), "item": current.get("item", ""), "unit": current.get("unit", "UN"),
+            "field": field, "old": old_val if old_val not in (None, "") else "—", "new": new_val if new_val not in (None, "") else "—",
+            "qty": new_val if field in numeric else None, "by": who,
+        })
     return {"status": "updated", "id": item_id, "updates": updates}
 
 
@@ -4296,7 +4328,46 @@ async def add_manual_material(project_id: str, body: ManualMaterialBody, current
         {"_id": safe_object_id(project_id)},
         {"$push": {"materials_list": new_item}}
     )
+    await _log_material_event(project_id, {
+        "type": "avulso", "material_id": new_item["id"], "code": new_item["code"], "item": new_item["item"], "unit": new_item["unit"],
+        "qty": qty, "by": current_user.get("name") or current_user.get("email") or "", "detail": new_item["notes"] or "Material avulso (não orçado)",
+    })
     return {"status": "ok", "item": new_item}
+
+
+# ====== Set/2026 · Relatório de Movimentação de Materiais (linha do tempo + resumo) ======
+async def _ledger_project(project_id: str, current_user: dict) -> dict:
+    project = await db.projects.find_one({"_id": safe_object_id(project_id), "user_id": current_user["_id"]})
+    if not project:
+        raise HTTPException(status_code=404, detail="Obra não encontrada")
+    return project
+
+
+def _ledger_filename(project: dict, ext: str) -> str:
+    code = re.sub(r"[^A-Za-z0-9_-]+", "_", str(project.get("project_code") or project.get("_id"))).strip("_")
+    return f"movimentacao_materiais_{code}_{datetime.now().strftime('%Y%m%d_%H%M')}.{ext}"
+
+
+@api_router.get("/projects/{project_id}/materials/ledger")
+async def get_material_ledger(project_id: str, current_user: dict = Depends(get_current_user)):
+    project = await _ledger_project(project_id, current_user)
+    return build_material_ledger(project)
+
+
+@api_router.get("/projects/{project_id}/materials/ledger/pdf")
+async def get_material_ledger_pdf(project_id: str, current_user: dict = Depends(get_current_user)):
+    project = await _ledger_project(project_id, current_user)
+    data = await asyncio.to_thread(build_material_ledger_pdf, build_material_ledger(project))
+    return Response(content=data, media_type="application/pdf",
+                    headers={"Content-Disposition": f'attachment; filename="{_ledger_filename(project, "pdf")}"'})
+
+
+@api_router.get("/projects/{project_id}/materials/ledger/xlsx")
+async def get_material_ledger_xlsx(project_id: str, current_user: dict = Depends(get_current_user)):
+    project = await _ledger_project(project_id, current_user)
+    data = await asyncio.to_thread(build_material_ledger_xlsx, build_material_ledger(project))
+    return Response(content=data, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    headers={"Content-Disposition": f'attachment; filename="{_ledger_filename(project, "xlsx")}"'})
 
 
 # Fev/2026 · APR (Análise Preliminar de Risco) ==============================
