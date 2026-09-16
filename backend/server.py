@@ -12,6 +12,7 @@ from bson import ObjectId
 from typing import List, Optional, Tuple
 from datetime import datetime, timezone, timedelta
 import os
+import json
 import logging
 import bcrypt
 import jwt
@@ -4505,12 +4506,91 @@ async def export_project_materials(project_id: str, current_user: dict = Depends
     )
 
 
+def _requisition_balance(project: dict) -> dict:
+    """Saldo por item: total da obra × já requisitado (histórico, ignora reenvios). Legado sem material_id casa por nome."""
+    by_id, by_name = {}, {}
+    for r in (project.get("material_requisitions") or []):
+        if r.get("is_resend"):
+            continue
+        if r.get("requisition_type") == "parcial":
+            for it in (r.get("items") or []):
+                if it.get("material_id"):
+                    by_id[it["material_id"]] = by_id.get(it["material_id"], 0.0) + float(it.get("qty") or 0)
+            continue
+        for m in (r.get("materials_snapshot") or []):
+            q = float(m.get("qty_requested") or 0)
+            if m.get("material_id"):
+                by_id[m["material_id"]] = by_id.get(m["material_id"], 0.0) + q
+            else:
+                k = (m.get("item") or "").strip().lower()
+                if k:
+                    by_name[k] = by_name.get(k, 0.0) + q
+    items = []
+    for m in (project.get("materials_list") or []):
+        total = float(m.get("qty_requested", m.get("quantity", 0)) or 0)
+        done = by_id.get(m.get("id"), 0.0) + by_name.get((m.get("item") or "").strip().lower(), 0.0)
+        items.append({"id": m.get("id"), "qty_total": total, "qty_requisitioned": round(done, 3),
+                      "saldo": round(max(0.0, total - done), 3), "over": round(max(0.0, done - total), 3)})
+    partials = [r for r in (project.get("material_requisitions") or []) if r.get("requisition_type") == "parcial" and not r.get("is_resend")]
+    return {
+        "items": items, "partial_count": len(partials), "next_seq": len(partials) + 1,
+        "fully_requisitioned": bool(items) and all(i["saldo"] <= 0 for i in items),
+        "total_qty": round(sum(i["qty_total"] for i in items), 3),
+        "requisitioned_qty": round(sum(min(i["qty_requisitioned"], i["qty_total"]) for i in items), 3),
+    }
+
+
+def _partial_selection(project: dict, requisition_type: str, items_json: str):
+    """Requisição parcial: [{id, qty}] → (itens com req_qty/req_done/req_saldo, info da remessa). Total → (None, None)."""
+    if (requisition_type or "total") != "parcial":
+        return None, None
+    try:
+        raw = json.loads(items_json or "[]")
+    except Exception:
+        raise HTTPException(status_code=400, detail="Itens da requisição parcial inválidos")
+    wanted = {str(x.get("id")): float(x.get("qty") or 0) for x in raw if isinstance(x, dict) and x.get("id")}
+    wanted = {k: v for k, v in wanted.items() if v > 0}
+    if not wanted:
+        raise HTTPException(status_code=400, detail="Selecione ao menos um item com quantidade maior que zero")
+    bal = _requisition_balance(project)
+    by_id = {b["id"]: b for b in bal["items"]}
+    sel = []
+    for m in (project.get("materials_list") or []):
+        if m.get("id") in wanted:
+            b = by_id.get(m["id"], {})
+            sel.append({**m, "req_qty": wanted[m["id"]], "req_done": b.get("qty_requisitioned", 0.0), "req_saldo": b.get("saldo", 0.0)})
+    if not sel:
+        raise HTTPException(status_code=400, detail="Nenhum item selecionado existe na lista da obra")
+    partial = {"seq": bal["next_seq"], "selected": len(sel), "total_items": len(project.get("materials_list") or [])}
+    return sel, partial
+
+
+def _req_rebuild_args(req: dict):
+    """Reconstrói (itens, info parcial) de uma requisição salva para regerar o PDF."""
+    if req.get("requisition_type") != "parcial":
+        return None, None
+    sel = [{"id": it.get("material_id"), "code": it.get("code", ""), "item": it.get("item", ""), "unit": it.get("unit", "un"),
+            "qty_requested": it.get("qty_total", 0), "req_qty": it.get("qty", 0), "req_done": it.get("qty_done_before", 0)}
+           for it in (req.get("items") or [])]
+    return sel, {"seq": req.get("seq") or 1, "selected": len(sel), "total_items": len(req.get("materials_snapshot") or sel)}
+
+
+@api_router.get("/projects/{project_id}/materials/requisition-balance")
+async def get_requisition_balance(project_id: str, current_user: dict = Depends(get_current_user)):
+    project = await db.projects.find_one({"_id": safe_object_id(project_id), "user_id": current_user["_id"]})
+    if not project:
+        raise HTTPException(status_code=404, detail="Obra não encontrada")
+    return _requisition_balance(project)
+
+
 @api_router.post("/materials/preview")
 async def preview_material_requisition(
     current_user: dict = Depends(get_current_user),
     project_id: str = Form(...),
     notes: str = Form(""),
     signature_name: str = Form(""),
+    requisition_type: str = Form("total"),
+    items: str = Form(""),
 ):
     """Generate the requisition PDF WITHOUT sending it. Returns application/pdf inline so the frontend
     can render it in an iframe/preview modal. No history entry is created, no email is sent."""
@@ -4518,6 +4598,7 @@ async def preview_material_requisition(
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
     preview_id = "PREVIEW-" + secrets.token_urlsafe(6)
+    sel, partial = _partial_selection(project, requisition_type, items)
     try:
         pdf_bytes = await asyncio.to_thread(
             build_requisition_pdf,
@@ -4526,6 +4607,8 @@ async def preview_material_requisition(
             notes,
             preview_id,
             current_user.get("name", ""),
+            sel,
+            partial,
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Erro ao gerar PDF: {e}")
@@ -4543,12 +4626,15 @@ async def request_materials(
     project_id: str = Form(...),
     notes: str = Form(""),
     signature_name: str = Form(""),
+    requisition_type: str = Form("total"),
+    items: str = Form(""),
     material_pdf: Optional[UploadFile] = File(None),
     project_pdf: Optional[UploadFile] = File(None),
 ):
     project = await db.projects.find_one({"_id": safe_object_id(project_id), "user_id": current_user["_id"]})
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
+    sel, partial = _partial_selection(project, requisition_type, items)
     
     warehouse_email = os.environ.get("WAREHOUSE_EMAIL", "").strip()
     fallback_emails = os.environ.get("NOTIFICATION_EMAILS", "")
@@ -4587,14 +4673,31 @@ async def request_materials(
         except Exception:
             pass
     
-    # Build material list HTML from project.materials_list
-    materials = project.get("materials_list", []) or []
+    # Build material list HTML from project.materials_list (ou só os itens da remessa parcial)
+    all_materials = project.get("materials_list", []) or []
+    materials = sel if partial else all_materials
     materials_rows = ""
     total_solicitado = 0
     total_separado = 0
     total_baixado = 0
     total_entregue = 0
-    for m in materials:
+    if partial:
+        for m in materials:
+            qt = float(m.get("qty_requested", m.get("quantity", 0)) or 0)
+            done = float(m.get("req_done") or 0)
+            now = float(m.get("req_qty") or 0)
+            saldo = max(0.0, qt - done - now)
+            total_solicitado += now
+            materials_rows += f"""
+        <tr>
+          <td style="padding: 6px 8px; border-bottom: 1px solid #eee;">{m.get('code','') or ''} {m.get('item','')}</td>
+          <td style="padding: 6px 8px; border-bottom: 1px solid #eee; text-align:center;">{m.get('unit','un')}</td>
+          <td style="padding: 6px 8px; border-bottom: 1px solid #eee; text-align:right;">{qt:g}</td>
+          <td style="padding: 6px 8px; border-bottom: 1px solid #eee; text-align:right;color:#888;">{done:g}</td>
+          <td style="padding: 6px 8px; border-bottom: 1px solid #eee; text-align:right;font-weight:bold;color:#E55400;">{now:g}</td>
+          <td style="padding: 6px 8px; border-bottom: 1px solid #eee; text-align:right;color:#005EE0;">{saldo:g}</td>
+        </tr>"""
+    for m in ([] if partial else materials):
         qs = m.get("qty_requested", m.get("quantity", 0)) or 0
         qsep = m.get("qty_separated", 0) or 0
         qbx = m.get("qty_written_off", 0) or 0
@@ -4613,7 +4716,35 @@ async def request_materials(
           <td style="padding: 6px 8px; border-bottom: 1px solid #eee; text-align:right;color:#005EE0;font-weight:bold;">{qent}</td>
         </tr>"""
 
-    materials_table = f"""
+    if partial:
+        materials_table = f"""
+    <div style="margin-top:20px;padding:10px 14px;background:#FF5E00;color:#050505;font-weight:bold;border-radius:6px;">
+      REQUISIÇÃO PARCIAL nº {partial['seq']} · {partial['selected']} de {partial['total_items']} itens · a equipe levará apenas as quantidades abaixo
+    </div>
+    <h3 style="color:#00F0FF;margin-top:16px;margin-bottom:8px;">Itens desta remessa ({len(materials)})</h3>
+    <table width="100%" style="border-collapse:collapse;background:#fff;color:#050505;font-size:12px;border:1px solid #ddd;">
+      <thead>
+        <tr style="background:#050505;color:#E0FF00;">
+          <th style="padding:6px 8px;text-align:left;">Item</th>
+          <th style="padding:6px 8px;">Un</th>
+          <th style="padding:6px 8px;text-align:right;">Qtd. Obra</th>
+          <th style="padding:6px 8px;text-align:right;">Já Req.</th>
+          <th style="padding:6px 8px;text-align:right;">Nesta Req.</th>
+          <th style="padding:6px 8px;text-align:right;">Saldo</th>
+        </tr>
+      </thead>
+      <tbody>{materials_rows}</tbody>
+      <tfoot>
+        <tr style="background:#f5f5f5;font-weight:bold;">
+          <td colspan="4" style="padding:6px 8px;text-align:right;">TOTAL NESTA REMESSA</td>
+          <td style="padding:6px 8px;text-align:right;color:#E55400;">{total_solicitado:g}</td>
+          <td></td>
+        </tr>
+      </tfoot>
+    </table>
+    """
+    else:
+        materials_table = f"""
     <h3 style="color:#00F0FF;margin-top:24px;margin-bottom:8px;">Lista de Materiais ({len(materials)} itens)</h3>
     <table width="100%" style="border-collapse:collapse;background:#fff;color:#050505;font-size:12px;border:1px solid #ddd;">
       <thead>
@@ -4652,7 +4783,7 @@ async def request_materials(
     <div style="font-family: Arial, sans-serif; max-width: 720px; margin: 0 auto; padding: 24px;">
       <h1 style="color: #E0FF00; background: #050505; padding: 16px; margin: 0;">HAYAH ENERGY</h1>
       <div style="background: #050505; color: #fff; padding: 24px;">
-        <h2 style="color: #00F0FF; margin-top: 0;">Solicitação de Material</h2>
+        <h2 style="color: #00F0FF; margin-top: 0;">{'Solicitação PARCIAL de Material nº ' + str(partial['seq']) if partial else 'Solicitação de Material'}</h2>
         <table width="100%" style="border-collapse: collapse;">
           <tr><td style="padding: 6px 0; color: #a1a1aa; width: 40%;">Projeto:</td><td style="color: #fff; font-weight: bold;">{project.get('name','')}</td></tr>
           <tr><td style="padding: 6px 0; color: #a1a1aa;">Nº Obra:</td><td style="color: #fff;">{project.get('project_code','') or '-'}</td></tr>
@@ -4670,7 +4801,7 @@ async def request_materials(
       </div>
     </div>
     """
-    subject = f"[HAYAH] Solicitação de Material · {project.get('project_code','') or ''} · {project.get('name','')}"
+    subject = f"[HAYAH{' · PARCIAL ' + str(partial['seq']) if partial else ''}] Solicitação de Material · {project.get('project_code','') or ''} · {project.get('name','')}"
 
     # ====== Auto-generate requisition PDF and attach it ======
     requisition_id = secrets.token_urlsafe(8)
@@ -4682,6 +4813,8 @@ async def request_materials(
             notes,
             requisition_id,
             current_user.get("name", ""),
+            sel,
+            partial,
         )
         # Store PDF in Emergent object storage
         pdf_path = f"{APP_NAME}/requisitions/{current_user['_id']}/{requisition_id}.pdf"
@@ -4711,11 +4844,23 @@ async def request_materials(
         "attachment_count": len(attachments),
         "email_status": "pending",  # updated below
         "email_id": None,
+        "requisition_type": "parcial" if partial else "total",
+        "seq": partial["seq"] if partial else None,
+        "items": [
+            {
+                "material_id": m.get("id"), "code": m.get("code", ""), "item": m.get("item", ""), "unit": m.get("unit", "un"),
+                "qty": float(m.get("req_qty") or 0), "qty_total": float(m.get("qty_requested", m.get("quantity", 0)) or 0),
+                "qty_done_before": float(m.get("req_done") or 0),
+                "saldo_after": round(max(0.0, float(m.get("qty_requested", m.get("quantity", 0)) or 0) - float(m.get("req_done") or 0) - float(m.get("req_qty") or 0)), 3),
+            }
+            for m in sel
+        ] if partial else [],
         "materials_snapshot": [
             {
+                "material_id": m.get("id"),
                 "item": m.get("item", ""),
                 "unit": m.get("unit", "un"),
-                "qty_requested": m.get("qty_requested", m.get("quantity", 0)),
+                "qty_requested": (m.get("req_qty") if partial else m.get("qty_requested", m.get("quantity", 0))),
                 "qty_separated": m.get("qty_separated", 0),
                 "qty_written_off": m.get("qty_written_off", 0),
                 "qty_delivered": m.get("qty_delivered", 0),
@@ -4794,10 +4939,11 @@ async def download_requisition_pdf(
         except Exception:
             pass
     # Rebuild on the fly if storage missing
+    sel, partial = _req_rebuild_args(req)
     data = await asyncio.to_thread(
         build_requisition_pdf,
         project, req.get("signature_name", ""), req.get("notes", ""),
-        req_id, req.get("created_by", ""),
+        req_id, req.get("created_by", ""), sel, partial,
     )
     return Response(
         content=data,
@@ -4833,10 +4979,11 @@ async def resend_requisition(
         except Exception:
             pdf_bytes = None
     if not pdf_bytes:
+        sel, partial = _req_rebuild_args(original)
         pdf_bytes = await asyncio.to_thread(
             build_requisition_pdf,
             project, original.get("signature_name", ""), original.get("notes", ""),
-            req_id, original.get("created_by", ""),
+            req_id, original.get("created_by", ""), sel, partial,
         )
 
     # Build a lightweight resend email HTML (references original snapshot)
@@ -4908,6 +5055,9 @@ async def resend_requisition(
         "receipt": None,
         "is_resend": True,
         "original_req_id": req_id,
+        "requisition_type": original.get("requisition_type", "total"),
+        "seq": original.get("seq"),
+        "items": original.get("items") or [],
     }
 
     api_key = os.environ.get("RESEND_API_KEY", "").strip()

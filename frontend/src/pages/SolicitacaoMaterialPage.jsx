@@ -5,7 +5,7 @@ import { toast } from 'sonner';
 import { AppLayout } from '../components/AppLayout';
 import {
   Package, Send, FileText, MapPin, Users, Calendar, Hash, PenLine,
-  CheckCircle2, History, FileDown, Camera, Truck, AlertCircle, Loader, RefreshCw, Eye, X, ClipboardList, Plus, MessageCircle,
+  CheckCircle2, History, FileDown, Camera, Truck, AlertCircle, Loader, RefreshCw, Eye, X, ClipboardList, Plus, MessageCircle, ListChecks,
 } from 'lucide-react';
 import { WAREHOUSE_RESPONSE_STATUS, WAREHOUSE_RESPONSE_LABEL, MATERIAL_UNITS, ITEM_WAREHOUSE_STATUS, ITEM_WAREHOUSE_STATUS_LABEL, resolveMaterialCodeAndDesc } from '../lib/constants';
 import { PROJECT_TYPE_LABEL, formatCurrency, todayISO } from '../lib/constants';
@@ -30,6 +30,10 @@ export const SolicitacaoMaterialPage = () => {
   const [avulsoOpen, setAvulsoOpen] = useState(false);
   const [avulsoForm, setAvulsoForm] = useState({ item: '', code: '', quantity: 1, unit: 'UN', unit_cost: 0, notes: '' });
   const [savingAvulso, setSavingAvulso] = useState(false);
+  // Set/2026 · Requisição PARCIAL (equipe leva só parte do material)
+  const [partialMode, setPartialMode] = useState(false);
+  const [selection, setSelection] = useState({});
+  const [balance, setBalance] = useState(null);
 
   useEffect(() => {
     axios.get(`${API}/projects`).then(({ data }) => setProjects(data));
@@ -38,6 +42,41 @@ export const SolicitacaoMaterialPage = () => {
       setSignatureName(data?.name || '');
     }).catch(() => {});
   }, []);
+
+  useEffect(() => {
+    setSelection({});
+    if (!selectedProject) { setBalance(null); return; }
+    axios.get(`${API}/projects/${selectedProject}/materials/requisition-balance`).then(({ data }) => setBalance(data)).catch(() => setBalance(null));
+  }, [selectedProject, projects]);
+
+  const balanceById = useMemo(() => Object.fromEntries((balance?.items || []).map((b) => [b.id, b])), [balance]);
+  const selectedIds = useMemo(() => Object.keys(selection).filter((id) => Number(selection[id]) > 0), [selection]);
+  const selectionQty = useMemo(() => selectedIds.reduce((a, id) => a + Number(selection[id] || 0), 0), [selectedIds, selection]);
+  const overSaldo = useMemo(() => selectedIds.filter((id) => balanceById[id] && Number(selection[id]) > Number(balanceById[id].saldo)), [selectedIds, selection, balanceById]);
+
+  const toggleItem = (m) => {
+    setSelection((s) => {
+      if (m.id in s) { const { [m.id]: _omit, ...rest } = s; return rest; }
+      const b = balanceById[m.id];
+      const qs = Number(m.qty_requested ?? m.quantity ?? 0);
+      const def = b ? (b.saldo > 0 ? b.saldo : qs) : qs;
+      return { ...s, [m.id]: def };
+    });
+  };
+  const setItemQty = (id, v) => setSelection((s) => ({ ...s, [id]: v }));
+  const selectPending = () => {
+    const next = {};
+    materials.forEach((m) => { const b = balanceById[m.id]; if (b && b.saldo > 0) next[m.id] = b.saldo; });
+    setSelection(next);
+    if (Object.keys(next).length === 0) toast.info('Nenhum item com saldo pendente');
+  };
+  const partialItemsPayload = () => JSON.stringify(selectedIds.map((id) => ({ id, qty: Number(selection[id]) })));
+  const validatePartial = () => {
+    if (!partialMode) return true;
+    if (selectedIds.length === 0) { toast.error('Marque ao menos um item com quantidade para a requisição parcial'); return false; }
+    if (overSaldo.length > 0 && !window.confirm(`${overSaldo.length} item(ns) acima do saldo restante. Enviar mesmo assim?`)) return false;
+    return true;
+  };
 
   const reloadProjects = async () => {
     const { data } = await axios.get(`${API}/projects`);
@@ -153,12 +192,14 @@ export const SolicitacaoMaterialPage = () => {
     if (!selectedProject) { toast.error('Selecione uma obra'); return; }
     if (materials.length === 0) { toast.error('Importe a lista de materiais antes de gerar prévia'); return; }
     if (!signatureName) { toast.error('Preencha a assinatura'); return; }
+    if (!validatePartial()) return;
     setPreviewLoading(true);
     try {
       const fd = new FormData();
       fd.append('project_id', selectedProject);
       fd.append('notes', notes);
       fd.append('signature_name', signatureName);
+      if (partialMode) { fd.append('requisition_type', 'parcial'); fd.append('items', partialItemsPayload()); }
       const res = await axios.post(`${API}/materials/preview`, fd, {
         responseType: 'blob',
         headers: { 'Content-Type': 'multipart/form-data' },
@@ -179,22 +220,26 @@ export const SolicitacaoMaterialPage = () => {
     if (!selectedProject) { toast.error('Selecione uma obra'); return; }
     if (materials.length === 0) { toast.error('Importe a lista de materiais na obra antes de enviar'); return; }
     if (!signatureName) { toast.error('Preencha a assinatura'); return; }
+    if (!validatePartial()) return;
     setSending(true);
     try {
       const fd = new FormData();
       fd.append('project_id', selectedProject);
       fd.append('notes', notes);
       fd.append('signature_name', signatureName);
+      if (partialMode) { fd.append('requisition_type', 'parcial'); fd.append('items', partialItemsPayload()); }
       const { data } = await axios.post(`${API}/materials/request`, fd, {
         headers: { 'Content-Type': 'multipart/form-data' },
       });
+      const label = partialMode ? 'Requisição parcial enviada' : 'Enviado ao almoxarifado';
       if (data.status === 'sent') {
-        toast.success(`Enviado ao almoxarifado! (${data.attachments_count} anexo(s))`);
+        toast.success(`${label}! (${data.attachments_count} anexo(s))`);
       } else if (data.status === 'skipped') {
-        toast.info(`Registrado no histórico. PDF gerado. Email não enviado (configure RESEND_API_KEY)`);
+        toast.info(`${partialMode ? 'Requisição parcial registrada' : 'Registrado'} no histórico. PDF gerado. Email não enviado (configure RESEND_API_KEY)`);
       } else {
         toast.error(`Falha: ${data.error || 'erro'}`);
       }
+      setSelection({});
       await reloadProjects();
     } catch (err) {
       toast.error(err.response?.data?.detail || 'Erro ao enviar');
@@ -278,6 +323,19 @@ export const SolicitacaoMaterialPage = () => {
               <FileDown className="w-4 h-4" /> Baixar Modelo
             </a>
             <button
+              data-testid="materials-partial-toggle"
+              type="button"
+              onClick={() => { setPartialMode((v) => !v); setSelection({}); }}
+              disabled={!selectedProject}
+              aria-pressed={partialMode}
+              className={`font-bold px-5 py-3 rounded-full transition-all disabled:opacity-40 inline-flex items-center gap-2 border ${
+                partialMode ? 'bg-[#E0FF00] border-[#E0FF00] text-black' : 'bg-white/5 border-[#E0FF00]/40 hover:bg-[#E0FF00]/10 text-[#E0FF00]'
+              }`}
+              title="Requisição parcial: a equipe leva só parte do material para campo"
+            >
+              <ListChecks className="w-4 h-4" /> {partialMode ? 'Parcial ativa' : 'Requisição parcial'}
+            </button>
+            <button
               data-testid="preview-material-request"
               onClick={handlePreview}
               disabled={previewLoading || !selectedProject}
@@ -291,9 +349,28 @@ export const SolicitacaoMaterialPage = () => {
               disabled={sending || !selectedProject}
               className="bg-[#FF5E00] hover:bg-[#E55400] text-black font-bold px-6 py-3 rounded-full transition-all disabled:opacity-40 inline-flex items-center gap-2"
             >
-              <Send className="w-4 h-4" /> {sending ? 'Enviando…' : 'Enviar Almoxarifado'}
+              <Send className="w-4 h-4" /> {sending ? 'Enviando…' : partialMode ? `Enviar Parcial (${selectedIds.length})` : 'Enviar Almoxarifado'}
             </button>
           </div>
+
+          {partialMode && selectedProject && (
+            <div data-testid="partial-bar" className="mb-5 rounded-xl border border-[#E0FF00]/40 bg-[#E0FF00]/[0.06] px-4 py-3 flex items-center gap-3 flex-wrap">
+              <ListChecks className="w-4 h-4 text-[#E0FF00]" />
+              <div className="flex-1 min-w-[200px] text-xs text-zinc-300">
+                <span className="text-[#E0FF00] font-bold">Remessa parcial nº {balance?.next_seq || 1}</span>
+                {' · '}<span data-testid="partial-selected-count" className="font-mono text-white">{selectedIds.length}</span> item(ns) marcado(s)
+                {' · '}qtd. total <span className="font-mono text-white">{selectionQty}</span>
+                {overSaldo.length > 0 && <span data-testid="partial-over-warning" className="ml-2 text-[#FF5E00] font-bold">· {overSaldo.length} acima do saldo</span>}
+                <p className="text-[10px] text-zinc-500 mt-0.5">Marque os itens que a equipe vai levar agora. A quantidade padrão é o saldo ainda não requisitado.</p>
+              </div>
+              <button data-testid="partial-select-pending" type="button" onClick={selectPending} className="text-[11px] font-bold bg-white/5 border border-[#E0FF00]/40 hover:bg-[#E0FF00]/10 text-[#E0FF00] px-3 py-1.5 rounded-full">
+                Marcar saldo pendente
+              </button>
+              <button data-testid="partial-clear" type="button" onClick={() => setSelection({})} className="text-[11px] font-bold bg-white/5 border border-white/10 hover:bg-white/10 text-zinc-300 px-3 py-1.5 rounded-full">
+                Limpar
+              </button>
+            </div>
+          )}
 
           <div className="grid md:grid-cols-3 gap-3 mb-5">
             <div className="md:col-span-2">
@@ -366,6 +443,17 @@ export const SolicitacaoMaterialPage = () => {
                 <FileText className="w-3 h-3" /> Materiais desta obra ({materials.length})
               </p>
               {materials.length === 0 && <p className="text-[11px] text-zinc-500 italic">Nenhum material. Importe a lista (Excel/CSV) no cadastro da obra ou baixe o modelo →</p>}
+              {balance && materials.length > 0 && (
+                balance.fully_requisitioned ? (
+                  <span data-testid="materials-fully-requisitioned" className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-[#39FF14]/15 border border-[#39FF14]/50 text-[#39FF14] inline-flex items-center gap-1">
+                    <CheckCircle2 className="w-3 h-3" /> 100% requisitado
+                  </span>
+                ) : (
+                  <span data-testid="materials-requisitioned-progress" className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-[#E0FF00]/10 border border-[#E0FF00]/40 text-[#E0FF00]">
+                    Requisitado {balance.requisitioned_qty} / {balance.total_qty}{balance.partial_count > 0 ? ` · ${balance.partial_count} parcial(is)` : ''}
+                  </span>
+                )
+              )}
               <div className="flex items-center gap-2 flex-wrap ml-auto">
                 {materials.length > 0 && (
                   <div className="flex items-center gap-3 text-[10px]">
@@ -440,10 +528,13 @@ export const SolicitacaoMaterialPage = () => {
                 <table className="w-full text-xs">
                   <thead>
                     <tr className="bg-white/[0.03] text-[9px] tracking-[0.15em] uppercase font-bold text-zinc-500">
+                      {partialMode && <th className="px-2 py-2 text-center text-[#E0FF00]">Levar</th>}
                       <th className="text-left px-2 py-2 whitespace-nowrap">Código</th>
                       <th className="text-left px-3 py-2">Descrição</th>
                       <th className="px-2 py-2">Un</th>
                       <th className="px-2 py-2 text-right text-white">Solicitado</th>
+                      <th className="px-2 py-2 text-right text-zinc-300 whitespace-nowrap">Já req. / Saldo</th>
+                      {partialMode && <th className="px-2 py-2 text-right text-[#E0FF00] whitespace-nowrap">Nesta req.</th>}
                       <th className="px-2 py-2 text-right text-[#39FF14]">Separado</th>
                       <th className="px-2 py-2 text-right text-[#FF5E00]">Baixado</th>
                       <th className="px-2 py-2 text-right text-[#00F0FF]">Entregue</th>
@@ -457,8 +548,23 @@ export const SolicitacaoMaterialPage = () => {
                       const qent = Number(m.qty_delivered ?? 0);
                       const wsInfo = ITEM_WAREHOUSE_STATUS_LABEL[m.warehouse_status || ''];
                       const { code: rowCode, description: rowDesc } = resolveMaterialCodeAndDesc(m);
+                      const bal = balanceById[m.id];
+                      const isSel = m.id in selection;
+                      const selQty = Number(selection[m.id] || 0);
+                      const isOver = isSel && bal && selQty > Number(bal.saldo);
                       return (
-                        <tr key={m.id} data-testid={`material-row-${m.id}`} className="border-t border-white/5 hover:bg-white/[0.02]">
+                        <tr key={m.id} data-testid={`material-row-${m.id}`} className={`border-t border-white/5 hover:bg-white/[0.02] ${isSel ? 'bg-[#E0FF00]/[0.04]' : ''}`}>
+                          {partialMode && (
+                            <td className="px-2 py-2 text-center">
+                              <input
+                                data-testid={`partial-check-${m.id}`}
+                                type="checkbox"
+                                checked={isSel}
+                                onChange={() => toggleItem(m)}
+                                className="w-4 h-4 accent-[#E0FF00] cursor-pointer"
+                              />
+                            </td>
+                          )}
                           <td className="px-2 py-2 font-mono text-[#E0FF00] whitespace-nowrap" data-testid={`mat-code-${m.id}`}>
                             <div className="flex items-center gap-1.5">
                               <span>{rowCode || '-'}</span>
@@ -499,6 +605,32 @@ export const SolicitacaoMaterialPage = () => {
                             </select>
                           </td>
                           <td className="px-2 py-2"><QtyInput testid={`qty-requested-${m.id}`} value={qs} saving={savingRow === m.id + ':qty_requested'} onCommit={(v) => patchItem(m, 'qty_requested', v)} color="#fff" /></td>
+                          <td className="px-2 py-2 text-right whitespace-nowrap" data-testid={`mat-balance-${m.id}`}>
+                            {bal ? (
+                              <span className="font-mono text-[11px]">
+                                <span className="text-zinc-400">{bal.qty_requisitioned}</span>
+                                <span className="text-zinc-600"> / </span>
+                                <span className={bal.saldo > 0 ? 'text-[#E0FF00] font-bold' : 'text-[#39FF14] font-bold'}>{bal.saldo}</span>
+                                {bal.over > 0 && <span className="ml-1 text-[9px] text-[#FF5E00]" title="Requisitado acima do total da obra">+{bal.over}</span>}
+                              </span>
+                            ) : <span className="text-zinc-600">—</span>}
+                          </td>
+                          {partialMode && (
+                            <td className="px-2 py-2 text-right">
+                              <input
+                                data-testid={`partial-qty-${m.id}`}
+                                type="number"
+                                min={0}
+                                step="0.01"
+                                disabled={!isSel}
+                                value={isSel ? selection[m.id] : ''}
+                                placeholder={bal ? String(bal.saldo) : ''}
+                                onChange={(e) => setItemQty(m.id, e.target.value)}
+                                className="w-16 text-right bg-zinc-950/60 border rounded-md px-1.5 py-1 text-xs font-mono focus:outline-none disabled:opacity-30"
+                                style={{ color: isOver ? '#FF5E00' : '#E0FF00', borderColor: isOver ? '#FF5E00' : isSel ? '#E0FF0080' : 'rgba(255,255,255,0.1)' }}
+                              />
+                            </td>
+                          )}
                           <td className="px-2 py-2"><QtyInput testid={`qty-separated-${m.id}`} value={Number(m.qty_separated ?? 0)} saving={savingRow === m.id + ':qty_separated'} onCommit={(v) => patchItem(m, 'qty_separated', v)} color="#39FF14" /></td>
                           <td className="px-2 py-2"><QtyInput testid={`qty-baixado-${m.id}`} value={Number(m.qty_written_off ?? 0)} saving={savingRow === m.id + ':qty_written_off'} onCommit={(v) => patchItem(m, 'qty_written_off', v)} color="#FF5E00" /></td>
                           <td className="px-2 py-2"><QtyInput testid={`qty-delivered-${m.id}`} value={qent} saving={savingRow === m.id + ':qty_delivered'} onCommit={(v) => patchItem(m, 'qty_delivered', v)} color="#00F0FF" /></td>
@@ -622,6 +754,126 @@ export const SolicitacaoMaterialPage = () => {
           </motion.div>
         </div>
       )}
+      {/* Fev/2026 · Modal: Adicionar material avulso (não orçado) */}
+      {avulsoOpen && (
+        <div
+          data-testid="avulso-modal"
+          className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4"
+          onClick={() => !savingAvulso && setAvulsoOpen(false)}
+        >
+          <div
+            className="glass-panel rounded-2xl border border-[#E0FF00]/40 max-w-md w-full p-5 space-y-4"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-[10px] tracking-[0.2em] uppercase font-bold text-[#E0FF00]">Reserva não orçada</p>
+                <h3 className="text-white font-bold text-lg">Adicionar material avulso</h3>
+              </div>
+              <button
+                data-testid="avulso-close"
+                onClick={() => !savingAvulso && setAvulsoOpen(false)}
+                className="w-8 h-8 rounded-full bg-white/5 border border-white/10 text-zinc-400"
+              >
+                <X className="w-4 h-4 mx-auto" />
+              </button>
+            </div>
+            <div className="grid grid-cols-3 gap-3">
+              <label className="col-span-1">
+                <span className="text-[10px] tracking-[0.15em] uppercase text-zinc-500 font-bold">Código</span>
+                <input
+                  data-testid="avulso-code"
+                  value={avulsoForm.code}
+                  onChange={(e) => setAvulsoForm((s) => ({ ...s, code: e.target.value }))}
+                  placeholder="opcional"
+                  className="w-full mt-1 bg-zinc-950/60 border border-white/10 rounded-md px-2 py-2 text-sm text-white font-mono focus:outline-none focus:border-[#E0FF00]"
+                />
+              </label>
+              <label className="col-span-2">
+                <span className="text-[10px] tracking-[0.15em] uppercase text-zinc-500 font-bold">Descrição *</span>
+                <input
+                  data-testid="avulso-item"
+                  value={avulsoForm.item}
+                  onChange={(e) => setAvulsoForm((s) => ({ ...s, item: e.target.value }))}
+                  placeholder="Ex: Cabo cobre 25mm² extra"
+                  className="w-full mt-1 bg-zinc-950/60 border border-white/10 rounded-md px-2 py-2 text-sm text-white focus:outline-none focus:border-[#E0FF00]"
+                  autoFocus
+                />
+              </label>
+            </div>
+            <div className="grid grid-cols-3 gap-3">
+              <label>
+                <span className="text-[10px] tracking-[0.15em] uppercase text-zinc-500 font-bold">Qtd *</span>
+                <input
+                  data-testid="avulso-qty"
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={avulsoForm.quantity}
+                  onChange={(e) => setAvulsoForm((s) => ({ ...s, quantity: e.target.value }))}
+                  className="w-full mt-1 bg-zinc-950/60 border border-white/10 rounded-md px-2 py-2 text-sm text-white font-mono focus:outline-none focus:border-[#E0FF00]"
+                />
+              </label>
+              <label>
+                <span className="text-[10px] tracking-[0.15em] uppercase text-zinc-500 font-bold">Unidade</span>
+                <select
+                  data-testid="avulso-unit"
+                  value={avulsoForm.unit}
+                  onChange={(e) => setAvulsoForm((s) => ({ ...s, unit: e.target.value }))}
+                  className="w-full mt-1 bg-zinc-950/60 border border-white/10 rounded-md px-2 py-2 text-sm text-white focus:outline-none focus:border-[#E0FF00]"
+                >
+                  {MATERIAL_UNITS.map((u) => <option key={u.value} value={u.value}>{u.value}</option>)}
+                </select>
+              </label>
+              <label>
+                <span className="text-[10px] tracking-[0.15em] uppercase text-zinc-500 font-bold">Preço unit.</span>
+                <input
+                  data-testid="avulso-cost"
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={avulsoForm.unit_cost}
+                  onChange={(e) => setAvulsoForm((s) => ({ ...s, unit_cost: e.target.value }))}
+                  className="w-full mt-1 bg-zinc-950/60 border border-white/10 rounded-md px-2 py-2 text-sm text-white font-mono focus:outline-none focus:border-[#E0FF00]"
+                />
+              </label>
+            </div>
+            <label className="block">
+              <span className="text-[10px] tracking-[0.15em] uppercase text-zinc-500 font-bold">Observação (por que é avulso?)</span>
+              <textarea
+                data-testid="avulso-notes"
+                value={avulsoForm.notes}
+                onChange={(e) => setAvulsoForm((s) => ({ ...s, notes: e.target.value }))}
+                rows={2}
+                placeholder="Ex: Obra pediu reforço no ponto P3"
+                className="w-full mt-1 bg-zinc-950/60 border border-white/10 rounded-md px-2 py-2 text-sm text-white focus:outline-none focus:border-[#E0FF00]"
+              />
+            </label>
+            <div className="rounded-lg bg-[#E0FF00]/10 border border-[#E0FF00]/30 p-2 text-[11px] text-[#E0FF00]/90 flex items-center gap-2">
+              <AlertCircle className="w-3.5 h-3.5" />
+              <span>Total: <b className="font-mono">R$ {(Number(avulsoForm.quantity || 0) * Number(avulsoForm.unit_cost || 0)).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</b> · Item será marcado como AVULSO</span>
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                data-testid="avulso-cancel"
+                onClick={() => !savingAvulso && setAvulsoOpen(false)}
+                className="py-2 rounded-full bg-white/5 border border-white/10 text-white font-bold text-sm"
+              >
+                Cancelar
+              </button>
+              <button
+                data-testid="avulso-save"
+                onClick={saveAvulso}
+                disabled={savingAvulso}
+                className="py-2 rounded-full bg-[#E0FF00] text-black font-black text-sm inline-flex items-center justify-center gap-2 disabled:opacity-60"
+              >
+                {savingAvulso ? <Loader className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
+                {savingAvulso ? 'Salvando…' : 'Adicionar'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </AppLayout>
   );
 };
@@ -686,6 +938,8 @@ const RequisitionRow = ({ req, projectId, onOpenPdf, onOpenPhoto, onConfirm, onR
     { c: '#71717a', l: 'Pendente' };
 
   const received = !!req.receipt;
+  const isPartial = req.requisition_type === 'parcial';
+  const partialItems = req.items || [];
 
   return (
     <div data-testid={`req-row-${req.id}`} className="p-3">
@@ -695,9 +949,14 @@ const RequisitionRow = ({ req, projectId, onOpenPdf, onOpenPhoto, onConfirm, onR
             {new Date(req.created_at).toLocaleString('pt-BR')} · <span className="text-zinc-400">{req.created_by}</span>
           </p>
           <p className="text-[10px] text-zinc-500">
-            {req.recipients?.length || 0} destinatário(s) · {req.materials_snapshot?.length || 0} itens · assinado por {req.signature_name || '—'}
+            {req.recipients?.length || 0} destinatário(s) · {isPartial ? `${partialItems.length} item(ns) nesta remessa` : `${req.materials_snapshot?.length || 0} itens`} · assinado por {req.signature_name || '—'}
           </p>
         </div>
+        {isPartial && (
+          <span data-testid={`req-partial-badge-${req.id}`} className="px-2 py-0.5 rounded-full text-[10px] font-black bg-[#E0FF00]/15 border border-[#E0FF00]/60 text-[#E0FF00] inline-flex items-center gap-1 tracking-wider">
+            <ListChecks className="w-3 h-3" /> PARCIAL nº {req.seq || '—'}
+          </span>
+        )}
         <span
           className="px-2 py-0.5 rounded-full text-[10px] font-bold border"
           style={{ backgroundColor: `${statusChip.c}15`, borderColor: `${statusChip.c}50`, color: statusChip.c }}
@@ -752,6 +1011,35 @@ const RequisitionRow = ({ req, projectId, onOpenPdf, onOpenPhoto, onConfirm, onR
 
       {expand && (
         <div className="mt-3 rounded-xl bg-zinc-950/60 border border-white/10 p-3 space-y-4">
+          {isPartial && partialItems.length > 0 && (
+            <div data-testid={`req-partial-items-${req.id}`} className="pb-3 border-b border-white/5">
+              <p className="text-[10px] tracking-[0.2em] uppercase font-bold text-[#E0FF00] inline-flex items-center gap-1 mb-2">
+                <ListChecks className="w-3 h-3" /> Itens desta remessa parcial
+              </p>
+              <table className="w-full text-[11px]">
+                <thead>
+                  <tr className="text-[9px] tracking-[0.15em] uppercase font-bold text-zinc-500">
+                    <th className="text-left px-2 py-1">Código</th>
+                    <th className="text-left px-2 py-1">Descrição</th>
+                    <th className="px-2 py-1 text-right">Nesta req.</th>
+                    <th className="px-2 py-1 text-right">Qtd. obra</th>
+                    <th className="px-2 py-1 text-right">Saldo após</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {partialItems.map((it) => (
+                    <tr key={it.material_id} className="border-t border-white/5">
+                      <td className="px-2 py-1 font-mono text-[#E0FF00]">{it.code || '-'}</td>
+                      <td className="px-2 py-1 text-white">{it.item}</td>
+                      <td className="px-2 py-1 text-right font-mono font-bold text-[#FF5E00]">{it.qty} {(it.unit || 'UN').toUpperCase()}</td>
+                      <td className="px-2 py-1 text-right font-mono text-zinc-400">{it.qty_total}</td>
+                      <td className="px-2 py-1 text-right font-mono text-[#00F0FF]">{it.saldo_after}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
           {/* Warehouse response block */}
           <div data-testid={`req-warehouse-block-${req.id}`} className="space-y-2 pb-3 border-b border-white/5">
             <p className="text-[10px] tracking-[0.2em] uppercase font-bold text-[#E0FF00] inline-flex items-center gap-1">
@@ -887,126 +1175,6 @@ const RequisitionRow = ({ req, projectId, onOpenPdf, onOpenPhoto, onConfirm, onR
         </div>
       )}
 
-      {/* Fev/2026 · Modal: Adicionar material avulso (não orçado) */}
-      {avulsoOpen && (
-        <div
-          data-testid="avulso-modal"
-          className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4"
-          onClick={() => !savingAvulso && setAvulsoOpen(false)}
-        >
-          <div
-            className="glass-panel rounded-2xl border border-[#E0FF00]/40 max-w-md w-full p-5 space-y-4"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-[10px] tracking-[0.2em] uppercase font-bold text-[#E0FF00]">Reserva não orçada</p>
-                <h3 className="text-white font-bold text-lg">Adicionar material avulso</h3>
-              </div>
-              <button
-                data-testid="avulso-close"
-                onClick={() => !savingAvulso && setAvulsoOpen(false)}
-                className="w-8 h-8 rounded-full bg-white/5 border border-white/10 text-zinc-400"
-              >
-                <X className="w-4 h-4 mx-auto" />
-              </button>
-            </div>
-            <div className="grid grid-cols-3 gap-3">
-              <label className="col-span-1">
-                <span className="text-[10px] tracking-[0.15em] uppercase text-zinc-500 font-bold">Código</span>
-                <input
-                  data-testid="avulso-code"
-                  value={avulsoForm.code}
-                  onChange={(e) => setAvulsoForm((s) => ({ ...s, code: e.target.value }))}
-                  placeholder="opcional"
-                  className="w-full mt-1 bg-zinc-950/60 border border-white/10 rounded-md px-2 py-2 text-sm text-white font-mono focus:outline-none focus:border-[#E0FF00]"
-                />
-              </label>
-              <label className="col-span-2">
-                <span className="text-[10px] tracking-[0.15em] uppercase text-zinc-500 font-bold">Descrição *</span>
-                <input
-                  data-testid="avulso-item"
-                  value={avulsoForm.item}
-                  onChange={(e) => setAvulsoForm((s) => ({ ...s, item: e.target.value }))}
-                  placeholder="Ex: Cabo cobre 25mm² extra"
-                  className="w-full mt-1 bg-zinc-950/60 border border-white/10 rounded-md px-2 py-2 text-sm text-white focus:outline-none focus:border-[#E0FF00]"
-                  autoFocus
-                />
-              </label>
-            </div>
-            <div className="grid grid-cols-3 gap-3">
-              <label>
-                <span className="text-[10px] tracking-[0.15em] uppercase text-zinc-500 font-bold">Qtd *</span>
-                <input
-                  data-testid="avulso-qty"
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  value={avulsoForm.quantity}
-                  onChange={(e) => setAvulsoForm((s) => ({ ...s, quantity: e.target.value }))}
-                  className="w-full mt-1 bg-zinc-950/60 border border-white/10 rounded-md px-2 py-2 text-sm text-white font-mono focus:outline-none focus:border-[#E0FF00]"
-                />
-              </label>
-              <label>
-                <span className="text-[10px] tracking-[0.15em] uppercase text-zinc-500 font-bold">Unidade</span>
-                <select
-                  data-testid="avulso-unit"
-                  value={avulsoForm.unit}
-                  onChange={(e) => setAvulsoForm((s) => ({ ...s, unit: e.target.value }))}
-                  className="w-full mt-1 bg-zinc-950/60 border border-white/10 rounded-md px-2 py-2 text-sm text-white focus:outline-none focus:border-[#E0FF00]"
-                >
-                  {MATERIAL_UNITS.map((u) => <option key={u.value} value={u.value}>{u.value}</option>)}
-                </select>
-              </label>
-              <label>
-                <span className="text-[10px] tracking-[0.15em] uppercase text-zinc-500 font-bold">Preço unit.</span>
-                <input
-                  data-testid="avulso-cost"
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  value={avulsoForm.unit_cost}
-                  onChange={(e) => setAvulsoForm((s) => ({ ...s, unit_cost: e.target.value }))}
-                  className="w-full mt-1 bg-zinc-950/60 border border-white/10 rounded-md px-2 py-2 text-sm text-white font-mono focus:outline-none focus:border-[#E0FF00]"
-                />
-              </label>
-            </div>
-            <label className="block">
-              <span className="text-[10px] tracking-[0.15em] uppercase text-zinc-500 font-bold">Observação (por que é avulso?)</span>
-              <textarea
-                data-testid="avulso-notes"
-                value={avulsoForm.notes}
-                onChange={(e) => setAvulsoForm((s) => ({ ...s, notes: e.target.value }))}
-                rows={2}
-                placeholder="Ex: Obra pediu reforço no ponto P3"
-                className="w-full mt-1 bg-zinc-950/60 border border-white/10 rounded-md px-2 py-2 text-sm text-white focus:outline-none focus:border-[#E0FF00]"
-              />
-            </label>
-            <div className="rounded-lg bg-[#E0FF00]/10 border border-[#E0FF00]/30 p-2 text-[11px] text-[#E0FF00]/90 flex items-center gap-2">
-              <AlertCircle className="w-3.5 h-3.5" />
-              <span>Total: <b className="font-mono">R$ {(Number(avulsoForm.quantity || 0) * Number(avulsoForm.unit_cost || 0)).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</b> · Item será marcado como AVULSO</span>
-            </div>
-            <div className="grid grid-cols-2 gap-2">
-              <button
-                data-testid="avulso-cancel"
-                onClick={() => !savingAvulso && setAvulsoOpen(false)}
-                className="py-2 rounded-full bg-white/5 border border-white/10 text-white font-bold text-sm"
-              >
-                Cancelar
-              </button>
-              <button
-                data-testid="avulso-save"
-                onClick={saveAvulso}
-                disabled={savingAvulso}
-                className="py-2 rounded-full bg-[#E0FF00] text-black font-black text-sm inline-flex items-center justify-center gap-2 disabled:opacity-60"
-              >
-                {savingAvulso ? <Loader className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
-                {savingAvulso ? 'Salvando…' : 'Adicionar'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 };

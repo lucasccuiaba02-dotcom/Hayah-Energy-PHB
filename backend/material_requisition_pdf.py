@@ -49,7 +49,9 @@ def _qr_image(data: str, size_mm: float = 22) -> Image:
     return Image(buf, width=size_mm * mm, height=size_mm * mm)
 
 
-def build_requisition_pdf(project: dict, signature_name: str, notes: str, requisition_id: str, requested_by: str) -> bytes:
+def build_requisition_pdf(project: dict, signature_name: str, notes: str, requisition_id: str, requested_by: str,
+                          items=None, partial=None) -> bytes:
+    """items/partial: requisição PARCIAL — só os itens escolhidos, com colunas Qtd. Obra / Já Req. / Nesta Req. / Saldo."""
     buf = io.BytesIO()
     doc = SimpleDocTemplate(buf, pagesize=A4,
                             topMargin=12 * mm, bottomMargin=12 * mm,
@@ -63,11 +65,19 @@ def build_requisition_pdf(project: dict, signature_name: str, notes: str, requis
                               alignment=1, fontSize=9, spaceAfter=8))
     styles.add(ParagraphStyle(name="Small", parent=styles["Normal"], fontSize=9, textColor=colors.HexColor("#333333")))
     styles.add(ParagraphStyle(name="Muted", parent=styles["Normal"], fontSize=8, textColor=colors.HexColor("#888888")))
+    styles.add(ParagraphStyle(name="Banner", parent=styles["Normal"], fontSize=9.5, textColor=colors.HexColor("#050505"),
+                              backColor=colors.HexColor("#FF5E00"), borderPadding=(5, 6, 5, 6), alignment=1, leading=13))
 
     story = []
 
-    story.append(Paragraph("HAYAH ENERGY — Requisição de Almoxarifado", styles["TitleHY"]))
-    story.append(Paragraph(f"Documento nº {requisition_id} · Emitido em {datetime.now().strftime('%d/%m/%Y %H:%M')}", styles["Sub"]))
+    if partial:
+        story.append(Paragraph("HAYAH ENERGY — Requisição PARCIAL de Almoxarifado", styles["TitleHY"]))
+        story.append(Paragraph(
+            f"Remessa parcial nº {partial.get('seq', 1)} · {partial.get('selected', len(items or []))} de {partial.get('total_items', 0)} itens · "
+            f"Documento nº {requisition_id} · Emitido em {datetime.now().strftime('%d/%m/%Y %H:%M')}", styles["Sub"]))
+    else:
+        story.append(Paragraph("HAYAH ENERGY — Requisição de Almoxarifado", styles["TitleHY"]))
+        story.append(Paragraph(f"Documento nº {requisition_id} · Emitido em {datetime.now().strftime('%d/%m/%Y %H:%M')}", styles["Sub"]))
 
     # HEADER (obra + equipe + data + localidade + QR)
     period = f"{(project.get('start_date') or '')[:10]} → {(project.get('end_date') or '')[:10]}"
@@ -110,7 +120,54 @@ def build_requisition_pdf(project: dict, signature_name: str, notes: str, requis
     story.append(Spacer(1, 8))
 
     # MATERIALS TABLE
-    materials = project.get("materials_list", []) or []
+    if partial:
+        story.append(Paragraph(
+            "<b>REQUISIÇÃO PARCIAL</b> — a equipe levará para campo apenas os itens e quantidades abaixo. "
+            "O saldo permanece reservado no almoxarifado para as próximas remessas.", styles["Banner"]))
+        story.append(Spacer(1, 6))
+        rows = [["Código", "Descrição", "Un", "Qtd. Obra", "Já Req.", "Nesta Req.", "Saldo"]]
+        tot_now = tot_saldo = 0.0
+        for m in (items or []):
+            qt = float(m.get("qty_requested", m.get("quantity", 0)) or 0)
+            done = float(m.get("req_done") or 0)
+            now = float(m.get("req_qty") or 0)
+            saldo = max(0.0, qt - done - now)
+            tot_now += now; tot_saldo += saldo
+            code_val, desc = _resolve_code_and_desc(m)
+            unit_val = (m.get("unit") or m.get("unidade") or m.get("un") or "UN")
+            rows.append([Paragraph(str(code_val), styles["Small"]), Paragraph(str(desc), styles["Small"]),
+                         str(unit_val).upper(), f"{qt:g}", f"{done:g}", f"{now:g}", f"{saldo:g}"])
+        rows.append(["", "TOTAIS DESTA REMESSA", "", "", "", f"{tot_now:g}", f"{tot_saldo:g}"])
+        mat_tbl = Table(rows, colWidths=[22 * mm, 55 * mm, 12 * mm, 20 * mm, 20 * mm, 22 * mm, 22 * mm])
+        mat_tbl.setStyle(TableStyle([
+            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#050505")),
+            ("TEXTCOLOR", (0, 0), (-1, 0), colors.HexColor("#E0FF00")),
+            ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+            ("FONTSIZE", (0, 0), (-1, 0), 9),
+            ("ALIGN", (3, 0), (-1, -1), "RIGHT"),
+            ("ALIGN", (0, 0), (0, -1), "CENTER"),
+            ("ALIGN", (2, 0), (2, -1), "CENTER"),
+            ("FONTSIZE", (0, 1), (-1, -1), 9),
+            ("ROWBACKGROUNDS", (0, 1), (-1, -2), [colors.white, colors.HexColor("#FAFAFA")]),
+            ("BACKGROUND", (0, -1), (-1, -1), colors.HexColor("#EDEDED")),
+            ("FONTNAME", (0, -1), (-1, -1), "Helvetica-Bold"),
+            ("FONTNAME", (5, 1), (5, -1), "Helvetica-Bold"),
+            ("BACKGROUND", (5, 1), (5, -2), colors.HexColor("#FFF1E8")),
+            ("TEXTCOLOR", (4, 1), (4, -1), colors.HexColor("#888888")),
+            ("TEXTCOLOR", (5, 1), (5, -1), colors.HexColor("#E55400")),
+            ("TEXTCOLOR", (6, 1), (6, -1), colors.HexColor("#005EE0")),
+            ("BOX", (0, 0), (-1, -1), 0.6, colors.HexColor("#050505")),
+            ("INNERGRID", (0, 0), (-1, -1), 0.3, colors.HexColor("#CCCCCC")),
+            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+            ("LEFTPADDING", (0, 0), (-1, -1), 3),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 3),
+            ("TOPPADDING", (0, 0), (-1, -1), 3),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+        ]))
+        story.append(mat_tbl)
+        materials = []
+    else:
+        materials = project.get("materials_list", []) or []
     if materials:
         rows = [["Código", "Descrição", "Un", "Solicitado", "Separado", "Baixado", "Entregue"]]
         tot_s = tot_sep = tot_bx = tot_ent = 0.0
@@ -158,7 +215,7 @@ def build_requisition_pdf(project: dict, signature_name: str, notes: str, requis
             ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
         ]))
         story.append(mat_tbl)
-    else:
+    elif not partial:
         story.append(Paragraph("<i>Sem itens de material cadastrados.</i>", styles["Muted"]))
 
     if notes:
