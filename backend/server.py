@@ -30,7 +30,7 @@ from push_notifications import ensure_vapid_keys, broadcast_push
 from daily_log_pdf import build_daily_log_pdf
 from route_pdf import build_route_pdf
 from material_requisition_pdf import build_requisition_pdf
-from material_ledger import build_material_ledger, build_material_ledger_pdf, build_material_ledger_xlsx
+from material_ledger import build_material_ledger, build_material_ledger_pdf, build_material_ledger_xlsx, build_consolidated_xlsx
 
 # Module-level cache for geocoding (TTL 60s handled per request)
 _geocode_cache: dict = {}
@@ -4368,6 +4368,30 @@ async def get_material_ledger_xlsx(project_id: str, current_user: dict = Depends
     data = await asyncio.to_thread(build_material_ledger_xlsx, build_material_ledger(project))
     return Response(content=data, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                     headers={"Content-Disposition": f'attachment; filename="{_ledger_filename(project, "xlsx")}"'})
+
+
+@api_router.get("/reports/materials-consolidated")
+async def get_materials_consolidated_report(
+    start: Optional[str] = None,
+    end: Optional[str] = None,
+    team_id: Optional[str] = None,
+    current_user: dict = Depends(get_current_user),
+):
+    """Excel consolidado de materiais de TODAS as obras com lista de materiais; período filtra as movimentações (posição em campo/saldo é a atual)."""
+    if start and end and start[:10] > end[:10]:
+        raise HTTPException(status_code=400, detail="Data inicial maior que a final")
+    query = {"user_id": current_user["_id"], "materials_list.0": {"$exists": True}}
+    team_label = ""
+    if team_id:
+        query["$or"] = [{"team_id": team_id}, {"schedule_entries.team_ids": team_id}]
+        team = await db.teams.find_one({"_id": safe_object_id(team_id)})
+        team_label = (team or {}).get("name", "") or team_id
+    projects = await db.projects.find(query).sort("project_code", 1).to_list(5000)
+    ledgers = [build_material_ledger(p) for p in projects]
+    data = await asyncio.to_thread(build_consolidated_xlsx, ledgers, start or "", end or "", team_label)
+    fname = f"consolidado_materiais_{(start or 'inicio')[:10]}_{(end or 'hoje')[:10]}_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx"
+    return Response(content=data, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    headers={"Content-Disposition": f'attachment; filename="{fname}"', "X-Projects-Count": str(len(ledgers))})
 
 
 # Fev/2026 · APR (Análise Preliminar de Risco) ==============================

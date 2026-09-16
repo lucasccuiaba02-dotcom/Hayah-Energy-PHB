@@ -5,7 +5,7 @@ import { toast } from 'sonner';
 import { AppLayout } from '../components/AppLayout';
 import { ProjectFilters } from '../components/ProjectFilters';
 import { MaterialLedgerPanel } from '../components/MaterialLedgerPanel';
-import { FileSpreadsheet, Download, TrendingUp, Briefcase, Activity, DollarSign, Mail, Users, CalendarX, TrendingDown, ClipboardCheck } from 'lucide-react';
+import { FileSpreadsheet, Download, TrendingUp, Briefcase, Activity, DollarSign, Mail, Users, CalendarX, TrendingDown, ClipboardCheck, Boxes } from 'lucide-react';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -84,6 +84,31 @@ export const RelatoriosPage = () => {
       toast.success(`Relatório de ${r.title} baixado!`);
     } catch (err) {
       toast.error('Erro ao gerar relatório');
+    } finally {
+      setDownloading('');
+    }
+  };
+
+  const downloadConsolidated = async () => {
+    setDownloading('materials-consolidated');
+    try {
+      const params = new URLSearchParams();
+      if (filters.startDate) params.append('start', filters.startDate);
+      if (filters.endDate) params.append('end', filters.endDate);
+      if (filters.teamId) params.append('team_id', filters.teamId);
+      const response = await axios.get(`${API}/reports/materials-consolidated?${params.toString()}`, { responseType: 'blob' });
+      const url = window.URL.createObjectURL(response.data);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `consolidado_materiais_${filters.startDate || 'inicio'}_${filters.endDate || 'hoje'}.xlsx`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+      const n = response.headers?.['x-projects-count'];
+      toast.success(`Consolidado de materiais baixado${n ? ` (${n} obra(s))` : ''}!`);
+    } catch (err) {
+      toast.error(err?.response?.status === 400 ? 'Período inválido: data inicial maior que a final' : 'Erro ao gerar consolidado');
     } finally {
       setDownloading('');
     }
@@ -198,6 +223,40 @@ export const RelatoriosPage = () => {
         <p className="text-[11px] tracking-[0.25em] uppercase font-bold text-zinc-500">Materiais · Inventário e Controle</p>
         <div className="flex-1 h-px bg-white/5" />
       </div>
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.08 }}
+        data-testid="report-card-materials-consolidated"
+        className="glass-panel rounded-2xl p-6 flex items-center justify-between gap-4 flex-wrap mb-4 hover:border-white/20 transition-all"
+        style={{ borderColor: '#39FF1420' }}
+      >
+        <div className="flex items-center gap-4 min-w-0">
+          <div className="w-12 h-12 shrink-0 rounded-xl flex items-center justify-center bg-[#39FF14]/15 border border-[#39FF14]/40">
+            <Boxes className="w-6 h-6 text-[#39FF14]" />
+          </div>
+          <div className="min-w-0">
+            <h3 className="font-heading font-black text-xl tracking-tighter text-white">Consolidado de Materiais · Todas as Obras</h3>
+            <p className="text-xs text-zinc-500 mt-1">
+              Excel com 4 abas: Resumo por Obra · Por Material (inventário) · Eventos do Período · Posição Atual obra × material.
+              Usa o período e a equipe dos filtros acima — o período filtra as <b className="text-zinc-300">movimentações</b>; em campo e saldo são a posição atual.
+            </p>
+            <p data-testid="materials-consolidated-period" className="text-[10px] text-[#39FF14] mt-1 font-mono">
+              Período: {filters.startDate ? filters.startDate.split('-').reverse().join('/') : 'início'} → {filters.endDate ? filters.endDate.split('-').reverse().join('/') : 'hoje'}
+              {filters.teamId ? ` · equipe ${teams.find((t) => t.id === filters.teamId)?.name || ''}` : ' · todas as equipes'}
+            </p>
+          </div>
+        </div>
+        <button
+          data-testid="download-materials-consolidated"
+          onClick={downloadConsolidated}
+          disabled={downloading === 'materials-consolidated'}
+          className="flex items-center gap-2 px-4 py-2 rounded-full text-sm font-bold bg-[#39FF14] text-black transition-all transform hover:scale-105 disabled:opacity-50"
+        >
+          <Download className="w-4 h-4" />
+          {downloading === 'materials-consolidated' ? 'Gerando...' : 'Excel'}
+        </button>
+      </motion.div>
       <MaterialLedgerPanel projects={projects} />
 
       <motion.div

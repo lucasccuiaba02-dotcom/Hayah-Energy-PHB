@@ -277,7 +277,158 @@ def build_material_ledger_xlsx(ledger: dict) -> bytes:
     return buf.getvalue()
 
 
-# ---------------------------------------------------------------- PDF
+# ---------------------------------------------------------------- Consolidado (todas as obras · período)
+def _in_period(ts: str, start: str, end: str) -> bool:
+    d = (ts or "")[:10]
+    if not d:
+        return False
+    if start and d < start[:10]:
+        return False
+    if end and d > end[:10]:
+        return False
+    return True
+
+
+def _period_label(start: str, end: str) -> str:
+    def f(x):
+        return f"{x[8:10]}/{x[5:7]}/{x[0:4]}" if x and len(x) >= 10 else ""
+    if start and end:
+        return f"{f(start)} a {f(end)}"
+    if start:
+        return f"a partir de {f(start)}"
+    if end:
+        return f"até {f(end)}"
+    return "todo o histórico"
+
+
+def build_consolidated_xlsx(ledgers: list, start: str = "", end: str = "", team_label: str = "") -> bytes:
+    wb = Workbook()
+    head_font = Font(bold=True, color="E0FF00")
+    head_fill = PatternFill("solid", fgColor="050505")
+    bold = Font(bold=True)
+    per = _period_label(start, end)
+
+    def header(ws, cols, row=None):
+        ws.append(cols)
+        r = row or ws.max_row
+        for c in range(1, len(cols) + 1):
+            cell = ws.cell(row=r, column=c)
+            cell.font = head_font
+            cell.fill = head_fill
+            cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+        return r
+
+    def widths(ws, ws_widths):
+        for i, w in enumerate(ws_widths, start=1):
+            ws.column_dimensions[get_column_letter(i)].width = w
+
+    per_obra, por_material, eventos, posicao = [], {}, [], []
+    for lg in ledgers:
+        p, s = lg["project"], lg["summary"]
+        evs = [e for e in lg["events"] if _in_period(e["ts"], start, end)]
+        req = sum(_f(e["qty"]) for e in evs if e["type"] == "requisicao")
+        ret = sum(_f(e["qty"]) for e in evs if e["type"] == "devolucao")
+        ent = sum(_f(e["qty"]) for e in evs if e["type"] == "entregue")
+        sep = sum(_f(e["qty"]) for e in evs if e["type"] == "separado")
+        per_obra.append([p["code"], p["name"], p["team_name"], p["location"], p["status"], s["items_count"], s["total_qty"], req, ret, sep, ent,
+                         s["in_field_qty"], s["saldo_qty"], s["in_field_cost"], s["total_cost"], len(evs), "Sim" if evs else "Não"])
+        for e in evs:
+            eventos.append([e["ts_label"], p["code"], p["name"], p["team_name"], e["type_label"], e["code"], e["item"] or ("(obra)" if not e["material_id"] else ""),
+                            e["unit"] if e["material_id"] else "", e["qty"] if e["qty"] is not None else "", e["by"], e["ref"], e["detail"]])
+        ev_by_item = {}
+        for e in evs:
+            if e["material_id"]:
+                a = ev_by_item.setdefault(e["material_id"], {"req": 0.0, "ret": 0.0, "ent": 0.0})
+                if e["type"] == "requisicao":
+                    a["req"] += _f(e["qty"])
+                elif e["type"] == "devolucao":
+                    a["ret"] += _f(e["qty"])
+                elif e["type"] == "entregue":
+                    a["ent"] += _f(e["qty"])
+        for it in lg["items"]:
+            a = ev_by_item.get(it["id"], {"req": 0.0, "ret": 0.0, "ent": 0.0})
+            key = (it["code"] or "").strip().upper() or f"~{(it['item'] or '').strip().lower()}"
+            m = por_material.setdefault(key, {"code": it["code"], "item": it["item"], "unit": it["unit"], "obras": set(), "total": 0.0, "req": 0.0, "ret": 0.0, "ent": 0.0,
+                                              "field": 0.0, "saldo": 0.0, "cost": 0.0, "unit_cost": it["unit_cost"]})
+            m["obras"].add(p["code"] or p["name"])
+            m["total"] += it["qty_total"]; m["req"] += a["req"]; m["ret"] += a["ret"]; m["ent"] += a["ent"]
+            m["field"] += it["in_field"]; m["saldo"] += it["saldo"]; m["cost"] += it["in_field_cost"]
+            if not m["item"] and it["item"]:
+                m["item"] = it["item"]
+            posicao.append([p["code"], p["name"], p["team_name"], it["code"], it["item"], it["unit"], "Avulso" if it["source"] == "avulso" else "Planilha", it["qty_total"],
+                            it["qty_requisitioned"], it["qty_returned"], it["in_field"], it["qty_separated"], it["qty_delivered"], it["saldo"], it["unit_cost"], it["in_field_cost"],
+                            it["warehouse_status"], it["events_count"]])
+
+    ws = wb.active
+    ws.title = "Resumo por Obra"
+    ws.append([f"Consolidado de Materiais — todas as obras · Período: {per}" + (f" · Equipe: {team_label}" if team_label else "")])
+    ws["A1"].font = Font(bold=True, size=13)
+    ws.append([f"Gerado em {_fmt_ts(datetime.now(timezone.utc).isoformat())} · {len(ledgers)} obra(s) com lista de materiais · "
+               f"Requisitado/Devolvido/Separado/Entregue = movimentações DENTRO do período · Em campo/Saldo = posição ATUAL"])
+    ws.append([])
+    cols = ["Código Obra", "Obra", "Equipe", "Localidade", "Status", "Itens", "Qtd. Orçada", "Requisitado (per.)", "Devolvido (per.)", "Separado (per.)", "Entregue (per.)",
+            "Em Campo (hoje)", "Saldo a Requisitar (hoje)", "Custo em Campo (R$)", "Custo Orçado (R$)", "Eventos (per.)", "Movimentou no período"]
+    hr = header(ws, cols)
+    per_obra.sort(key=lambda r: (r[16] != "Sim", r[0]))
+    for r in per_obra:
+        ws.append(r)
+    tot = ["TOTAIS", f"{len(per_obra)} obra(s)", "", "", "", sum(r[5] for r in per_obra), sum(r[6] for r in per_obra), sum(r[7] for r in per_obra), sum(r[8] for r in per_obra),
+           sum(r[9] for r in per_obra), sum(r[10] for r in per_obra), sum(r[11] for r in per_obra), sum(r[12] for r in per_obra), sum(r[13] for r in per_obra),
+           sum(r[14] for r in per_obra), sum(r[15] for r in per_obra), f"{sum(1 for r in per_obra if r[16] == 'Sim')} sim"]
+    ws.append(tot)
+    for c in range(1, len(cols) + 1):
+        ws.cell(row=ws.max_row, column=c).font = bold
+    for row in ws.iter_rows(min_row=hr + 1, max_row=ws.max_row, min_col=14, max_col=15):
+        for cell in row:
+            cell.number_format = '#,##0.00'
+    widths(ws, [14, 40, 18, 18, 16, 7, 12, 14, 13, 13, 13, 13, 16, 16, 15, 11, 12])
+    ws.freeze_panes = ws.cell(row=hr + 1, column=1)
+    ws.auto_filter.ref = f"A{hr}:{get_column_letter(len(cols))}{ws.max_row - 1}"
+
+    ws2 = wb.create_sheet("Por Material")
+    cols2 = ["Código", "Descrição", "Un", "Nº Obras", "Qtd. Orçada (todas)", "Requisitado (per.)", "Devolvido (per.)", "Entregue (per.)", "Em Campo (hoje)", "Saldo a Requisitar (hoje)",
+             "Custo Unit. Ref. (R$)", "Custo em Campo (R$)"]
+    header(ws2, cols2, 1)
+    for m in sorted(por_material.values(), key=lambda x: (-x["field"], x["code"] or x["item"])):
+        ws2.append([m["code"], m["item"], m["unit"], len(m["obras"]), round(m["total"], 3), round(m["req"], 3), round(m["ret"], 3), round(m["ent"], 3), round(m["field"], 3),
+                    round(m["saldo"], 3), m["unit_cost"], round(m["cost"], 2)])
+    ws2.append(["TOTAIS", f"{len(por_material)} material(is)", "", "", round(sum(m['total'] for m in por_material.values()), 3), round(sum(m['req'] for m in por_material.values()), 3),
+                round(sum(m['ret'] for m in por_material.values()), 3), round(sum(m['ent'] for m in por_material.values()), 3), round(sum(m['field'] for m in por_material.values()), 3),
+                round(sum(m['saldo'] for m in por_material.values()), 3), "", round(sum(m['cost'] for m in por_material.values()), 2)])
+    for c in range(1, len(cols2) + 1):
+        ws2.cell(row=ws2.max_row, column=c).font = bold
+    for row in ws2.iter_rows(min_row=2, max_row=ws2.max_row, min_col=11, max_col=12):
+        for cell in row:
+            cell.number_format = '#,##0.00'
+    widths(ws2, [14, 46, 6, 9, 14, 14, 13, 13, 13, 16, 14, 16])
+    ws2.freeze_panes = "A2"
+    ws2.auto_filter.ref = f"A1:{get_column_letter(len(cols2))}{max(2, ws2.max_row - 1)}"
+
+    ws3 = wb.create_sheet("Eventos do Período")
+    cols3 = ["Data/Hora", "Código Obra", "Obra", "Equipe", "Tipo", "Código", "Material", "Un", "Qtd", "Responsável", "Referência", "Detalhes"]
+    header(ws3, cols3, 1)
+    for r in eventos:
+        ws3.append(r)
+    widths(ws3, [17, 14, 34, 16, 26, 14, 40, 6, 9, 22, 18, 70])
+    ws3.freeze_panes = "A2"
+    ws3.auto_filter.ref = f"A1:{get_column_letter(len(cols3))}{max(2, ws3.max_row)}"
+
+    ws4 = wb.create_sheet("Posição Atual")
+    cols4 = ["Código Obra", "Obra", "Equipe", "Código", "Descrição", "Un", "Origem", "Qtd. Obra", "Requisitado", "Devolvido", "Em Campo", "Separado", "Entregue", "Saldo",
+             "Custo Unit. (R$)", "Custo em Campo (R$)", "Status Almox.", "Nº Eventos"]
+    header(ws4, cols4, 1)
+    for r in posicao:
+        ws4.append(r)
+    for row in ws4.iter_rows(min_row=2, max_row=ws4.max_row, min_col=15, max_col=16):
+        for cell in row:
+            cell.number_format = '#,##0.00'
+    widths(ws4, [14, 34, 16, 14, 44, 6, 9, 10, 11, 10, 10, 10, 10, 9, 14, 16, 14, 10])
+    ws4.freeze_panes = "A2"
+    ws4.auto_filter.ref = f"A1:{get_column_letter(len(cols4))}{max(2, ws4.max_row)}"
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
 def build_material_ledger_pdf(ledger: dict) -> bytes:
     p = ledger["project"]
     s = ledger["summary"]
