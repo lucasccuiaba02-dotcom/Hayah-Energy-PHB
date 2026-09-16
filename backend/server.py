@@ -409,6 +409,7 @@ class ProjectResponse(BaseModel):
     attachments: List[dict] = Field(default_factory=list)
     materials_list: List[dict] = Field(default_factory=list)
     material_requisitions: List[dict] = Field(default_factory=list)
+    material_returns: List[dict] = Field(default_factory=list)
     billing_stage: str = ""
     billing_history: List[dict] = Field(default_factory=list)
     invoice_number: str = ""
@@ -1366,6 +1367,7 @@ def build_project_response(project: dict) -> ProjectResponse:
         attachments=project.get("attachments", []) or [],
         materials_list=project.get("materials_list", []) or [],
         material_requisitions=project.get("material_requisitions", []) or [],
+        material_returns=project.get("material_returns", []) or [],
         billing_stage=project.get("billing_stage", ""),
         billing_history=project.get("billing_history", []) or [],
         invoice_number=project.get("invoice_number", ""),
@@ -4525,18 +4527,28 @@ def _requisition_balance(project: dict) -> dict:
                 k = (m.get("item") or "").strip().lower()
                 if k:
                     by_name[k] = by_name.get(k, 0.0) + q
+    returned = {}
+    for r in (project.get("material_returns") or []):
+        for it in (r.get("items") or []):
+            if it.get("material_id"):
+                returned[it["material_id"]] = returned.get(it["material_id"], 0.0) + float(it.get("qty") or 0)
     items = []
     for m in (project.get("materials_list") or []):
         total = float(m.get("qty_requested", m.get("quantity", 0)) or 0)
-        done = by_id.get(m.get("id"), 0.0) + by_name.get((m.get("item") or "").strip().lower(), 0.0)
-        items.append({"id": m.get("id"), "qty_total": total, "qty_requisitioned": round(done, 3),
+        gross = by_id.get(m.get("id"), 0.0) + by_name.get((m.get("item") or "").strip().lower(), 0.0)
+        ret = returned.get(m.get("id"), 0.0)
+        done = max(0.0, gross - ret)
+        items.append({"id": m.get("id"), "qty_total": total, "qty_requisitioned": round(gross, 3), "qty_returned": round(ret, 3),
+                      "net_requisitioned": round(done, 3),
                       "saldo": round(max(0.0, total - done), 3), "over": round(max(0.0, done - total), 3)})
     partials = [r for r in (project.get("material_requisitions") or []) if r.get("requisition_type") == "parcial" and not r.get("is_resend")]
     return {
         "items": items, "partial_count": len(partials), "next_seq": len(partials) + 1,
+        "return_count": len(project.get("material_returns") or []),
+        "returned_qty": round(sum(i["qty_returned"] for i in items), 3),
         "fully_requisitioned": bool(items) and all(i["saldo"] <= 0 for i in items),
         "total_qty": round(sum(i["qty_total"] for i in items), 3),
-        "requisitioned_qty": round(sum(min(i["qty_requisitioned"], i["qty_total"]) for i in items), 3),
+        "requisitioned_qty": round(sum(min(i["net_requisitioned"], i["qty_total"]) for i in items), 3),
     }
 
 
@@ -4558,7 +4570,7 @@ def _partial_selection(project: dict, requisition_type: str, items_json: str):
     for m in (project.get("materials_list") or []):
         if m.get("id") in wanted:
             b = by_id.get(m["id"], {})
-            sel.append({**m, "req_qty": wanted[m["id"]], "req_done": b.get("qty_requisitioned", 0.0), "req_saldo": b.get("saldo", 0.0)})
+            sel.append({**m, "req_qty": wanted[m["id"]], "req_done": b.get("net_requisitioned", 0.0), "req_saldo": b.get("saldo", 0.0)})
     if not sel:
         raise HTTPException(status_code=400, detail="Nenhum item selecionado existe na lista da obra")
     partial = {"seq": bal["next_seq"], "selected": len(sel), "total_items": len(project.get("materials_list") or [])}
@@ -4581,6 +4593,145 @@ async def get_requisition_balance(project_id: str, current_user: dict = Depends(
     if not project:
         raise HTTPException(status_code=404, detail="Obra não encontrada")
     return _requisition_balance(project)
+
+
+# ====== Set/2026 · Devolução de sobras (material que voltou do campo → saldo da obra) ======
+class MaterialReturnItem(BaseModel):
+    material_id: str
+    qty: float = 0.0
+
+
+class MaterialReturnBody(BaseModel):
+    date: str = ""
+    returned_by: str = ""
+    reason: str = ""
+    notes: str = ""
+    items: List[MaterialReturnItem] = []
+
+
+@api_router.post("/projects/{project_id}/materials/returns")
+async def add_material_return(project_id: str, body: MaterialReturnBody, current_user: dict = Depends(get_current_user)):
+    project = await db.projects.find_one({"_id": safe_object_id(project_id), "user_id": current_user["_id"]})
+    if not project:
+        raise HTTPException(status_code=404, detail="Obra não encontrada")
+    bal = {b["id"]: b for b in _requisition_balance(project)["items"]}
+    mats = {m.get("id"): m for m in (project.get("materials_list") or [])}
+    items = []
+    for it in body.items:
+        if it.qty <= 0:
+            continue
+        m = mats.get(it.material_id)
+        if not m:
+            raise HTTPException(status_code=400, detail="Item não encontrado na lista da obra")
+        in_field = float(bal.get(it.material_id, {}).get("net_requisitioned", 0.0))
+        if it.qty > in_field + 1e-9:
+            raise HTTPException(status_code=400, detail=f"Devolução de '{m.get('item','')}' ({it.qty:g}) maior que o requisitado em campo ({in_field:g})")
+        items.append({"material_id": it.material_id, "code": m.get("code", ""), "item": m.get("item", ""), "unit": m.get("unit", "un"), "qty": float(it.qty)})
+    if not items:
+        raise HTTPException(status_code=400, detail="Informe ao menos um item com quantidade devolvida")
+    entry = {
+        "id": secrets.token_urlsafe(8), "created_at": datetime.now(timezone.utc).isoformat(),
+        "date": (body.date or _today_cuiaba())[:10], "registered_by": current_user.get("name", "") or current_user.get("email", ""),
+        "returned_by": body.returned_by.strip(), "reason": body.reason.strip(), "notes": body.notes.strip(), "items": items,
+        "total_qty": round(sum(i["qty"] for i in items), 3),
+    }
+    await db.projects.update_one({"_id": project["_id"]}, {"$push": {"material_returns": entry}})
+    project["material_returns"] = (project.get("material_returns") or []) + [entry]
+    return {"status": "ok", "return": entry, "balance": _requisition_balance(project)}
+
+
+@api_router.delete("/projects/{project_id}/materials/returns/{return_id}")
+async def delete_material_return(project_id: str, return_id: str, current_user: dict = Depends(get_current_user)):
+    result = await db.projects.update_one(
+        {"_id": safe_object_id(project_id), "user_id": current_user["_id"]},
+        {"$pull": {"material_returns": {"id": return_id}}},
+    )
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Obra não encontrada")
+    return {"status": "deleted"}
+
+
+# ====== Set/2026 · Baixa por remessa (separado/entregue por requisição) ======
+def _req_items_normalized(project: dict, req: dict) -> list:
+    """Itens de uma remessa (parcial → items[]; total → snapshot, legado casa por nome) + baixa já registrada."""
+    mats = project.get("materials_list") or []
+    by_id = {m.get("id"): m for m in mats}
+    by_name = {(m.get("item") or "").strip().lower(): m for m in mats}
+    if req.get("requisition_type") == "parcial":
+        src = [{"material_id": it.get("material_id"), "qty": it.get("qty"), "item": it.get("item"), "unit": it.get("unit")} for it in (req.get("items") or [])]
+    else:
+        src = []
+        for s in (req.get("materials_snapshot") or []):
+            mid = s.get("material_id") or (by_name.get((s.get("item") or "").strip().lower()) or {}).get("id")
+            src.append({"material_id": mid, "qty": s.get("qty_requested"), "item": s.get("item"), "unit": s.get("unit")})
+    ful = {f.get("material_id"): f for f in ((req.get("fulfillment") or {}).get("items") or [])}
+    out = []
+    for s in src:
+        if not s.get("material_id"):
+            continue
+        m = by_id.get(s["material_id"]) or {}
+        f = ful.get(s["material_id"], {})
+        out.append({"material_id": s["material_id"], "code": m.get("code", ""), "item": m.get("item") or s.get("item") or "",
+                    "unit": (m.get("unit") or s.get("unit") or "un"), "qty": float(s.get("qty") or 0),
+                    "qty_separated": float(f.get("qty_separated") or 0), "qty_delivered": float(f.get("qty_delivered") or 0)})
+    return out
+
+
+class FulfillmentItem(BaseModel):
+    material_id: str
+    qty_separated: float = 0.0
+    qty_delivered: float = 0.0
+
+
+class FulfillmentBody(BaseModel):
+    responsible: str = ""
+    notes: str = ""
+    items: List[FulfillmentItem] = []
+
+
+@api_router.get("/projects/{project_id}/requisitions/{req_id}/items")
+async def get_requisition_items(project_id: str, req_id: str, current_user: dict = Depends(get_current_user)):
+    project = await db.projects.find_one({"_id": safe_object_id(project_id), "user_id": current_user["_id"]})
+    if not project:
+        raise HTTPException(status_code=404, detail="Obra não encontrada")
+    req = next((r for r in (project.get("material_requisitions") or []) if r.get("id") == req_id), None)
+    if not req:
+        raise HTTPException(status_code=404, detail="Requisição não encontrada")
+    return {"items": _req_items_normalized(project, req), "fulfillment": req.get("fulfillment")}
+
+
+@api_router.post("/projects/{project_id}/requisitions/{req_id}/fulfillment")
+async def set_requisition_fulfillment(project_id: str, req_id: str, body: FulfillmentBody, current_user: dict = Depends(get_current_user)):
+    """Registra separado/entregue desta remessa e recalcula os totais da obra (soma das remessas) para os itens tocados."""
+    project = await db.projects.find_one({"_id": safe_object_id(project_id), "user_id": current_user["_id"]})
+    if not project:
+        raise HTTPException(status_code=404, detail="Obra não encontrada")
+    req = next((r for r in (project.get("material_requisitions") or []) if r.get("id") == req_id), None)
+    if not req:
+        raise HTTPException(status_code=404, detail="Requisição não encontrada")
+    if req.get("is_resend"):
+        raise HTTPException(status_code=400, detail="Registre a baixa na requisição original, não no reenvio")
+    valid = {it["material_id"] for it in _req_items_normalized(project, req)}
+    items = [{"material_id": i.material_id, "qty_separated": max(0.0, float(i.qty_separated or 0)), "qty_delivered": max(0.0, float(i.qty_delivered or 0))}
+             for i in body.items if i.material_id in valid]
+    if not items:
+        raise HTTPException(status_code=400, detail="Nenhum item válido desta remessa")
+    fulfillment = {"updated_at": datetime.now(timezone.utc).isoformat(), "updated_by": current_user.get("name", "") or current_user.get("email", ""),
+                   "responsible": body.responsible.strip(), "notes": body.notes.strip(), "items": items}
+    await db.projects.update_one({"_id": project["_id"], "material_requisitions.id": req_id}, {"$set": {"material_requisitions.$.fulfillment": fulfillment}})
+    project = await db.projects.find_one({"_id": project["_id"]})
+    sums = {}
+    for r in (project.get("material_requisitions") or []):
+        if r.get("is_resend"):
+            continue
+        for f in ((r.get("fulfillment") or {}).get("items") or []):
+            s = sums.setdefault(f.get("material_id"), [0.0, 0.0])
+            s[0] += float(f.get("qty_separated") or 0)
+            s[1] += float(f.get("qty_delivered") or 0)
+    for mid, (sep, ent) in sums.items():
+        await db.projects.update_one({"_id": project["_id"], "materials_list.id": mid},
+                                     {"$set": {"materials_list.$.qty_separated": round(sep, 3), "materials_list.$.qty_delivered": round(ent, 3)}})
+    return {"status": "ok", "fulfillment": fulfillment, "totals_updated": len(sums)}
 
 
 @api_router.post("/materials/preview")

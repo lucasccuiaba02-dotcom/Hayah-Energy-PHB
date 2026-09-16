@@ -5,7 +5,7 @@ import { toast } from 'sonner';
 import { AppLayout } from '../components/AppLayout';
 import {
   Package, Send, FileText, MapPin, Users, Calendar, Hash, PenLine,
-  CheckCircle2, History, FileDown, Camera, Truck, AlertCircle, Loader, RefreshCw, Eye, X, ClipboardList, Plus, MessageCircle, ListChecks,
+  CheckCircle2, History, FileDown, Camera, Truck, AlertCircle, Loader, RefreshCw, Eye, X, ClipboardList, Plus, MessageCircle, ListChecks, Undo2, PackageCheck,
 } from 'lucide-react';
 import { WAREHOUSE_RESPONSE_STATUS, WAREHOUSE_RESPONSE_LABEL, MATERIAL_UNITS, ITEM_WAREHOUSE_STATUS, ITEM_WAREHOUSE_STATUS_LABEL, resolveMaterialCodeAndDesc } from '../lib/constants';
 import { PROJECT_TYPE_LABEL, formatCurrency, todayISO } from '../lib/constants';
@@ -34,6 +34,10 @@ export const SolicitacaoMaterialPage = () => {
   const [partialMode, setPartialMode] = useState(false);
   const [selection, setSelection] = useState({});
   const [balance, setBalance] = useState(null);
+  // Set/2026 · Devolução de sobras
+  const [returnOpen, setReturnOpen] = useState(false);
+  const [returnForm, setReturnForm] = useState({ date: todayISO(), returned_by: '', reason: '', notes: '', items: {} });
+  const [savingReturn, setSavingReturn] = useState(false);
 
   useEffect(() => {
     axios.get(`${API}/projects`).then(({ data }) => setProjects(data));
@@ -94,6 +98,35 @@ export const SolicitacaoMaterialPage = () => {
   }, [projects, projectSearch]);
   const materials = selected?.materials_list || [];
   const history = selected?.material_requisitions || [];
+  const returns = selected?.material_returns || [];
+  const returnableItems = useMemo(() => materials.filter((m) => Number(balanceById[m.id]?.net_requisitioned || 0) > 0), [materials, balanceById]);
+  const openReturn = () => {
+    setReturnForm({ date: todayISO(), returned_by: selected?.team_name || '', reason: '', notes: '', items: {} });
+    setReturnOpen(true);
+  };
+  const saveReturn = async () => {
+    const items = Object.entries(returnForm.items).filter(([, q]) => Number(q) > 0).map(([material_id, qty]) => ({ material_id, qty: Number(qty) }));
+    if (items.length === 0) { toast.error('Informe a quantidade devolvida de ao menos um item'); return; }
+    setSavingReturn(true);
+    try {
+      await axios.post(`${API}/projects/${selectedProject}/materials/returns`, { ...returnForm, items });
+      toast.success('Devolução registrada — saldo da obra atualizado');
+      setReturnOpen(false);
+      await reloadProjects();
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || 'Erro ao registrar devolução');
+    } finally { setSavingReturn(false); }
+  };
+  const deleteReturn = async (id) => {
+    if (!window.confirm('Excluir esta devolução? O saldo da obra será recalculado.')) return;
+    try {
+      await axios.delete(`${API}/projects/${selectedProject}/materials/returns/${id}`);
+      toast.success('Devolução excluída');
+      await reloadProjects();
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || 'Erro ao excluir');
+    }
+  };
 
   const totals = useMemo(() => materials.reduce((acc, m) => {
     acc.solicitado += Number(m.qty_requested ?? m.quantity ?? 0);
@@ -503,6 +536,16 @@ export const SolicitacaoMaterialPage = () => {
                   </a>
                 )}
                 <button
+                  data-testid="materials-return-open"
+                  type="button"
+                  onClick={openReturn}
+                  disabled={!selectedProject || returnableItems.length === 0}
+                  className="text-[11px] font-bold bg-[#00F0FF]/10 border border-[#00F0FF]/50 hover:bg-[#00F0FF]/20 text-[#00F0FF] px-3 py-1.5 rounded-full inline-flex items-center gap-1 disabled:opacity-40 disabled:cursor-not-allowed"
+                  title={returnableItems.length === 0 ? 'Nenhum material em campo para devolver' : 'Registrar material que voltou do campo'}
+                >
+                  <Undo2 className="w-3 h-3" /> Registrar devolução
+                </button>
+                <button
                   data-testid="materials-add-avulso"
                   type="button"
                   onClick={() => { setAvulsoForm({ item: '', code: '', quantity: 1, unit: 'UN', unit_cost: 0, notes: '' }); setAvulsoOpen(true); }}
@@ -533,7 +576,7 @@ export const SolicitacaoMaterialPage = () => {
                       <th className="text-left px-3 py-2">Descrição</th>
                       <th className="px-2 py-2">Un</th>
                       <th className="px-2 py-2 text-right text-white">Solicitado</th>
-                      <th className="px-2 py-2 text-right text-zinc-300 whitespace-nowrap">Já req. / Saldo</th>
+                      <th className="px-2 py-2 text-right text-zinc-300 whitespace-nowrap" title="Já requisitado (− devolvido) / Saldo a requisitar">Já req. / Saldo</th>
                       {partialMode && <th className="px-2 py-2 text-right text-[#E0FF00] whitespace-nowrap">Nesta req.</th>}
                       <th className="px-2 py-2 text-right text-[#39FF14]">Separado</th>
                       <th className="px-2 py-2 text-right text-[#FF5E00]">Baixado</th>
@@ -609,6 +652,7 @@ export const SolicitacaoMaterialPage = () => {
                             {bal ? (
                               <span className="font-mono text-[11px]">
                                 <span className="text-zinc-400">{bal.qty_requisitioned}</span>
+                                {bal.qty_returned > 0 && <span data-testid={`mat-returned-${m.id}`} className="ml-0.5 text-[#00F0FF]" title="Devolvido do campo">−{bal.qty_returned}</span>}
                                 <span className="text-zinc-600"> / </span>
                                 <span className={bal.saldo > 0 ? 'text-[#E0FF00] font-bold' : 'text-[#39FF14] font-bold'}>{bal.saldo}</span>
                                 {bal.over > 0 && <span className="ml-1 text-[9px] text-[#FF5E00]" title="Requisitado acima do total da obra">+{bal.over}</span>}
@@ -666,6 +710,42 @@ export const SolicitacaoMaterialPage = () => {
                 </table>
               </div>
             )}
+          </motion.div>
+        )}
+
+        {/* DEVOLUÇÕES */}
+        {selectedProject && returns.length > 0 && (
+          <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} data-testid="returns-history" className="glass-panel rounded-2xl overflow-hidden">
+            <div className="p-4 border-b border-white/10 flex items-center gap-2">
+              <Undo2 className="w-4 h-4 text-[#00F0FF]" />
+              <p className="text-[10px] tracking-[0.2em] uppercase font-bold text-[#00F0FF]">Devoluções de sobras ({returns.length})</p>
+              <span className="ml-auto text-[10px] text-zinc-500">total devolvido <b className="font-mono text-[#00F0FF]">{balance?.returned_qty ?? 0}</b> · volta ao saldo a requisitar</span>
+            </div>
+            <div className="divide-y divide-white/5">
+              {[...returns].reverse().map((r) => (
+                <div key={r.id} data-testid={`return-row-${r.id}`} className="p-3 flex items-start gap-3 flex-wrap">
+                  <div className="flex-1 min-w-[220px]">
+                    <p className="text-xs text-white font-mono">
+                      {r.date?.split('-').reverse().join('/')} · <span className="text-zinc-400">{r.returned_by || '—'}</span>
+                      {r.reason && <span className="ml-2 text-[10px] px-1.5 py-0.5 rounded bg-white/5 border border-white/10 text-zinc-300">{r.reason}</span>}
+                    </p>
+                    <p className="text-[11px] text-zinc-300 mt-1 flex flex-wrap gap-x-3 gap-y-0.5">
+                      {(r.items || []).map((it) => (
+                        <span key={it.material_id}><span className="font-mono text-[#00F0FF] font-bold">{it.qty}</span> {(it.unit || 'UN').toUpperCase()} · {it.item}</span>
+                      ))}
+                    </p>
+                    <p className="text-[10px] text-zinc-500 mt-0.5">registrado por {r.registered_by} em {new Date(r.created_at).toLocaleString('pt-BR')}{r.notes ? ` · ${r.notes}` : ''}</p>
+                  </div>
+                  <button
+                    data-testid={`return-delete-${r.id}`}
+                    onClick={() => deleteReturn(r.id)}
+                    className="text-[10px] bg-[#FF003C]/10 border border-[#FF003C]/40 hover:bg-[#FF003C]/20 text-[#FF003C] px-2 py-1 rounded-full inline-flex items-center gap-1"
+                  >
+                    <X className="w-3 h-3" /> Excluir
+                  </button>
+                </div>
+              ))}
+            </div>
           </motion.div>
         )}
 
@@ -752,6 +832,99 @@ export const SolicitacaoMaterialPage = () => {
               className="flex-1 w-full bg-white"
             />
           </motion.div>
+        </div>
+      )}
+      {/* Set/2026 · Modal: Devolução de sobras */}
+      {returnOpen && (
+        <div
+          data-testid="return-modal"
+          className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4"
+          onClick={() => !savingReturn && setReturnOpen(false)}
+        >
+          <div className="glass-panel rounded-2xl border border-[#00F0FF]/40 max-w-2xl w-full p-5 space-y-4 max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-[10px] tracking-[0.2em] uppercase font-bold text-[#00F0FF]">Material que voltou do campo</p>
+                <h3 className="text-white font-bold text-lg">Registrar devolução de sobras</h3>
+                <p className="text-[11px] text-zinc-500">A quantidade devolvida volta ao saldo a requisitar da obra. Só aparecem itens que já foram para campo.</p>
+              </div>
+              <button data-testid="return-close" onClick={() => !savingReturn && setReturnOpen(false)} className="w-8 h-8 rounded-full bg-white/5 border border-white/10 text-zinc-400">
+                <X className="w-4 h-4 mx-auto" />
+              </button>
+            </div>
+            <div className="grid grid-cols-3 gap-3">
+              <label>
+                <span className="text-[10px] tracking-[0.15em] uppercase text-zinc-500 font-bold">Data</span>
+                <input data-testid="return-date" type="date" value={returnForm.date} onChange={(e) => setReturnForm((s) => ({ ...s, date: e.target.value }))} className="w-full mt-1 bg-zinc-950/60 border border-white/10 rounded-md px-2 py-2 text-sm text-white font-mono focus:outline-none focus:border-[#00F0FF]" />
+              </label>
+              <label>
+                <span className="text-[10px] tracking-[0.15em] uppercase text-zinc-500 font-bold">Devolvido por (equipe)</span>
+                <input data-testid="return-by" value={returnForm.returned_by} onChange={(e) => setReturnForm((s) => ({ ...s, returned_by: e.target.value }))} placeholder="Equipe / encarregado" className="w-full mt-1 bg-zinc-950/60 border border-white/10 rounded-md px-2 py-2 text-sm text-white focus:outline-none focus:border-[#00F0FF]" />
+              </label>
+              <label>
+                <span className="text-[10px] tracking-[0.15em] uppercase text-zinc-500 font-bold">Motivo</span>
+                <select data-testid="return-reason" value={returnForm.reason} onChange={(e) => setReturnForm((s) => ({ ...s, reason: e.target.value }))} className="w-full mt-1 bg-zinc-950/60 border border-white/10 rounded-md px-2 py-2 text-sm text-white focus:outline-none focus:border-[#00F0FF]">
+                  <option value="">—</option>
+                  <option value="Sobra de obra">Sobra de obra</option>
+                  <option value="Alteração de projeto">Alteração de projeto</option>
+                  <option value="Material com defeito">Material com defeito</option>
+                  <option value="Obra suspensa/cancelada">Obra suspensa/cancelada</option>
+                  <option value="Outro">Outro</option>
+                </select>
+              </label>
+            </div>
+            <div className="rounded-xl border border-white/10 overflow-hidden">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="bg-white/[0.03] text-[9px] tracking-[0.15em] uppercase font-bold text-zinc-500">
+                    <th className="text-left px-2 py-2">Código</th>
+                    <th className="text-left px-2 py-2">Descrição</th>
+                    <th className="px-2 py-2 text-right">Em campo</th>
+                    <th className="px-2 py-2 text-right text-[#00F0FF]">Devolver</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {returnableItems.map((m) => {
+                    const bal = balanceById[m.id];
+                    const { code: rowCode, description: rowDesc } = resolveMaterialCodeAndDesc(m);
+                    const v = returnForm.items[m.id] ?? '';
+                    const over = Number(v) > Number(bal?.net_requisitioned || 0);
+                    return (
+                      <tr key={m.id} className="border-t border-white/5">
+                        <td className="px-2 py-1.5 font-mono text-[#E0FF00]">{rowCode || '-'}</td>
+                        <td className="px-2 py-1.5 text-white">{rowDesc || m.item}</td>
+                        <td className="px-2 py-1.5 text-right font-mono text-zinc-300">{bal?.net_requisitioned} {(m.unit || 'UN').toUpperCase()}</td>
+                        <td className="px-2 py-1.5 text-right">
+                          <div className="inline-flex items-center gap-1">
+                            <button type="button" data-testid={`return-all-${m.id}`} onClick={() => setReturnForm((s) => ({ ...s, items: { ...s.items, [m.id]: bal?.net_requisitioned || 0 } }))} className="text-[9px] px-1.5 py-0.5 rounded bg-white/5 border border-white/10 text-zinc-400 hover:text-white" title="Devolver tudo que está em campo">tudo</button>
+                            <input
+                              data-testid={`return-qty-${m.id}`}
+                              type="number" min={0} step="0.01" max={bal?.net_requisitioned}
+                              value={v}
+                              onChange={(e) => setReturnForm((s) => ({ ...s, items: { ...s.items, [m.id]: e.target.value } }))}
+                              className="w-20 text-right bg-zinc-950/60 border rounded-md px-1.5 py-1 text-xs font-mono focus:outline-none"
+                              style={{ color: over ? '#FF5E00' : '#00F0FF', borderColor: over ? '#FF5E00' : 'rgba(0,240,255,0.4)' }}
+                            />
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+            <label className="block">
+              <span className="text-[10px] tracking-[0.15em] uppercase text-zinc-500 font-bold">Observações</span>
+              <textarea data-testid="return-notes" value={returnForm.notes} onChange={(e) => setReturnForm((s) => ({ ...s, notes: e.target.value }))} rows={2} placeholder="Ex.: material retornou ao almoxarifado central" className="w-full mt-1 bg-zinc-950/60 border border-white/10 rounded-md px-2 py-2 text-sm text-white focus:outline-none focus:border-[#00F0FF]" />
+            </label>
+            <div className="grid grid-cols-2 gap-2">
+              <button data-testid="return-cancel" onClick={() => !savingReturn && setReturnOpen(false)} className="py-2 rounded-full bg-white/5 border border-white/10 text-white font-bold text-sm">Cancelar</button>
+              <button data-testid="return-save" onClick={saveReturn} disabled={savingReturn} className="py-2 rounded-full bg-[#00F0FF] text-black font-black text-sm inline-flex items-center justify-center gap-2 disabled:opacity-60">
+                {savingReturn ? <Loader className="w-4 h-4 animate-spin" /> : <Undo2 className="w-4 h-4" />}
+                {savingReturn ? 'Salvando…' : 'Registrar devolução'}
+              </button>
+            </div>
+          </div>
         </div>
       )}
       {/* Fev/2026 · Modal: Adicionar material avulso (não orçado) */}
@@ -940,6 +1113,38 @@ const RequisitionRow = ({ req, projectId, onOpenPdf, onOpenPhoto, onConfirm, onR
   const received = !!req.receipt;
   const isPartial = req.requisition_type === 'parcial';
   const partialItems = req.items || [];
+  // Set/2026 · Baixa por remessa
+  const [fulItems, setFulItems] = useState(null);
+  const [fulLoading, setFulLoading] = useState(false);
+  const [fulSaving, setFulSaving] = useState(false);
+  const [fulResponsible, setFulResponsible] = useState(req.fulfillment?.responsible || '');
+  const [fulNotes, setFulNotes] = useState(req.fulfillment?.notes || '');
+  const remessaQty = isPartial ? partialItems.reduce((a, i) => a + Number(i.qty || 0), 0) : (req.materials_snapshot || []).reduce((a, s) => a + Number(s.qty_requested || 0), 0);
+  const deliveredQty = (req.fulfillment?.items || []).reduce((a, i) => a + Number(i.qty_delivered || 0), 0);
+  useEffect(() => {
+    if (!expand || req.is_resend) return;
+    setFulLoading(true);
+    axios.get(`${API}/projects/${projectId}/requisitions/${req.id}/items`)
+      .then(({ data }) => setFulItems(data.items || []))
+      .catch(() => setFulItems([]))
+      .finally(() => setFulLoading(false));
+  }, [expand, projectId, req.id, req.is_resend, req.fulfillment?.updated_at]);
+  const setFul = (mid, field, v) => setFulItems((arr) => arr.map((i) => (i.material_id === mid ? { ...i, [field]: v } : i)));
+  const fillAll = (field) => setFulItems((arr) => arr.map((i) => ({ ...i, [field]: i.qty })));
+  const saveFulfillment = async () => {
+    if (!fulItems || fulItems.length === 0) return;
+    setFulSaving(true);
+    try {
+      await axios.post(`${API}/projects/${projectId}/requisitions/${req.id}/fulfillment`, {
+        responsible: fulResponsible, notes: fulNotes,
+        items: fulItems.map((i) => ({ material_id: i.material_id, qty_separated: Number(i.qty_separated) || 0, qty_delivered: Number(i.qty_delivered) || 0 })),
+      });
+      toast.success('Baixa da remessa registrada — totais da obra atualizados');
+      onWarehouseResponseSaved && onWarehouseResponseSaved();
+    } catch (e) {
+      toast.error(e.response?.data?.detail || 'Erro ao registrar baixa');
+    } finally { setFulSaving(false); }
+  };
 
   return (
     <div data-testid={`req-row-${req.id}`} className="p-3">
@@ -955,6 +1160,18 @@ const RequisitionRow = ({ req, projectId, onOpenPdf, onOpenPhoto, onConfirm, onR
         {isPartial && (
           <span data-testid={`req-partial-badge-${req.id}`} className="px-2 py-0.5 rounded-full text-[10px] font-black bg-[#E0FF00]/15 border border-[#E0FF00]/60 text-[#E0FF00] inline-flex items-center gap-1 tracking-wider">
             <ListChecks className="w-3 h-3" /> PARCIAL nº {req.seq || '—'}
+          </span>
+        )}
+        {req.fulfillment && !req.is_resend && (
+          <span
+            data-testid={`req-fulfillment-chip-${req.id}`}
+            className="px-2 py-0.5 rounded-full text-[10px] font-bold border inline-flex items-center gap-1"
+            style={deliveredQty >= remessaQty && remessaQty > 0
+              ? { backgroundColor: '#39FF1415', borderColor: '#39FF1450', color: '#39FF14' }
+              : { backgroundColor: '#FF5E0015', borderColor: '#FF5E0050', color: '#FF5E00' }}
+            title="Entregue nesta remessa / quantidade da remessa"
+          >
+            <PackageCheck className="w-3 h-3" /> Entregue {deliveredQty} / {remessaQty}
           </span>
         )}
         <span
@@ -1011,6 +1228,65 @@ const RequisitionRow = ({ req, projectId, onOpenPdf, onOpenPhoto, onConfirm, onR
 
       {expand && (
         <div className="mt-3 rounded-xl bg-zinc-950/60 border border-white/10 p-3 space-y-4">
+          {!req.is_resend && (
+            <div data-testid={`req-fulfillment-block-${req.id}`} className="space-y-2 pb-3 border-b border-white/5">
+              <div className="flex items-center gap-2 flex-wrap">
+                <p className="text-[10px] tracking-[0.2em] uppercase font-bold text-[#39FF14] inline-flex items-center gap-1">
+                  <PackageCheck className="w-3 h-3" /> Baixa desta remessa (separado · entregue)
+                </p>
+                {req.fulfillment?.updated_at && (
+                  <span className="text-[10px] text-zinc-500">última baixa {new Date(req.fulfillment.updated_at).toLocaleString('pt-BR')} · por {req.fulfillment.responsible || req.fulfillment.updated_by || '—'}</span>
+                )}
+                <div className="ml-auto flex items-center gap-1">
+                  <button type="button" data-testid={`req-ful-fill-sep-${req.id}`} onClick={() => fillAll('qty_separated')} disabled={!fulItems?.length} className="text-[10px] px-2 py-1 rounded-full bg-white/5 border border-[#39FF14]/40 text-[#39FF14] hover:bg-[#39FF14]/10 disabled:opacity-40">Separar tudo</button>
+                  <button type="button" data-testid={`req-ful-fill-ent-${req.id}`} onClick={() => fillAll('qty_delivered')} disabled={!fulItems?.length} className="text-[10px] px-2 py-1 rounded-full bg-white/5 border border-[#00F0FF]/40 text-[#00F0FF] hover:bg-[#00F0FF]/10 disabled:opacity-40">Entregar tudo</button>
+                </div>
+              </div>
+              {fulLoading && <p className="text-[11px] text-zinc-500 inline-flex items-center gap-1"><Loader className="w-3 h-3 animate-spin" /> Carregando itens…</p>}
+              {!fulLoading && fulItems && fulItems.length === 0 && <p className="text-[11px] text-zinc-500 italic">Itens desta remessa não encontrados na lista atual da obra.</p>}
+              {!fulLoading && fulItems && fulItems.length > 0 && (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-[11px]">
+                    <thead>
+                      <tr className="text-[9px] tracking-[0.15em] uppercase font-bold text-zinc-500">
+                        <th className="text-left px-2 py-1">Código</th>
+                        <th className="text-left px-2 py-1">Descrição</th>
+                        <th className="px-2 py-1 text-right">Qtd. remessa</th>
+                        <th className="px-2 py-1 text-right text-[#39FF14]">Separado</th>
+                        <th className="px-2 py-1 text-right text-[#00F0FF]">Entregue</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {fulItems.map((it) => (
+                        <tr key={it.material_id} className="border-t border-white/5">
+                          <td className="px-2 py-1 font-mono text-[#E0FF00]">{it.code || '-'}</td>
+                          <td className="px-2 py-1 text-white">{it.item}</td>
+                          <td className="px-2 py-1 text-right font-mono text-zinc-300">{it.qty} {(it.unit || 'UN').toUpperCase()}</td>
+                          <td className="px-2 py-1 text-right">
+                            <input data-testid={`req-ful-sep-${req.id}-${it.material_id}`} type="number" min={0} step="0.01" value={it.qty_separated} onChange={(e) => setFul(it.material_id, 'qty_separated', e.target.value)} className="w-16 text-right bg-zinc-900 border border-white/10 rounded-md px-1.5 py-1 text-xs font-mono text-[#39FF14] focus:outline-none focus:border-[#39FF14]" />
+                          </td>
+                          <td className="px-2 py-1 text-right">
+                            <input data-testid={`req-ful-ent-${req.id}-${it.material_id}`} type="number" min={0} step="0.01" value={it.qty_delivered} onChange={(e) => setFul(it.material_id, 'qty_delivered', e.target.value)} className="w-16 text-right bg-zinc-900 border border-white/10 rounded-md px-1.5 py-1 text-xs font-mono text-[#00F0FF] focus:outline-none focus:border-[#00F0FF]" />
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+              <div className="grid md:grid-cols-2 gap-2">
+                <input data-testid={`req-ful-responsible-${req.id}`} type="text" value={fulResponsible} onChange={(e) => setFulResponsible(e.target.value)} placeholder="Responsável do almoxarifado pela baixa" className="bg-zinc-900 border border-white/10 rounded-lg px-3 py-2 text-white text-sm focus:border-[#39FF14] focus:outline-none" />
+                <input data-testid={`req-ful-notes-${req.id}`} type="text" value={fulNotes} onChange={(e) => setFulNotes(e.target.value)} placeholder="Observação da baixa (opcional)" className="bg-zinc-900 border border-white/10 rounded-lg px-3 py-2 text-white text-sm focus:border-[#39FF14] focus:outline-none" />
+              </div>
+              <div className="flex items-center gap-2 flex-wrap">
+                <button data-testid={`req-ful-save-${req.id}`} onClick={saveFulfillment} disabled={fulSaving || !fulItems?.length} className="inline-flex items-center gap-1 text-[11px] bg-[#39FF14] hover:bg-[#2FE010] text-black font-bold px-4 py-1.5 rounded-full disabled:opacity-60">
+                  {fulSaving ? <Loader className="w-3 h-3 animate-spin" /> : <PackageCheck className="w-3 h-3" />}
+                  {fulSaving ? 'Salvando…' : 'Salvar baixa da remessa'}
+                </button>
+                <span className="text-[10px] text-zinc-500">Os totais Separado/Entregue da obra passam a ser a soma das remessas com baixa.</span>
+              </div>
+            </div>
+          )}
           {isPartial && partialItems.length > 0 && (
             <div data-testid={`req-partial-items-${req.id}`} className="pb-3 border-b border-white/5">
               <p className="text-[10px] tracking-[0.2em] uppercase font-bold text-[#E0FF00] inline-flex items-center gap-1 mb-2">
