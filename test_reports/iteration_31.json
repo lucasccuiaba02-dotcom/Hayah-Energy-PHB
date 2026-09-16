@@ -1,0 +1,28 @@
+{
+  "summary": "Iteration 31 - Relatório de Movimentação de Materiais (ledger) + Auditoria de materiais. Backend: 18/18 pytest passed covering ledger structure/coherence/chronological ordering, add-manual→avulso event, PATCH→edit event with old→new (no-op does NOT log, 404 nonexistent, 400 no valid field), partial/total requisitions→requisicao events, resend→reenvio general, fulfillment→separado/entregue (skips qty=0), warehouse response→resposta_almox, confirm-receipt→recebimento, returns→devolucao by item, CSV import→import general + per-item import events with imported_at, PDF endpoint (200, application/pdf, Content-Disposition attachment with 'movimentacao_materiais_', contains expected phrases via pypdf), XLSX endpoint (Resumo/Eventos/Obra sheets, exact event headers, TOTAIS row), empty project ledger (items=[]/summary zero), 404 invalid project. Frontend: /relatorios renders material-ledger-panel; project search+select works; selecting LEDGER-TEST-01 loads summary with 8 KPIs; items table renders 2 rows; clicking row expands ledger-item-events-{id} showing EventRow items (ledger-event-*); ledger-item-filter filters correctly; ledger-toggle-general reveals ledger-general-events; PDF and XLSX buttons trigger network calls to /materials/ledger/pdf and /xlsx both returning 200. Regression: legacy report cards (Programação, Carteira, Produção, Faturamento, Equipes, Indisponibilidade, Improdutividade, Retorno) still visible on /relatorios.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "/relatorios - MaterialLedgerPanel KPIs", "issues": ["KPI value text uses same color as label in some tiles (e.g., 'Saldo a req.' with #A855F7 on dark bg is legible but low contrast on 0 value; overall OK). Minor only."]}
+    ]
+  },
+  "test_report_links": ["/app/backend/tests/test_iteration31.py", "/app/test_reports/pytest/iteration31.xml"],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "server.py still 5900+ lines - would benefit from splitting materials/requisitions/audit into modules.",
+    "_log_material_event uses secrets.token_urlsafe(6) for event id (~8 chars, unique enough per project scope).",
+    "material_ledger.build_material_ledger correctly resolves resolve() by id first then name; well-guarded against missing material references. Chronological sort by ISO string is safe.",
+    "PATCH /projects/{id}/materials/{item_id}: 'notes' field is in allowed set but does not appear in FIELD_LABELS for ledger event detail (falls back to raw key 'notes' → detail shows 'notes: old → new' if edited). Consider adding 'notes' label mapping in material_ledger.FIELD_LABELS.",
+    "MaterialLedgerPanel.jsx: no explicit loading/error state for PDF/XLSX besides toast + button-disabled - acceptable UX."
+  ],
+  "updated_files": ["/app/backend/tests/test_iteration31.py"],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "test_credentials": "Admin: lucasc.cuiaba02@gmail.com / Hayah$152610 (from /app/memory/test_credentials.md)",
+  "seed_data_creation": "Tests create/cleanup TEST_LEDGER_<timestamp> projects and TEST_LEDGER_EMPTY_<timestamp>. Frontend used existing LEDGER-TEST-01 (6aaa9e62447dd09661943ce6) untouched.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "test_iteration31.py covers ledger + audit end-to-end. Total backend suite iterations 25-31 all passing. Frontend MaterialLedgerPanel confirmed working on preview URL. All data-testids expected in review present. For future ledger enhancements, note that _log_material_event stores events in project.material_events and ledger derives requisicao/separado/entregue/resposta_almox/recebimento/devolucao dynamically from data (not audit log) - two separate sources reconciled in build_material_ledger.",
+  "rca of the issue": "N/A - no bugs found."
+}
