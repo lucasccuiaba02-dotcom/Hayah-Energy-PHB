@@ -339,50 +339,52 @@ export const SolicitacaoMaterialPage = () => {
     <AppLayout title="Almoxarifado" subtitle="Controle solicitado · separado · baixado · entregue, envie ao almoxarifado e confirme recebimento">
       <div className="max-w-6xl mx-auto space-y-6">
         <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="glass-panel rounded-2xl p-6">
-          <div className="flex items-center gap-3 mb-5 flex-wrap">
-            <div className="w-12 h-12 rounded-xl bg-[#FF5E00]/10 border border-[#FF5E00]/40 flex items-center justify-center">
+          <div className="flex items-center gap-3 mb-4">
+            <div className="w-12 h-12 shrink-0 rounded-xl bg-[#FF5E00]/10 border border-[#FF5E00]/40 flex items-center justify-center">
               <Package className="w-6 h-6 text-[#FF5E00]" />
             </div>
-            <div className="flex-1 min-w-[220px]">
-              <h2 className="font-heading font-black text-2xl tracking-tighter text-white">Requisição de Almoxarifado</h2>
-              <p className="text-xs text-zinc-500">PDF gerado automático com QR + assinatura · envio por email para 5 destinatários</p>
+            <div className="flex-1 min-w-0">
+              <h2 className="font-heading font-black text-xl sm:text-2xl tracking-tighter text-white leading-tight">Requisição de Almoxarifado</h2>
+              <p className="text-xs text-zinc-500 hidden sm:block">PDF gerado automático com QR + assinatura · envio por email para 5 destinatários</p>
             </div>
             <a
               data-testid="materials-download-template"
               href={`${API}/materials/template`}
-              className="text-xs font-bold bg-white/5 border border-[#00F0FF]/40 hover:bg-[#00F0FF]/10 text-[#00F0FF] px-4 py-2 rounded-full inline-flex items-center gap-2 transition-all"
+              className="hidden sm:inline-flex text-xs font-bold bg-white/5 border border-[#00F0FF]/40 hover:bg-[#00F0FF]/10 text-[#00F0FF] px-4 py-2 rounded-full items-center gap-2 transition-all"
               title="Baixar modelo Excel padrão (COD ITEM · DESCRIÇÃO · QTD · UNIDADE · PREÇO · VLR TOTAL)"
             >
               <FileDown className="w-4 h-4" /> Baixar Modelo
             </a>
+          </div>
+          <div data-testid="materials-actions" className="grid grid-cols-2 sm:flex sm:flex-wrap sm:justify-end gap-2 mb-5">
             <button
               data-testid="materials-partial-toggle"
               type="button"
               onClick={() => { setPartialMode((v) => !v); setSelection({}); }}
               disabled={!selectedProject}
               aria-pressed={partialMode}
-              className={`font-bold px-5 py-3 rounded-full transition-all disabled:opacity-40 inline-flex items-center gap-2 border ${
+              className={`font-bold text-xs sm:text-sm px-2 py-2.5 sm:px-5 sm:py-3 rounded-full transition-all disabled:opacity-40 inline-flex items-center justify-center gap-1.5 sm:gap-2 border min-w-0 ${
                 partialMode ? 'bg-[#E0FF00] border-[#E0FF00] text-black' : 'bg-white/5 border-[#E0FF00]/40 hover:bg-[#E0FF00]/10 text-[#E0FF00]'
               }`}
               title="Requisição parcial: a equipe leva só parte do material para campo"
             >
-              <ListChecks className="w-4 h-4" /> {partialMode ? 'Parcial ativa' : 'Requisição parcial'}
+              <ListChecks className="w-4 h-4 shrink-0 hidden sm:inline" /> <span className="truncate">{partialMode ? 'Parcial ativa' : 'Req. parcial'}</span>
             </button>
             <button
               data-testid="preview-material-request"
               onClick={handlePreview}
               disabled={previewLoading || !selectedProject}
-              className="bg-white/5 border border-[#00F0FF]/40 hover:bg-[#00F0FF]/10 text-[#00F0FF] font-bold px-5 py-3 rounded-full transition-all disabled:opacity-40 inline-flex items-center gap-2"
+              className="bg-white/5 border border-[#00F0FF]/40 hover:bg-[#00F0FF]/10 text-[#00F0FF] font-bold text-xs sm:text-sm px-2 py-2.5 sm:px-5 sm:py-3 rounded-full transition-all disabled:opacity-40 inline-flex items-center justify-center gap-1.5 sm:gap-2 min-w-0"
             >
-              <Eye className="w-4 h-4" /> {previewLoading ? 'Gerando…' : 'Prévia PDF'}
+              <Eye className="w-4 h-4 shrink-0 hidden sm:inline" /> <span className="truncate">{previewLoading ? 'Gerando…' : 'Prévia PDF'}</span>
             </button>
             <button
               data-testid="send-material-request"
               onClick={handleSend}
               disabled={sending || !selectedProject}
-              className="bg-[#FF5E00] hover:bg-[#E55400] text-black font-bold px-6 py-3 rounded-full transition-all disabled:opacity-40 inline-flex items-center gap-2"
+              className="col-span-2 sm:col-auto bg-[#FF5E00] hover:bg-[#E55400] text-black font-bold text-sm px-4 py-3 sm:px-6 rounded-full transition-all disabled:opacity-40 inline-flex items-center justify-center gap-2"
             >
-              <Send className="w-4 h-4" /> {sending ? 'Enviando…' : partialMode ? `Enviar Parcial (${selectedIds.length})` : 'Enviar Almoxarifado'}
+              <Send className="w-4 h-4 shrink-0" /> {sending ? 'Enviando…' : partialMode ? `Enviar Parcial (${selectedIds.length})` : 'Enviar Almoxarifado'}
             </button>
           </div>
 
@@ -405,18 +407,18 @@ export const SolicitacaoMaterialPage = () => {
             </div>
           )}
 
-          <div className="grid md:grid-cols-3 gap-3 mb-5">
-            <div className="md:col-span-2">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-5">
+            <div className="md:col-span-2 min-w-0">
               <label className="text-[10px] tracking-[0.2em] uppercase font-bold text-zinc-500 flex items-center gap-1 mb-1"><Hash className="w-3 h-3" /> Número da obra / Projeto</label>
-              <div className="flex gap-2 flex-wrap">
-                <div className="relative flex-1 min-w-[180px]">
+              <div className="flex flex-col sm:flex-row gap-2 min-w-0">
+                <div className="relative flex-1 min-w-0">
                   <input
                     data-testid="material-project-search"
                     type="search"
                     value={projectSearch}
                     onChange={(e) => setProjectSearch(e.target.value)}
                     placeholder="🔍 Pesquisar por nº da obra ou nome"
-                    className="w-full bg-zinc-950/90 border border-[#00F0FF]/30 rounded-lg px-3 py-2 text-white text-sm placeholder:text-zinc-600 focus:border-[#00F0FF] focus:outline-none"
+                    className="w-full min-w-0 bg-zinc-950/90 border border-[#00F0FF]/30 rounded-lg px-3 py-2 text-white text-sm placeholder:text-zinc-600 focus:border-[#00F0FF] focus:outline-none"
                   />
                   {projectSearch && (
                     <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] font-mono text-[#00F0FF]" data-testid="material-search-count">
@@ -428,7 +430,7 @@ export const SolicitacaoMaterialPage = () => {
                   data-testid="material-project-select"
                   value={selectedProject}
                   onChange={(e) => setSelectedProject(e.target.value)}
-                  className="flex-[2] min-w-[220px] bg-zinc-950/90 border border-white/10 rounded-lg px-3 py-2 text-white focus:border-[#E0FF00] focus:outline-none"
+                  className="w-full sm:flex-[2] min-w-0 bg-zinc-950/90 border border-white/10 rounded-lg px-3 py-2 text-white text-sm focus:border-[#E0FF00] focus:outline-none"
                 >
                   <option value="">Selecione a obra…</option>
                   {filteredProjects.map((p) => (
@@ -440,24 +442,24 @@ export const SolicitacaoMaterialPage = () => {
                 <p className="text-[10px] text-[#FF5E00] mt-1">Nenhuma obra encontrada para "{projectSearch}"</p>
               )}
             </div>
-            <div>
+            <div className="min-w-0">
               <label className="text-[10px] tracking-[0.2em] uppercase font-bold text-zinc-500 flex items-center gap-1 mb-1"><Calendar className="w-3 h-3" /> Data</label>
-              <input data-testid="material-date" type="date" defaultValue={todayISO()} className="w-full bg-zinc-950/90 border border-white/10 rounded-lg px-3 py-2 text-white font-mono focus:border-[#E0FF00] focus:outline-none" />
+              <input data-testid="material-date" type="date" defaultValue={todayISO()} className="w-full min-w-0 bg-zinc-950/90 border border-white/10 rounded-lg px-3 py-2 text-white font-mono focus:border-[#E0FF00] focus:outline-none" />
             </div>
-            <div>
+            <div className="min-w-0">
               <label className="text-[10px] tracking-[0.2em] uppercase font-bold text-zinc-500 flex items-center gap-1 mb-1"><Users className="w-3 h-3" /> Equipe</label>
               <div data-testid="material-team" className="bg-zinc-950/60 border border-white/10 rounded-lg px-3 py-2 text-white text-sm min-h-[38px]">
                 {selected?.team_name || <span className="text-zinc-600">—</span>}
                 {selected?.additional_team_name && <span className="ml-1 text-[10px] text-[#00F0FF]">+{selected.additional_team_name}</span>}
               </div>
             </div>
-            <div>
+            <div className="min-w-0">
               <label className="text-[10px] tracking-[0.2em] uppercase font-bold text-zinc-500 flex items-center gap-1 mb-1"><MapPin className="w-3 h-3" /> Localidade</label>
-              <div data-testid="material-location" className="bg-zinc-950/60 border border-white/10 rounded-lg px-3 py-2 text-white text-sm min-h-[38px]">
+              <div data-testid="material-location" className="bg-zinc-950/60 border border-white/10 rounded-lg px-3 py-2 text-white text-sm min-h-[38px] truncate">
                 {selected?.location || <span className="text-zinc-600">—</span>}
               </div>
             </div>
-            <div>
+            <div className="min-w-0">
               <label className="text-[10px] tracking-[0.2em] uppercase font-bold text-zinc-500 flex items-center gap-1 mb-1"><PenLine className="w-3 h-3" /> Assinatura (nome)</label>
               <input data-testid="material-signature" type="text" value={signatureName} onChange={(e) => setSignatureName(e.target.value)} placeholder="Nome de quem assina" className="w-full bg-zinc-950/90 border border-[#E0FF00]/30 rounded-lg px-3 py-2 text-white focus:border-[#E0FF00] focus:outline-none" />
             </div>
@@ -487,9 +489,9 @@ export const SolicitacaoMaterialPage = () => {
                   </span>
                 )
               )}
-              <div className="flex items-center gap-2 flex-wrap ml-auto">
+              <div className="grid grid-cols-2 sm:flex sm:items-center gap-2 sm:flex-wrap sm:ml-auto w-full sm:w-auto [&>a]:justify-center [&>button]:justify-center">
                 {materials.length > 0 && (
-                  <div className="flex items-center gap-3 text-[10px]">
+                  <div className="col-span-2 flex items-center gap-x-3 gap-y-1 flex-wrap text-[10px]">
                     <span className="text-zinc-400">Solicitado <b className="text-white font-mono">{totals.solicitado}</b></span>
                     <span className="text-[#39FF14]">Separado <b className="font-mono">{totals.separado}</b></span>
                     <span className="text-[#FF5E00]">Baixado <b className="font-mono">{totals.baixado}</b></span>
@@ -567,7 +569,8 @@ export const SolicitacaoMaterialPage = () => {
               </div>
             </div>
             {materials.length > 0 && (
-              <div className="overflow-x-auto">
+              <div className="overflow-x-auto" data-testid="materials-table-scroll">
+                <p className="sm:hidden px-2 pb-1 text-[10px] text-zinc-500 italic">Arraste a tabela para o lado para ver todas as colunas →</p>
                 <table className="w-full text-xs">
                   <thead>
                     <tr className="bg-white/[0.03] text-[9px] tracking-[0.15em] uppercase font-bold text-zinc-500">
@@ -852,7 +855,7 @@ export const SolicitacaoMaterialPage = () => {
                 <X className="w-4 h-4 mx-auto" />
               </button>
             </div>
-            <div className="grid grid-cols-3 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <label>
                 <span className="text-[10px] tracking-[0.15em] uppercase text-zinc-500 font-bold">Data</span>
                 <input data-testid="return-date" type="date" value={returnForm.date} onChange={(e) => setReturnForm((s) => ({ ...s, date: e.target.value }))} className="w-full mt-1 bg-zinc-950/60 border border-white/10 rounded-md px-2 py-2 text-sm text-white font-mono focus:outline-none focus:border-[#00F0FF]" />
@@ -873,7 +876,7 @@ export const SolicitacaoMaterialPage = () => {
                 </select>
               </label>
             </div>
-            <div className="rounded-xl border border-white/10 overflow-hidden">
+            <div className="rounded-xl border border-white/10 overflow-x-auto">
               <table className="w-full text-xs">
                 <thead>
                   <tr className="bg-white/[0.03] text-[9px] tracking-[0.15em] uppercase font-bold text-zinc-500">
@@ -952,7 +955,7 @@ export const SolicitacaoMaterialPage = () => {
               </button>
             </div>
             <div className="grid grid-cols-3 gap-3">
-              <label className="col-span-1">
+              <label className="col-span-3 sm:col-span-1">
                 <span className="text-[10px] tracking-[0.15em] uppercase text-zinc-500 font-bold">Código</span>
                 <input
                   data-testid="avulso-code"
@@ -962,7 +965,7 @@ export const SolicitacaoMaterialPage = () => {
                   className="w-full mt-1 bg-zinc-950/60 border border-white/10 rounded-md px-2 py-2 text-sm text-white font-mono focus:outline-none focus:border-[#E0FF00]"
                 />
               </label>
-              <label className="col-span-2">
+              <label className="col-span-3 sm:col-span-2">
                 <span className="text-[10px] tracking-[0.15em] uppercase text-zinc-500 font-bold">Descrição *</span>
                 <input
                   data-testid="avulso-item"
@@ -1288,7 +1291,7 @@ const RequisitionRow = ({ req, projectId, onOpenPdf, onOpenPhoto, onConfirm, onR
             </div>
           )}
           {isPartial && partialItems.length > 0 && (
-            <div data-testid={`req-partial-items-${req.id}`} className="pb-3 border-b border-white/5">
+            <div data-testid={`req-partial-items-${req.id}`} className="pb-3 border-b border-white/5 overflow-x-auto">
               <p className="text-[10px] tracking-[0.2em] uppercase font-bold text-[#E0FF00] inline-flex items-center gap-1 mb-2">
                 <ListChecks className="w-3 h-3" /> Itens desta remessa parcial
               </p>
