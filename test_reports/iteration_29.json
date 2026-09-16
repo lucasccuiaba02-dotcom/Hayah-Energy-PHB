@@ -1,0 +1,18 @@
+{
+  "summary": "Iteration 29 - Partial material requisition feature tested end-to-end. All 10 backend pytest cases PASS (balance, empty/zero/nonexistent 400s, preview PDF text 'PARCIAL/Qtd. Obra/Já Req./Nesta Req./Saldo', partial creates history seq=1 with items[] and snapshot of chosen only, second partial seq=2, PDF download, resend is_resend + saldo unchanged, total requisition marks fully_requisitioned=true and materials_snapshot includes material_id). Frontend on /materiais: page does NOT crash with obra that has history (avulsoOpen ReferenceError regression FIXED), mat-balance-{id} column rendered, 100% requisitado badge visible on PARC-TEST-01, partial-toggle activates partial-bar (partial-selected-count, partial-select-pending, partial-clear), partial-check-{id} + partial-qty-{id} present per row, checking box increments count and updates send button to 'Enviar Parcial (N)', typing qty > saldo shows partial-over-warning, Prévia PDF opens material-preview-modal with iframe, req-partial-badge-{id} + req-expand-{id} present in history, and materials-add-avulso opens avulso-modal correctly.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": ["/app/backend/tests/test_iteration29.py", "/app/test_reports/pytest/iteration29.xml"],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "server.py is 5700+ lines - should be split into routers/services modules (violates >700 line rule).",
+    "_requisition_balance() reads project once; consider caching if invoked in hot paths (currently fine)."
+  ],
+  "updated_files": ["/app/backend/tests/test_iteration29.py"],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "test_credentials": "Admin lucasc.cuiaba02@gmail.com / Hayah$152610",
+  "seed_data_creation": "Test project TEST_PARCIAL_{ts} with 3 materials created and DELETED at end of pytest run (module fixture teardown). Existing PARC-TEST-01 project was used for frontend verification and left intact.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Backend regression suite at /app/backend/tests/test_iteration29.py covers all partial-requisition endpoints. Run with: pytest backend/tests/test_iteration29.py -v -o addopts='' (pytest.ini forces xdist which needs no override for CI, or use -p no:xdist)."
+}
