@@ -1,0 +1,20 @@
+{
+  "summary": "Iteration 30 - Devolucao de sobras + Baixa por remessa. Backend: 13/13 pytest passed (returns validations, saldo updates, delete restores, fulfillment sums across shipments, resend/400, total requisition items from snapshot, preview reflects net). Frontend: verified /materiais with existing project DEVOL-TEST-01 (id 6aaa92ab391f50d224db231c). All required data-testids present and working (materials-return-open, return-modal + return-date/by/reason/notes/save, return-qty/return-all, returns-history with return-row/return-delete rows, mat-returned markers with -N, req-fulfillment-chip with 'Entregue X/Y', req-expand opens req-fulfillment-block with sep/ent inputs + fill-sep/fill-ent + responsible + save). Empty-save toast: 'Informe a quantidade devolvida de ao menos um item'. Regression: materials-partial-toggle and materials-add-avulso still functional; page renders normally with history.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": ["/app/backend/tests/test_iteration30.py", "/app/test_reports/pytest/iteration30.xml"],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "server.py is 5864 lines - consider splitting into modules (materials.py, requisitions.py, etc). Not blocking but growing.",
+    "SolicitacaoMaterialPage.jsx is 1456 lines - could be split into smaller components (ReturnModal, RequisitionRow already good structure candidates).",
+    "_requisition_balance() correctly excludes is_resend and casa por nome/id; edge case: if a legacy total requisition has no material_id AND items have duplicate names, by_name aggregation would still work correctly."
+  ],
+  "updated_files": ["/app/backend/tests/test_iteration30.py"],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "test_credentials": "Admin: lucasc.cuiaba02@gmail.com / Hayah$152610 (from /app/memory/test_credentials.md)",
+  "seed_data_creation": "Tests create/cleanup TEST_DEVOL_<timestamp> projects. Existing DEVOL-TEST-01 project used for FE checks (not modified beyond opening modal & expanding row).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "test_iteration30.py covers returns + fulfillment. Reuse fixtures pattern from test_iteration29.py. Frontend flows exercised on DEVOL-TEST-01 (6aaa92ab391f50d224db231c) with 2 materials + 1 parcial req + 2 returns.",
+  "rca of the issue": "N/A - no bugs found."
+}
