@@ -1,0 +1,33 @@
+{
+  "summary": "Iteration 33 — Central de Notificações + Integrações (Resend/Twilio) + WhatsApp buttons. Backend: 23/23 pytest passed covering /api/notifications/settings|preview|test|log, alert logic (vencidas / faturamento / estoque near_pct thresholds and critical), /api/integrations GET (masked secrets) + PUT (mask-preservation, override, restore), test-email/test-whatsapp friendly 400s. Frontend: /configuracoes NotificationCenter renders with all data-testid (cards, counts, channel chips, time inputs, threshold/nearpct/instant, save, test buttons, wa buttons, log). Save+reload persistence OK. Test-vencidas produces log entry and toast. WhatsApp button opens api.whatsapp.com/send popup. IntegrationsPanel visible for admin with 'SEM CHAVE'/'SEM CREDENCIAIS' status chips, all input fields, integ-test-email returns 400 friendly toast. Dashboard→VencidasModal→vencidas-whatsapp opens WA popup. /estoque?low=1 activates est-filter-low and shows est-low-whatsapp. /orcamentos editor orc-whatsapp opens WA popup with proposal summary. /faturamento fat-stuck-radar not shown (no stuck projects — expected). Regression: /api/dashboard/kpis and /api/faturamento/pipeline OK. Cleanup performed on created stock/project test items and integrations overrides restored.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "WhatsApp share URLs", "issues": ["Título contém emoji ⚠️/💰/📦 mas na URL da wa link aparece caractere de substituição %EF%BF%BD (U+FFFD) para o ⚠️ do 'Obras vencidas'. Provavelmente algum ponto do pipeline (frontend/lib/whatsapp.js ou serialização JSON→string) está perdendo o emoji ⚠️ (composed com VS16). Não bloqueia funcionalmente."]},
+      {"screen": "OrcamentoEditor · Data base", "issues": ["Campo DATA BASE usa <input type=date> nativo do browser (mm/dd/yyyy) em vez do shadcn calendar component — inconsistente com o resto do app."]},
+      {"screen": "WhatsApp buttons", "issues": ["Todas as URLs abrem em api.whatsapp.com/send em vez de wa.me como pedido no review — funcionalmente equivalente para o WhatsApp Web/mobile, mas se o desejo é URL curta padronizada, ajustar frontend/src/lib/whatsapp.js para usar https://wa.me/?text=..."]}
+    ]
+  },
+  "test_report_links": ["/app/backend/tests/test_iteration33.py", "/app/test_reports/pytest/iter33.xml"],
+  "action_items": [
+    "(opcional) Corrigir mangling do emoji ⚠️ no whatsapp_text/URL encoding — testar com repr no build_alert vencidas.",
+    "(opcional) Trocar api.whatsapp.com/send por https://wa.me/ em src/lib/whatsapp.js para bater com o testid esperado no review.",
+    "(fora do escopo desta iter) Trocar <input type=date> por shadcn Calendar/Popover no OrcamentoEditor."
+  ],
+  "critical_code_review_comments": [
+    "server.py tem 6018 linhas — recomendação: dividir em módulos (projects, dashboard, faturamento, estoque, materials).",
+    "notifications.py está enxuto (528 linhas) e bem estruturado; secret masking com MASK preserva corretamente no PUT.",
+    "notifications_tick usa horário 'hhmm < time' — se o job atrasar, aceita disparar no próximo tick porque last_sent gate protege duplicata (ok).",
+    "alert_estoque exclui _id corretamente via str(d['_id'])."
+  ],
+  "updated_files": ["/app/backend/tests/test_iteration33.py"],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "test_credentials": "Admin: lucasc.cuiaba02@gmail.com / Hayah$152610",
+  "seed_data_creation": "Criados e apagados durante testes: 1 stock_item TEST_IT33_A, 1 stock_item TEST_UI33 (UI test), 1 project TEST-IT33-V1. Todos removidos ao final.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Central de Notificações + Integrações validado end-to-end. Resend e Twilio permanecem sem chave (status skipped). Push permanece sem devices no ambiente (no_devices). Se main agent alterar wa.me/emoji, revalidar apenas as URLs de share.",
+  "rca of the issue": "N/A — nenhum bug crítico encontrado."
+}

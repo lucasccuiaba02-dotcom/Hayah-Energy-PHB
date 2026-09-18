@@ -4,7 +4,8 @@ export const WAREHOUSE_PHONE_KEY = 'hayah_warehouse_phone';
 
 export function openWhatsApp(text, phone = '') {
   const num = digits(phone);
-  const url = num ? `https://wa.me/${num}?text=${encodeURIComponent(text)}` : `https://wa.me/?text=${encodeURIComponent(text)}`;
+  const clean = String(text || '').replace(/\uFE0F/g, '');
+  const url = num ? `https://wa.me/${num}?text=${encodeURIComponent(clean)}` : `https://wa.me/?text=${encodeURIComponent(clean)}`;
   window.open(url, '_blank', 'noopener,noreferrer');
 }
 
