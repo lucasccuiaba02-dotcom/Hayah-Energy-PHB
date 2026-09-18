@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import axios from 'axios';
 import { toast } from 'sonner';
 import { Building2, Upload, X, Save } from 'lucide-react';
-import { API, Field, btnGhost, btnPrimary } from './orcamentoShared';
+import { API, BACKEND_URL, Field, btnGhost, btnPrimary } from './orcamentoShared';
 
 const FIELDS = [
   ['name', 'Nome fantasia (cabeçalho)', 'sm:col-span-2'],
@@ -62,7 +62,7 @@ export const CompanyModal = ({ onClose }) => {
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <div className="sm:col-span-3 flex items-center gap-4 rounded-xl border border-white/10 p-3 bg-white/[0.02]">
               <div className="w-28 h-16 rounded-lg bg-white flex items-center justify-center overflow-hidden">
-                {form.logo_url ? <img data-testid="orc-company-logo-img" src={`${API}${form.logo_url}?t=${logoTs}`} alt="logo" className="max-w-full max-h-full object-contain" /> : <span className="text-[10px] text-zinc-400 font-bold">SEM LOGO</span>}
+                {form.logo_url ? <img data-testid="orc-company-logo-img" src={`${BACKEND_URL}${form.logo_url}?t=${logoTs}`} alt="logo" className="max-w-full max-h-full object-contain" /> : <span className="text-[10px] text-zinc-400 font-bold">SEM LOGO</span>}
               </div>
               <div className="flex-1 min-w-0">
                 <p className="text-[12px] text-white font-bold">Logomarca</p>

@@ -2,7 +2,7 @@ import React, { useRef, useState } from 'react';
 import axios from 'axios';
 import { toast } from 'sonner';
 import { Camera, Trash2, Upload } from 'lucide-react';
-import { API, PHOTO_KINDS, kindOf, inputCls, labelCls, btnGhost, btnPrimary } from './orcamentoShared';
+import { API, BACKEND_URL, PHOTO_KINDS, kindOf, inputCls, labelCls, btnGhost, btnPrimary } from './orcamentoShared';
 
 const PhotoCard = ({ orcId, p, onChanged }) => {
   const k = kindOf(p.kind);
@@ -22,8 +22,8 @@ const PhotoCard = ({ orcId, p, onChanged }) => {
   };
   return (
     <div data-testid={`orc-photo-${p.id}`} className="glass-panel rounded-xl overflow-hidden border border-white/10">
-      <a href={`${API}${p.url}`} target="_blank" rel="noreferrer" className="block aspect-[4/3] bg-black/40">
-        <img src={`${API}${p.url}`} alt={p.caption || k.label} className="w-full h-full object-cover" loading="lazy" />
+      <a href={`${BACKEND_URL}${p.url}`} target="_blank" rel="noreferrer" className="block aspect-[4/3] bg-black/40">
+        <img src={`${BACKEND_URL}${p.url}`} alt={p.caption || k.label} className="w-full h-full object-cover" loading="lazy" />
       </a>
       <div className="p-2 space-y-1.5">
         <div className="flex items-center gap-1">

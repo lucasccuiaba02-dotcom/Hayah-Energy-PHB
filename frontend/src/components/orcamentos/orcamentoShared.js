@@ -1,7 +1,8 @@
 import axios from 'axios';
 import { toast } from 'sonner';
 
-export const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
+export const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
+export const API = `${BACKEND_URL}/api`;
 
 export const STATUS = [
   { key: 'rascunho', label: 'Rascunho', color: '#94A3B8' },

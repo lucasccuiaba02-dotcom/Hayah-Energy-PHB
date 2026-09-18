@@ -1,0 +1,43 @@
+{
+  "summary": "Tested Orçamentos module end-to-end. Backend: 11/12 pytest passing. Frontend: all main flows (create, client/scope, labor, materials with markup, CSV import, photo upload, textos toggles, status flow, duplicate, delete, company modal, mobile 390 no overflow) work. Found 1 HIGH frontend bug (double /api/api prefix breaks photo <img> and company logo <img>), 1 MEDIUM backend bug (PDF generation crashes 500 if a stored image is unreadable by PIL — no try/except per photo), 1 minor backend bug (unparseable CSV returns 500 instead of 400).",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "POST /api/orcamentos/{id}/materials/import", "issue": "Unparseable CSV (no ; , or \\t delimiters and no recognizable header) crashes with 500 because csv.Sniffer().sniff() raises csv.Error which is uncaught. Should return 400 with a friendly message.", "priority": "LOW"},
+      {"endpoint": "GET /api/orcamentos/{id}/pdf/proposta and /pdf/conclusao", "issue": "PDF generation returns 500 when a stored photo cannot be decoded (PIL 'broken data stream when reading image file'). ReportLab is called with the bytes and any single corrupt image aborts the whole PDF. Recommend try/except per photo in build_proposta_pdf/build_conclusao_pdf (or in _assets, validate image bytes before adding). Traceback: reportlab.lib.utils.getRGBData → PIL Image.split → OSError: broken data stream when reading image file.", "priority": "MEDIUM"}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "OrcamentoPhotosTab (PhotoCard) & CompanyModal", "issue": "Double '/api/api/' prefix in image URLs. Backend returns photo.url='/api/orcamentos/{id}/photos/{pid}/file' and company logo_url='/api/orcamentos/company/logo/file' (with /api). Frontend uses API=`${REACT_APP_BACKEND_URL}/api` and does `${API}${p.url}` → results in `<BACKEND>/api/api/orcamentos/...` → 404. Confirmed in backend logs: 'GET /api/api/orcamentos/.../photos/.../file HTTP/1.1 404' and 'GET /api/api/orcamentos/company/logo/file 404'. Photos and logo images will NEVER load in the UI. Fix: use `${process.env.REACT_APP_BACKEND_URL}${p.url}` (no /api), or change API to not include /api and prefix per call, or have backend return relative URLs without /api prefix. Affected: OrcamentoPhotosTab.jsx lines 25-26 (<a href> and <img src>), CompanyModal.jsx line 65 (<img src>).", "selector": "[data-testid^=\"orc-photo-\"] img, [data-testid=\"orc-company-logo-img\"]", "priority": "HIGH"}
+    ],
+    "integration_issues": [
+      {"flow": "Proposta PDF download from UI when orcamento has photos uploaded via test flow", "issue": "orc-pdf-proposta click did not trigger download; backend returned 500 due to PDF-generation image-decode failure (see backend MEDIUM issue). Note: this scenario is triggered by malformed image bytes; PDFs work fine without photos (backend pytest confirmed both proposta and conclusao return valid application/pdf > 3KB).", "affected_selectors": ["[data-testid=\"orc-pdf-proposta\"]", "[data-testid=\"orc-pdf-conclusao\"]"]}
+    ],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration32.py",
+    "/app/test_reports/pytest/iteration32.xml"
+  ],
+  "action_items": [
+    "Fix double '/api/api/' prefix: In OrcamentoPhotosTab.jsx and CompanyModal.jsx, image URLs should use REACT_APP_BACKEND_URL (without /api), not API constant. Simple fix: `src={`${process.env.REACT_APP_BACKEND_URL}${p.url}`}` because backend already returns URLs starting with '/api/'.",
+    "Wrap per-photo processing in build_proposta_pdf/build_conclusao_pdf (orcamento_pdf.py) with try/except so a single corrupt image doesn't break PDF; or in _assets() also try PIL.Image.open(BytesIO(data)).verify() and drop broken images.",
+    "Wrap csv.Sniffer().sniff() in _parse_material_file (orcamentos.py:196) with try/except and fall back to csv.excel or raise HTTPException(400) with clean message instead of letting csv.Error bubble to 500."
+  ],
+  "critical_code_review_comments": [
+    "API constant duplication trap: orcamentoShared.js defines `API = <URL>/api` but backend returns URLs that already begin with `/api/`, causing photo/logo <img> to break. Consider standardising: either strip `/api/` from backend-returned URLs (return relative to REACT_APP_BACKEND_URL) OR set API to just REACT_APP_BACKEND_URL and prefix `/api` per axios call.",
+    "orcamentos.py _parse_material_file: no defensive try around csv.Sniffer; raise 400 on parsing errors.",
+    "orcamento_pdf.py: image loop must be defensive (single broken image should not abort the entire PDF)."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iteration32.py"
+  ],
+  "success_rate": {"backend": "92% (11/12 pytest)", "frontend": "≈90% (photo <img>/logo <img> broken due to double /api; PDF fails only with malformed test PNG)"},
+  "test_credentials": "lucasc.cuiaba02@gmail.com / Hayah$152610 (from /app/memory/test_credentials.md)",
+  "seed_data_creation": "None persisted. All TEST_UI orçamentos were deleted at end of run. Pre-existing 00001/2026 (POSTO DE COMBUSTIVEIS) preserved as instructed. Backend pytest created and deleted its own throwaway orçamentos.",
+  "retest_needed": true,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Next iteration should verify that after fixes: (1) uploaded photo thumbnails actually render (no 404 in browser network tab), (2) company logo shows in modal and PDF header, (3) PDF endpoints do not 500 when photos exist even if a photo blob happens to be non-image, (4) materials import with unparseable CSV returns clean 400 with detail. Test file: /app/backend/tests/test_iteration32.py already covers PDFs, CSV-invalid, and all CRUD paths — re-run to regress.",
+  "rca of the issue": "1) Double /api prefix: `orcamentoShared.js` defines `export const API = ${REACT_APP_BACKEND_URL}/api;` and backend's `_public()` helper builds `photo.url = /api/orcamentos/{id}/photos/{pid}/file` (starts with /api). Photo card and logo img concatenate `${API}${p.url}` → `<host>/api/api/...`. Fix on either side: change frontend to use REACT_APP_BACKEND_URL (without /api) for these URLs, or make backend return url without /api prefix. 2) PDF 500: reportlab uses PIL to decode image bytes; if a single photo cannot be decoded PIL raises OSError which propagates; wrap per-photo. 3) CSV 500: csv.Sniffer.sniff raises csv.Error for non-tabular text; catch and 400."
+}

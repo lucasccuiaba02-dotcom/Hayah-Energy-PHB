@@ -8,6 +8,7 @@ from typing import List, Optional
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import Response
+from PIL import Image
 from pydantic import BaseModel
 
 from orcamento_pdf import build_conclusao_pdf, build_proposta_pdf
@@ -193,11 +194,17 @@ def _parse_material_file(content: bytes, filename: str) -> List[dict]:
     fname = (filename or "").lower()
     if fname.endswith(".csv") or fname.endswith(".txt"):
         text = content.decode("utf-8-sig", errors="ignore")
-        dialect = csv.Sniffer().sniff(text[:2048], delimiters=";,\t") if text.strip() else csv.excel
+        try:
+            dialect = csv.Sniffer().sniff(text[:2048], delimiters=";,\t") if text.strip() else csv.excel
+        except csv.Error:
+            dialect = csv.excel
         rows = [r for r in csv.reader(io.StringIO(text), dialect)]
     else:
         from openpyxl import load_workbook
-        wb = load_workbook(io.BytesIO(content), data_only=True, read_only=True)
+        try:
+            wb = load_workbook(io.BytesIO(content), data_only=True, read_only=True)
+        except Exception:
+            raise HTTPException(status_code=400, detail="Arquivo inválido — envie uma planilha .xlsx ou .csv")
         for ws in wb.worksheets:
             for r in ws.iter_rows(values_only=True):
                 rows.append(list(r))
@@ -476,6 +483,7 @@ def build_router(db, get_current_user, safe_object_id, storage_put, storage_get,
         for p in (doc.get("photos") or []):
             try:
                 data, _ = await storage_get(p["storage_path"])
+                Image.open(io.BytesIO(data)).verify()
                 photos.append({**p, "bytes": data})
             except Exception:
                 continue
