@@ -262,7 +262,7 @@ class UserResponse(BaseModel):
 ALL_PERMISSIONS = [
     "dashboard", "carteira", "programacao", "calendario",
     "operacional", "geolocalizacao", "materiais", "analise",
-    "relatorios", "equipes", "estoque", "faturamento", "documentos", "settings", "admin", "avanco",
+    "relatorios", "equipes", "estoque", "faturamento", "documentos", "settings", "admin", "avanco", "orcamentos",
 ]
 
 class TeamCreate(BaseModel):
@@ -1687,8 +1687,8 @@ BILLING_STAGES = [
     "ajuste_material",
     "pendencia_construtiva",
     "aguardando_fiscalizacao",
-    "aprovada",
     "digitada",
+    "aprovada",
     "pago",
 ]
 
@@ -1698,8 +1698,8 @@ BILLING_STAGE_LABELS = {
     "ajuste_material": "Ajuste de Material",
     "pendencia_construtiva": "Pendência Construtiva",
     "aguardando_fiscalizacao": "Aguardando Fiscalização",
-    "aprovada": "Aprovada",
     "digitada": "Digitada",
+    "aprovada": "Aprovada",
     "pago": "Pago",
 }
 
@@ -1900,8 +1900,8 @@ async def billing_pipeline(
     lead_buckets = {
         "recebimento_to_fechamento": _avg(_sum_range("recebimento_tecnico", "em_fechamento") + _sum_range("em_fechamento", "ajuste_material")),
         "fechamento_to_fiscalizacao": _avg(_sum_range("ajuste_material", "pendencia_construtiva") + _sum_range("pendencia_construtiva", "aguardando_fiscalizacao")),
-        "fiscalizacao_to_aprovada": _avg(_sum_range("aguardando_fiscalizacao", "aprovada")),
-        "aprovada_to_pago": _avg(_sum_range("aprovada", "digitada") + _sum_range("digitada", "pago")),
+        "fiscalizacao_to_aprovada": _avg(_sum_range("aguardando_fiscalizacao", "digitada") + _sum_range("digitada", "aprovada") + _sum_range("aguardando_fiscalizacao", "aprovada")),
+        "aprovada_to_pago": _avg(_sum_range("aprovada", "pago") + _sum_range("aprovada", "digitada") + _sum_range("digitada", "pago")),
     }
 
     stuck_projects.sort(key=lambda x: -x["days_in_stage"])
@@ -2960,7 +2960,7 @@ async def get_checklist(project_id: str, current_user: dict = Depends(get_curren
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
     checklist = project.get("checklist", {})
-    photos = project.get("photos", [])
+    photos = [_photo_public(project_id, p) for p in (project.get("photos") or [])]
     return {"project_id": project_id, "checklist": checklist, "photos": photos}
 
 @api_router.put("/operacional/checklist/{project_id}")
@@ -2985,23 +2985,63 @@ async def upload_photo(
     file: UploadFile = File(...),
     current_user: dict = Depends(get_current_user),
 ):
-    project = await db.projects.find_one({"_id": safe_object_id(project_id), "user_id": current_user["_id"]})
+    """Set/2026: foto vai para o object storage (não mais base64 dentro do documento da obra —
+    isso estourava o limite de 16MB do Mongo após poucas fotos e travava a fila de sync)."""
+    project = await db.projects.find_one({"_id": safe_object_id(project_id), "user_id": current_user["_id"]}, {"_id": 1})
     if not project:
-        raise HTTPException(status_code=404, detail="Project not found")
+        raise HTTPException(status_code=404, detail="Obra não encontrada")
     content = await file.read()
-    if len(content) > 10 * 1024 * 1024:
-        raise HTTPException(status_code=400, detail="Arquivo maior que 10MB")
-    b64 = base64.b64encode(content).decode("ascii")
-    data_url = f"data:{file.content_type or 'image/jpeg'};base64,{b64}"
+    if not content:
+        raise HTTPException(status_code=400, detail="Arquivo vazio")
+    if len(content) > 15 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="Foto maior que 15MB — reduza a resolução")
+    ct = file.content_type or "image/jpeg"
+    ext = {"image/png": "png", "image/webp": "webp"}.get(ct, "jpg")
+    photo_id = secrets.token_urlsafe(8)
+    path = f"{APP_NAME}/obras/{current_user['_id']}/{project_id}/{photo_id}.{ext}"
+    try:
+        result = await storage_put(path, content, ct)
+    except Exception as e:
+        logger.error(f"photo storage failed: {e}")
+        raise HTTPException(status_code=502, detail="Falha ao gravar a foto no armazenamento. Tente novamente.")
     photo = {
-        "id": secrets.token_urlsafe(8),
+        "id": photo_id,
         "label": label,
         "point": (point or "").strip().upper()[:12],
-        "data_url": data_url,
+        "storage_path": result.get("path", path),
+        "content_type": ct,
+        "size": len(content),
         "uploaded_at": datetime.now(timezone.utc).isoformat(),
+        "uploaded_by": current_user.get("name", ""),
     }
     await db.projects.update_one({"_id": safe_object_id(project_id)}, {"$push": {"photos": photo}})
-    return photo
+    return _photo_public(project_id, photo)
+
+
+def _photo_public(project_id: str, photo: dict) -> dict:
+    """Foto com `data_url` apontando para o endpoint de arquivo (compatível com o frontend legado)."""
+    out = {k: v for k, v in photo.items() if k != "data_url"}
+    if photo.get("data_url"):
+        out["data_url"] = photo["data_url"]
+    else:
+        out["data_url"] = f"/api/operacional/photos/{project_id}/{photo.get('id')}/file"
+    return out
+
+
+@api_router.get("/operacional/photos/{project_id}/{photo_id}/file")
+async def get_photo_file(project_id: str, photo_id: str, current_user: dict = Depends(get_current_user)):
+    project = await db.projects.find_one({"_id": safe_object_id(project_id), "user_id": current_user["_id"]}, {"photos": 1})
+    if not project:
+        raise HTTPException(status_code=404, detail="Obra não encontrada")
+    photo = next((p for p in (project.get("photos") or []) if p.get("id") == photo_id), None)
+    if not photo:
+        raise HTTPException(status_code=404, detail="Foto não encontrada")
+    if photo.get("data_url"):
+        header, b64 = photo["data_url"].split(",", 1)
+        ct = header[5:].split(";")[0] or "image/jpeg"
+        return Response(content=base64.b64decode(b64), media_type=ct, headers={"Cache-Control": "private, max-age=86400"})
+    data, ct = await storage_get(photo["storage_path"])
+    return Response(content=data, media_type=photo.get("content_type") or ct, headers={"Cache-Control": "private, max-age=86400"})
 
 @api_router.delete("/operacional/photos/{project_id}/{photo_id}")
 async def delete_photo(project_id: str, photo_id: str, current_user: dict = Depends(get_current_user)):
@@ -3121,7 +3161,16 @@ async def daily_log_pdf(project_id: str, notes: str = "", current_user: dict = D
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
     checklist = project.get("checklist", {}) or {}
-    photos = project.get("photos", []) or []
+    photos = []
+    for ph in (project.get("photos", []) or []):
+        if not ph.get("data_url") and ph.get("storage_path"):
+            try:
+                data, ct = await storage_get(ph["storage_path"])
+                ph = {**ph, "data_url": f"data:{ph.get('content_type') or ct or 'image/jpeg'};base64,{base64.b64encode(data).decode('ascii')}"}
+            except Exception as e:
+                logger.warning(f"daily-log photo load failed: {e}")
+                continue
+        photos.append(ph)
     pdf_bytes = build_daily_log_pdf(project, checklist, photos, notes)
     filename = f"diario_obra_{(project.get('project_code') or project_id)[:24]}_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M')}.pdf"
     return Response(
@@ -5816,6 +5865,9 @@ def _today_cuiaba():
     except Exception:
         return datetime.now(timezone.utc).strftime("%Y-%m-%d")
 app.include_router(_build_avanco_router(db, get_current_user, require_admin, safe_object_id, _today_cuiaba, storage_get))
+
+from orcamentos import build_router as _build_orcamentos_router
+app.include_router(_build_orcamentos_router(db, get_current_user, safe_object_id, storage_put, storage_get, APP_NAME, _today_cuiaba))
 
 app.add_middleware(
     CORSMiddleware,

@@ -67,12 +67,38 @@ const removeQueuedPhoto = async (id) => {
   });
 };
 
-export const syncPhotoQueue = async (axios, API, onProgress) => {
-  if (!navigator.onLine) return { synced: 0, failed: 0, remaining: 0 };
+export const discardQueuedPhoto = removeQueuedPhoto;
+
+const updateQueuedPhoto = async (item) => {
+  const store = await tx('readwrite');
+  return new Promise((resolve, reject) => {
+    const req = store.put(item);
+    req.onsuccess = () => resolve();
+    req.onerror = () => reject(req.error);
+  });
+};
+
+const describeError = (err) => {
+  const status = err?.response?.status;
+  const detail = err?.response?.data?.detail || err?.response?.data?.error;
+  if (err?.response?.data?.offline) return 'Sem conexão com o servidor';
+  if (status === 401) return 'Sessão expirada — faça login novamente';
+  if (status === 404) return 'Obra não encontrada (pode ter sido excluída)';
+  if (status === 413) return 'Foto grande demais para o servidor';
+  if (status) return `${detail || 'Erro do servidor'} (HTTP ${status})`;
+  if (err?.code === 'ECONNABORTED') return 'Tempo esgotado no envio';
+  return err?.message || 'Falha de rede';
+};
+
+// Set/2026 · `force` ignora navigator.onLine (alguns celulares reportam offline mesmo com sinal);
+// cada falha grava attempts/lastError no item para a UI mostrar o motivo.
+export const syncPhotoQueue = async (axios, API, onProgress, { force = false } = {}) => {
+  if (!force && !navigator.onLine) return { synced: 0, failed: 0, remaining: 0, errors: [] };
   const items = await getQueuedPhotos();
-  if (items.length === 0) return { synced: 0, failed: 0, remaining: 0 };
+  if (items.length === 0) return { synced: 0, failed: 0, remaining: 0, errors: [] };
   let synced = 0;
   let failed = 0;
+  const errors = [];
   for (const item of items) {
     try {
       const fd = new FormData();
@@ -81,17 +107,22 @@ export const syncPhotoQueue = async (axios, API, onProgress) => {
       fd.append('point', item.point || '');
       await axios.post(`${API}/operacional/photos/${item.projectId}`, fd, {
         headers: { 'Content-Type': 'multipart/form-data' },
+        timeout: 90000,
       });
       await removeQueuedPhoto(item.id);
       synced += 1;
       if (onProgress) onProgress({ synced, failed, total: items.length });
     } catch (err) {
-      // Item permanece na fila para próxima tentativa
       failed += 1;
+      const message = describeError(err);
+      errors.push({ id: item.id, filename: item.filename, projectId: item.projectId, message });
+      try {
+        await updateQueuedPhoto({ ...item, attempts: (item.attempts || 0) + 1, lastError: message, lastTriedAt: new Date().toISOString() });
+      } catch { /* mantém item como está */ }
     }
   }
   const remaining = await getQueuedPhotoCount();
-  return { synced, failed, remaining };
+  return { synced, failed, remaining, errors };
 };
 
 export const clearPhotoQueue = async () => {

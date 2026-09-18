@@ -74,7 +74,7 @@ export const ProjectDetailPage = () => {
       setOnline(true);
       syncQueue(axios, API).then((r) => { if (r.synced > 0) toast.success(`${r.synced} checklist(s) sincronizado(s)`); });
       // Fev/2026 · sincroniza fotos que estavam no IDB aguardando sinal
-      syncPhotoQueue(axios, API).then(async (r) => {
+      syncPhotoQueue(axios, API, null, { force: true }).then(async (r) => {
         if (r.synced > 0) {
           toast.success(`${r.synced} foto(s) sincronizada(s) do offline`);
           // recarrega lista de fotos do backend
@@ -83,18 +83,30 @@ export const ProjectDetailPage = () => {
             setPhotos(data.photos || []);
           } catch {}
         }
+        if (r.failed > 0 && r.errors?.length) {
+          toast.error(`${r.failed} foto(s) não sincronizaram: ${r.errors[0].message}`, { duration: 7000 });
+        }
         setPendingPhotos(await getQueuedPhotoCount());
       });
     };
     const onOff = () => setOnline(false);
+    const onSynced = async () => {
+      try {
+        const { data } = await axios.get(`${API}/operacional/checklist/${id}`);
+        setPhotos(data.photos || []);
+      } catch {}
+      setPendingPhotos(await getQueuedPhotoCount());
+    };
     window.addEventListener('online', onOn);
     window.addEventListener('offline', onOff);
+    window.addEventListener('hayah-photos-synced', onSynced);
     // sincroniza na montagem se já online
     if (navigator.onLine) onOn();
     else getQueuedPhotoCount().then(setPendingPhotos);
     return () => {
       window.removeEventListener('online', onOn);
       window.removeEventListener('offline', onOff);
+      window.removeEventListener('hayah-photos-synced', onSynced);
     };
   }, [id]);
 
@@ -254,9 +266,15 @@ export const ProjectDetailPage = () => {
         toast.success(`Foto enviada com marca d'água${data.point ? ` (${data.point})` : ''}!`);
       } catch (err) {
         // Falhou (timeout/rede) — enfileira offline
+        const status = err?.response?.status;
+        const detail = err?.response?.data?.detail;
+        if (status && status >= 400 && status < 500 && status !== 401) {
+          toast.error(detail || `Foto recusada pelo servidor (HTTP ${status})`);
+          return;
+        }
         await enqueuePhoto({ projectId: id, file: outFile, label: photoLabel, point: (photoPoint || '').trim() });
         setPendingPhotos(await getQueuedPhotoCount());
-        toast.warning('Sem resposta do servidor — foto salva no celular para sincronizar depois.');
+        toast.warning(`Sem resposta do servidor${detail ? ` (${detail})` : ''} — foto salva no celular para sincronizar depois.`);
       }
       // Auto-increment point (P1 → P2 → P3, etc.)
       if (photoPoint) {

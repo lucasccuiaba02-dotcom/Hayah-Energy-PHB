@@ -28,6 +28,7 @@ import {
   FolderOpen,
   Zap,
   Gauge,
+  FileSignature,
 } from 'lucide-react';
 
 const navItems = [
@@ -39,6 +40,7 @@ const navItems = [
   { to: '/calendario', icon: Truck, label: 'Calendário', testid: 'nav-calendario', perm: 'calendario' },
   { to: '/faturamento', icon: DollarSign, label: 'Faturamento', testid: 'nav-faturamento', perm: 'analise' },
   { to: '/avanco', icon: Gauge, label: 'Avanço Físico', testid: 'nav-avanco', perm: 'avanco' },
+  { to: '/orcamentos', icon: FileSignature, label: 'Orçamentos', testid: 'nav-orcamentos', perm: 'orcamentos' },
   { to: '/geolocalizacao', icon: Map, label: 'Geolocalização', testid: 'nav-geolocalizacao', perm: 'geolocalizacao' },
   { to: '/materiais', icon: Package, label: 'Materiais', testid: 'nav-materiais', perm: 'materiais' },
   { to: '/analise', icon: BarChart3, label: 'Análise', testid: 'nav-analise', perm: 'analise' },

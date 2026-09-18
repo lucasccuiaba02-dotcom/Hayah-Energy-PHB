@@ -135,6 +135,7 @@ export const PERMISSION_TABS = [
   { value: 'equipes', label: 'Equipes' },
   { value: 'improdutividade', label: 'Improdutividade' },
   { value: 'avanco', label: 'Avanço Físico' },
+  { value: 'orcamentos', label: 'Orçamentos' },
   { value: 'admin', label: 'Admin' },
 ];
 

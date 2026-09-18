@@ -320,13 +320,16 @@ def build_router(db, get_current_user, require_admin, safe_object_id, today_fn, 
         return await _detail_payload(p, current_user)
 
     def _photo_catalog(p):
-        """Fotos disponíveis para o relatório: diário/checklist (base64) + anexos de imagem."""
+        """Fotos disponíveis para o relatório: diário/checklist (base64 legado ou storage) + anexos de imagem."""
         out = []
+        pid = str(p.get("_id"))
         for ph in sorted((p.get("photos") or []), key=lambda x: x.get("uploaded_at", ""), reverse=True):
             du = ph.get("data_url") or ""
-            if du.startswith("data:image") and "," in du:
+            is_b64 = du.startswith("data:image") and "," in du
+            if is_b64 or ph.get("storage_path"):
                 out.append({"id": ph.get("id") or "", "source": "photo", "point": (ph.get("point") or "").strip(), "label": (ph.get("label") or "").upper(),
-                            "uploaded_at": ph.get("uploaded_at") or "", "thumb": du,
+                            "uploaded_at": ph.get("uploaded_at") or "", "thumb": du if is_b64 else f"/api/operacional/photos/{pid}/{ph.get('id')}/file",
+                            "storage_path": ph.get("storage_path", ""),
                             "caption": f"{(ph.get('point') or '').strip() or 'Obra'} · {(ph.get('label') or 'FOTO').upper()} · {(ph.get('uploaded_at') or '')[:10]}"})
         for att in sorted((p.get("attachments") or []), key=lambda a: a.get("uploaded_at", ""), reverse=True):
             if (att.get("content_type") or "").startswith("image/") and att.get("storage_path"):
@@ -355,7 +358,10 @@ def build_router(db, get_current_user, require_admin, safe_object_id, today_fn, 
         for c in chosen:
             try:
                 if c["source"] == "photo":
-                    data = base64.b64decode(c["thumb"].split(",", 1)[1])
+                    if c.get("storage_path"):
+                        data, _ = await storage_get(c["storage_path"])
+                    else:
+                        data = base64.b64decode(c["thumb"].split(",", 1)[1])
                 else:
                     att = next(a for a in (p.get("attachments") or []) if a.get("id") == c["id"])
                     data, _ = await storage_get(att["storage_path"])
