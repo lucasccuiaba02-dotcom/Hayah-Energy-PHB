@@ -1,0 +1,30 @@
+{
+  "summary": "Iteration 34 — Laudo de Transformador (padrão Energisa). Backend: 19/19 pytest passed covering GET/PUT/photo-slots/from-photo/DELETE/PDF endpoints, prefill (patrimonio/serie/marca/reformado from condicao=reforma), validations (tipo_laudo/configuracao/tipo_oleo/reformado → 400), leituras normalized to length 3, non-image rejection, 404 unknown eid/photo_id, and PDF (application/pdf, %PDF magic, 1 page, size >20KB with slot photos, works with placeholders when no laudo saved). Frontend: EquipamentosPage renders equip-laudo-{id} only on transformer cards; laudo-modal opens with prefilled fields (PAT-OPHOJE, SN-1, WEG, project 122601797, encarregado 'João da Silva'); all toggle testids present (tipo/configuracao/classe/oleo/reformado); all 8 slots have laudo-slot/camera/upload/pick/file testids; save→toast 'Laudo salvo'; close+reopen persists observação/posicao_tap/aterr_leituras-0; PNG upload on tensao_a via set_input_files renders laudo-slot-img-tensao_a (naturalWidth=200) and remove clears it; laudo-slot-pick-placa correctly disabled when equip_photos empty; laudo-pdf triggers download 'Laudo_Transformador_122601797.pdf' 69214 bytes with toast 'Laudo PDF gerado'; mobile 390px scrollWidth==390 (no horizontal overflow); laudo-close closes modal.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "LaudoTrafoModal · Data / Data fabricação", "issues": ["Campo DATA usa <input type=date> nativo do browser (formato local mm/dd/yyyy no test env) e DATA FABRICAÇÃO usa input livre 'MM/AAAA' — inconsistente com o padrão do app (recomenda shadcn Calendar/Popover para DATA e máscara para MM/AAAA)."]}
+    ]
+  },
+  "test_report_links": ["/app/backend/tests/test_iteration34.py", "/app/test_reports/pytest/iter34.xml"],
+  "action_items": [
+    "(opcional) Trocar <input type=date> por shadcn Calendar no campo laudo-data para consistência visual e i18n pt-BR."
+  ],
+  "critical_code_review_comments": [
+    "laudo_trafo.py bem estruturado (470 linhas, isolado do server.py monolítico). Boas validações Pydantic e whitelists por campo.",
+    "storage_path da foto do slot 'from-photo' aponta para o storage_path da foto original do equipamento — se o usuário DELETAR a foto do equipamento, o slot do laudo ficará quebrado (Emergent object storage 404). Considerar copiar o binário ou marcar dependência para impedir delete.",
+    "build_laudo_pdf tem 200+ linhas de layout mágico com coordenadas em mm hardcoded — funciona mas frágil; qualquer ajuste do template Energisa exige recalcular offsets. OK para MVP.",
+    "SLOTS/FIELDS listas duplicadas do frontend LaudoTrafoModal (SLOT_GROUPS) — se alguém adicionar slot, precisa sincronizar 2 lados. Aceitável para MVP.",
+    "In-line watermark_fn opcional aplicado só para 'placa' e 'instalado' — OK."
+  ],
+  "updated_files": ["/app/backend/tests/test_iteration34.py"],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "test_credentials": "Admin: lucasc.cuiaba02@gmail.com / Hayah$152610",
+  "seed_data_creation": "Durante testes pytest criados e apagados: TEST-LAUDO-34, TEST-LAUDO-PREFILL, TEST-LAUDO-EMPTY (todos deletados via fixture teardown). UI testou no equipamento existente 6aa964cc6425f24ea58cdd41 (PAT-OPHOJE) — laudo salvo com observação 'Observação TESTE UI iter34', tipo=remanejamento, aterr_leituras-0='9,9', posicao_tap='4'. Main agent pode reverter esses valores se necessário para preservar o smoke test anterior.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Feature completa e validada. Testes de regressão de fotos de equipamento e listagem OK. Se main agent alterar layout do PDF, revalidar apenas TestPDF.test_pdf_ok_with_saved_and_photo (tamanho e count de páginas). Slot 'from-photo' depende do storage_path da foto do equipamento — cuidado ao apagar fotos de equipamento com laudo referenciando.",
+  "rca of the issue": "N/A — nenhum bug crítico encontrado. Feature Laudo de Transformador aprovada."
+}
