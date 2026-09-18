@@ -5870,6 +5870,8 @@ app.include_router(_build_avanco_router(db, get_current_user, require_admin, saf
 from orcamentos import build_router as _build_orcamentos_router
 app.include_router(_build_orcamentos_router(db, get_current_user, safe_object_id, storage_put, storage_get, APP_NAME, _today_cuiaba))
 app.include_router(_build_notifications_router(db, get_current_user, os.environ.get("FRONTEND_URL", "")))
+from laudo_trafo import build_router as _build_laudo_router
+app.include_router(_build_laudo_router(db, get_current_user, safe_object_id, storage_put, storage_get, APP_NAME, _apply_photo_watermark))
 
 
 async def notifications_tick_job():

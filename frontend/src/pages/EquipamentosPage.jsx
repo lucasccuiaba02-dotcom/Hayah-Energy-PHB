@@ -3,11 +3,12 @@ import axios from 'axios';
 import { toast } from 'sonner';
 import { motion } from 'framer-motion';
 import {
-  Plus, X, Zap, Package, Upload, Edit3, Trash2, Camera, Search, Filter, Image as ImageIcon, Briefcase,
+  Plus, X, Zap, Package, Upload, Edit3, Trash2, Camera, Search, Filter, Image as ImageIcon, Briefcase, ClipboardCheck,
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { AppLayout } from '../components/AppLayout';
 import { PinchZoomImage } from '../components/PinchZoomImage';
+import { LaudoTrafoModal } from '../components/LaudoTrafoModal';
 import { todayISO } from '../lib/constants';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
@@ -87,7 +88,7 @@ const ProjectPicker = ({ projects, value, onChange }) => {
   );
 };
 
-const EquipCard = ({ equip, onEdit, onDelete, onOpenPhotos }) => {
+const EquipCard = ({ equip, onEdit, onDelete, onOpenPhotos, onOpenLaudo }) => {
   const color = TIPO_COLOR[equip.tipo] || '#94A3B8';
   const photosLen = (equip.photos || []).length;
   return (
@@ -150,6 +151,11 @@ const EquipCard = ({ equip, onEdit, onDelete, onOpenPhotos }) => {
         <button data-testid={`equip-photos-${equip.id}`} onClick={() => onOpenPhotos(equip)} className={`inline-flex items-center gap-1 text-[10px] font-bold px-2.5 py-1.5 rounded-full ${photosLen >= 3 ? 'bg-[#39FF14]/15 text-[#39FF14] border border-[#39FF14]/40' : 'bg-[#00F0FF]/15 text-[#00F0FF] border border-[#00F0FF]/40'}`}>
           <Camera className="w-3 h-3" /> {photosLen}/3 fotos
         </button>
+        {equip.tipo === 'transformador' && (
+          <button data-testid={`equip-laudo-${equip.id}`} onClick={() => onOpenLaudo(equip)} title="Laudo de Transformador (PDF padrão Energisa)" className="inline-flex items-center gap-1 text-[10px] font-bold px-2.5 py-1.5 rounded-full bg-[#E0FF00]/15 text-[#E0FF00] border border-[#E0FF00]/40 hover:bg-[#E0FF00]/25">
+            <ClipboardCheck className="w-3 h-3" /> Laudo PDF
+          </button>
+        )}
         <button data-testid={`equip-edit-${equip.id}`} onClick={() => onEdit(equip)} className="w-7 h-7 rounded-full bg-white/5 hover:bg-white/10 text-zinc-400 hover:text-[#E0FF00] flex items-center justify-center">
           <Edit3 className="w-3 h-3" />
         </button>
@@ -376,6 +382,7 @@ export const EquipamentosPage = () => {
   const [editing, setEditing] = useState(null);
   const [modalOpen, setModalOpen] = useState(false);
   const [photosEquip, setPhotosEquip] = useState(null);
+  const [laudoEquip, setLaudoEquip] = useState(null);
 
   const load = async () => {
     setLoading(true);
@@ -473,7 +480,7 @@ export const EquipamentosPage = () => {
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
           {filtered.map((eq) => (
-            <EquipCard key={eq.id} equip={eq} onEdit={openEdit} onDelete={removeEquip} onOpenPhotos={setPhotosEquip} />
+            <EquipCard key={eq.id} equip={eq} onEdit={openEdit} onDelete={removeEquip} onOpenPhotos={setPhotosEquip} onOpenLaudo={setLaudoEquip} />
           ))}
         </div>
       )}
@@ -494,6 +501,7 @@ export const EquipamentosPage = () => {
           setPhotosEquip((e) => e ? { ...e, photos: next } : e);
         }}
       />
+      {laudoEquip && <LaudoTrafoModal equip={laudoEquip} onClose={() => setLaudoEquip(null)} />}
     </AppLayout>
   );
 };
