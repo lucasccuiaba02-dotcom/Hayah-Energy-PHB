@@ -5,11 +5,12 @@ import { toast } from 'sonner';
 import {
   Package, DollarSign, Target, AlertTriangle, TrendingDown, TrendingUp,
   Search, Filter, Upload, Download, Plus, Edit3, Trash2, X, Save,
-  CircleAlert, CheckCircle2, FileSpreadsheet, RefreshCw, Layers, Zap, ChevronRight,
+  CircleAlert, CheckCircle2, FileSpreadsheet, RefreshCw, Layers, Zap, ChevronRight, MessageCircle,
 } from 'lucide-react';
 import { AppLayout } from '../components/AppLayout';
 import { MATERIAL_UNITS, formatCurrency } from '../lib/constants';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
+import { openWhatsApp, lowStockText } from '../lib/whatsapp';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -241,13 +242,14 @@ const ImportModal = ({ open, onClose, onDone }) => {
 
 export const EstoquePage = () => {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const [items, setItems] = useState([]);
   const [kpis, setKpis] = useState(null);
   const [loading, setLoading] = useState(true);
   const [q, setQ] = useState('');
   const [family, setFamily] = useState('');
   const [group, setGroup] = useState('');
-  const [lowStock, setLowStock] = useState(false);
+  const [lowStock, setLowStock] = useState(searchParams.get('low') === '1');
   const [divergent, setDivergent] = useState(false);
   const [families, setFamilies] = useState([]);
   const [groups, setGroups] = useState([]);
@@ -470,6 +472,16 @@ export const EstoquePage = () => {
           >
             <AlertTriangle className="inline w-3 h-3 mr-1" /> Estoque baixo
           </button>
+          {lowStock && items.length > 0 && (
+            <button
+              data-testid="est-low-whatsapp"
+              onClick={() => openWhatsApp(lowStockText(items.filter((i) => i.is_low_stock)))}
+              title="Enviar lista de estoque baixo pelo WhatsApp"
+              className="text-[10px] font-bold uppercase tracking-wider px-3 py-2 rounded-full border border-[#25D366]/50 text-[#25D366] hover:bg-[#25D366]/10 transition"
+            >
+              <MessageCircle className="inline w-3 h-3 mr-1" /> WhatsApp
+            </button>
+          )}
           <button
             data-testid="est-filter-divergent"
             onClick={() => setDivergent(!divergent)}

@@ -27,6 +27,9 @@ from PIL import Image, ImageDraw, ImageFont
 from zoneinfo import ZoneInfo
 
 from push_notifications import ensure_vapid_keys, broadcast_push
+from notifications import (resend_credentials as _resend_credentials, notification_emails as _notification_emails,
+                           warehouse_emails as _warehouse_emails, stock_instant_alert as _stock_instant_alert,
+                           notifications_tick as _notifications_tick, build_router as _build_notifications_router)
 from daily_log_pdf import build_daily_log_pdf
 from route_pdf import build_route_pdf
 from material_requisition_pdf import build_requisition_pdf
@@ -1530,8 +1533,7 @@ async def create_project(project_data: ProjectCreate, current_user: dict = Depen
     project_doc["_id"] = result.inserted_id
     
     if project_doc.get("is_scheduled"):
-        recipients_str = os.environ.get("NOTIFICATION_EMAILS", "")
-        recipients = [e.strip() for e in recipients_str.split(",") if e.strip()]
+        recipients = await _notification_emails(db)
         if recipients:
             html = _build_project_email_html(project_doc, "Nova Programação de Obra")
             subject = f"[HAYAH] Programação: {project_doc.get('name','')} - {(project_doc.get('start_date') or '')[:10]}"
@@ -2646,14 +2648,13 @@ async def export_excel(
 
 # Email helper
 async def send_email_via_resend(recipients: List[str], subject: str, html_content: str) -> dict:
-    api_key = os.environ.get("RESEND_API_KEY", "").strip()
+    api_key, sender = await _resend_credentials(db)
     if not api_key:
         logger.warning(f"[EMAIL SKIPPED - No RESEND_API_KEY] To={recipients} Subject={subject}")
         return {"status": "skipped", "reason": "no_api_key"}
     try:
         import resend
         resend.api_key = api_key
-        sender = os.environ.get("SENDER_EMAIL", "Hayah Energy <onboarding@resend.dev>")
         params = {
             "from": sender,
             "to": recipients,
@@ -2704,8 +2705,7 @@ async def notify_scheduling(project_id: str, current_user: dict = Depends(get_cu
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
     
-    recipients_str = os.environ.get("NOTIFICATION_EMAILS", "")
-    recipients = [e.strip() for e in recipients_str.split(",") if e.strip()]
+    recipients = await _notification_emails(db)
     if not recipients:
         return {"status": "no_recipients"}
     
@@ -2718,8 +2718,7 @@ async def daily_scheduled_email_job():
     from datetime import date, timedelta as td
     tomorrow = (datetime.now(timezone.utc) + td(days=1)).strftime("%Y-%m-%d")
     
-    recipients_str = os.environ.get("NOTIFICATION_EMAILS", "")
-    recipients = [e.strip() for e in recipients_str.split(",") if e.strip()]
+    recipients = await _notification_emails(db)
     if not recipients:
         logger.info("Daily email job: no NOTIFICATION_EMAILS configured, skipping")
         return
@@ -2789,8 +2788,7 @@ async def anexo_iv_reminder_job():
     if not projects:
         logger.info(f"Anexo IV reminder: no projects for {target}")
         return
-    recipients_str = os.environ.get("NOTIFICATION_EMAILS", "")
-    recipients = [e.strip() for e in recipients_str.split(",") if e.strip()]
+    recipients = await _notification_emails(db)
     rows = ""
     for p in projects:
         rows += f"""
@@ -3229,8 +3227,7 @@ async def morning_shutdown_check_job():
     except Exception:
         today = dt.now(timezone.utc).strftime("%Y-%m-%d")
     
-    recipients_str = os.environ.get("NOTIFICATION_EMAILS", "")
-    recipients = [e.strip() for e in recipients_str.split(",") if e.strip()]
+    recipients = await _notification_emails(db)
     if not recipients:
         return
     
@@ -4389,7 +4386,7 @@ async def _ledger_project(project_id: str, current_user: dict) -> dict:
     project = await db.projects.find_one({"_id": safe_object_id(project_id), "user_id": current_user["_id"]})
     if not project:
         raise HTTPException(status_code=404, detail="Obra não encontrada")
-    return project
+    return dict(project)
 
 
 def _ledger_filename(project: dict, ext: str) -> str:
@@ -4931,15 +4928,10 @@ async def request_materials(
         raise HTTPException(status_code=404, detail="Project not found")
     sel, partial = _partial_selection(project, requisition_type, items)
     
-    warehouse_email = os.environ.get("WAREHOUSE_EMAIL", "").strip()
-    fallback_emails = os.environ.get("NOTIFICATION_EMAILS", "")
-    if warehouse_email:
-        recipients = [e.strip() for e in warehouse_email.replace(";", ",").split(",") if e.strip()]
-    else:
-        recipients = [e.strip() for e in fallback_emails.replace(";", ",").split(",") if e.strip()]
+    recipients = await _warehouse_emails(db)
     
     if not recipients:
-        raise HTTPException(status_code=400, detail="Nenhum destinatário configurado")
+        raise HTTPException(status_code=400, detail="Nenhum destinatário configurado — informe o e-mail do almoxarifado em Configurações › Integrações")
     
     # Read attachments from upload
     attachments = []
@@ -5166,7 +5158,7 @@ async def request_materials(
     }
 
     # ====== Send via Resend ======
-    api_key = os.environ.get("RESEND_API_KEY", "").strip()
+    api_key, sender = await _resend_credentials(db)
     if not api_key:
         logger.warning(f"[MATERIAL EMAIL SKIPPED - No RESEND_API_KEY] To={recipients}")
         history_entry["email_status"] = "skipped_no_key"
@@ -5179,7 +5171,6 @@ async def request_materials(
     try:
         import resend
         resend.api_key = api_key
-        sender = os.environ.get("SENDER_EMAIL", "Hayah Energy <onboarding@resend.dev>")
         params = {
             "from": sender,
             "to": recipients,
@@ -5355,7 +5346,7 @@ async def resend_requisition(
         "items": original.get("items") or [],
     }
 
-    api_key = os.environ.get("RESEND_API_KEY", "").strip()
+    api_key, sender = await _resend_credentials(db)
     if not api_key:
         resend_entry["email_status"] = "skipped_no_key"
         await db.projects.update_one(
@@ -5367,7 +5358,6 @@ async def resend_requisition(
     try:
         import resend
         resend.api_key = api_key
-        sender = os.environ.get("SENDER_EMAIL", "Hayah Energy <onboarding@resend.dev>")
         result = await asyncio.to_thread(resend.Emails.send, {
             "from": sender, "to": recipients, "subject": subject, "html": html,
             "attachments": attachments,
@@ -5626,6 +5616,7 @@ async def update_stock_item(item_id: str, body: StockItemUpdate, current_user: d
         if clash:
             raise HTTPException(status_code=409, detail=f"Outro item já usa o código {updates['code']}")
     updates["last_updated_at"] = datetime.now(timezone.utc).isoformat()
+    before = await db.stock_items.find_one({"_id": safe_object_id(item_id), "user_id": current_user["_id"]})
     r = await db.stock_items.update_one(
         {"_id": safe_object_id(item_id), "user_id": current_user["_id"]},
         {"$set": updates},
@@ -5633,7 +5624,10 @@ async def update_stock_item(item_id: str, body: StockItemUpdate, current_user: d
     if r.matched_count == 0:
         raise HTTPException(status_code=404, detail="Item não encontrado")
     doc = await db.stock_items.find_one({"_id": safe_object_id(item_id)})
-    return _stock_doc_to_dict(doc)
+    out = _stock_doc_to_dict(doc)
+    if out["is_low_stock"] and not (before and _stock_doc_to_dict(before)["is_low_stock"]):
+        asyncio.create_task(_stock_instant_alert(db, current_user["_id"], [out], os.environ.get("FRONTEND_URL", "")))
+    return out
 
 
 @api_router.delete("/estoque/{item_id}")
@@ -5661,6 +5655,7 @@ async def import_stock_sistemico(
     raw = await file.read()
     if len(raw) > 30 * 1024 * 1024:
         raise HTTPException(status_code=400, detail="Arquivo > 30MB")
+    _low_before = {str(d["_id"]) for d in await db.stock_items.find({"user_id": current_user["_id"], "min_stock": {"$gt": 0}}).to_list(20000) if _stock_doc_to_dict(d)["is_low_stock"]}
 
     rows: List[dict] = []
     header_norm = lambda s: (str(s or "").strip().lower().replace("ç", "c").replace("ã", "a").replace("é", "e").replace("í", "i").replace("ó", "o").replace("ú", "u"))
@@ -5806,12 +5801,18 @@ async def import_stock_sistemico(
         )
         zeroed = r.modified_count
 
+    _newly_low = [_stock_doc_to_dict(d) for d in await db.stock_items.find({"user_id": current_user["_id"], "min_stock": {"$gt": 0}}).to_list(20000)]
+    _newly_low = [i for i in _newly_low if i["is_low_stock"] and i["id"] not in _low_before]
+    if _newly_low:
+        asyncio.create_task(_stock_instant_alert(db, current_user["_id"], _newly_low, os.environ.get("FRONTEND_URL", "")))
+
     return {
         "imported": imported,
         "created": created,
         "updated": updated,
         "zeroed_when_absent": zeroed,
         "mode": mode,
+        "newly_low_stock": len(_newly_low),
     }
 
 
@@ -5868,6 +5869,11 @@ app.include_router(_build_avanco_router(db, get_current_user, require_admin, saf
 
 from orcamentos import build_router as _build_orcamentos_router
 app.include_router(_build_orcamentos_router(db, get_current_user, safe_object_id, storage_put, storage_get, APP_NAME, _today_cuiaba))
+app.include_router(_build_notifications_router(db, get_current_user, os.environ.get("FRONTEND_URL", "")))
+
+
+async def notifications_tick_job():
+    await _notifications_tick(db, os.environ.get("FRONTEND_URL", ""))
 
 app.add_middleware(
     CORSMiddleware,
@@ -5984,13 +5990,14 @@ async def startup_db():
     try:
         from apscheduler.schedulers.asyncio import AsyncIOScheduler
         from apscheduler.triggers.cron import CronTrigger
+        from apscheduler.triggers.interval import IntervalTrigger
         scheduler = AsyncIOScheduler(timezone="America/Cuiaba")
         scheduler.add_job(daily_scheduled_email_job, CronTrigger(hour=18, minute=0), id="daily_18h_email", replace_existing=True)
         scheduler.add_job(morning_shutdown_check_job, CronTrigger(hour=8, minute=30), id="morning_shutdown_check", replace_existing=True)
         scheduler.add_job(anexo_iv_reminder_job, CronTrigger(hour=9, minute=0), id="anexo_iv_d2_reminder", replace_existing=True)
-        scheduler.add_job(backlog_daily_check_job, CronTrigger(hour=9, minute=15), id="billing_backlog_check", replace_existing=True)
+        scheduler.add_job(notifications_tick_job, IntervalTrigger(minutes=5), id="notifications_tick", replace_existing=True)
         scheduler.start()
-        logger.info("Scheduler started: 08:30 shutdown + 09:00 anexo-IV D-2 + 09:15 backlog radar + 18:00 tomorrow email (America/Cuiaba)")
+        logger.info("Scheduler started: 08:30 shutdown + 09:00 anexo-IV D-2 + 18:00 tomorrow email + Central de Notificações a cada 5 min (America/Cuiaba)")
     except Exception as e:
         logger.warning(f"Failed to start scheduler: {e}")
 

@@ -7,9 +7,10 @@ import { AppLayout } from '../components/AppLayout';
 import {
   DollarSign, TrendingUp, Clock, Package, CheckCircle2, Truck, FileCheck2,
   Send, ChevronRight, Filter, Calendar, ArrowRight, Zap, AlertTriangle, Timer,
-  Volume2, VolumeX, ChevronLeft,
+  Volume2, VolumeX, ChevronLeft, MessageCircle,
 } from 'lucide-react';
 import { formatCurrency, todayISO } from '../lib/constants';
+import { openWhatsApp, backlogText } from '../lib/whatsapp';
 import { showNotification } from '../lib/offline';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
@@ -436,6 +437,15 @@ export const FaturamentoPage = () => {
                 </span>
               </p>
             </div>
+            <button
+              type="button"
+              data-testid="fat-backlog-whatsapp"
+              onClick={() => openWhatsApp(backlogText(data.stuck_projects, (k) => stages.find((s) => s.key === k)?.label || k, data.stuck_threshold_days || 15))}
+              title="Enviar lista pelo WhatsApp"
+              className="flex-shrink-0 inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider px-3 py-1.5 rounded-full border border-[#25D366]/50 text-[#25D366] hover:bg-[#25D366]/10"
+            >
+              <MessageCircle className="w-3 h-3" /> <span className="hidden sm:inline">WhatsApp</span>
+            </button>
             <button
               type="button"
               data-testid="fat-backlog-sound-toggle"

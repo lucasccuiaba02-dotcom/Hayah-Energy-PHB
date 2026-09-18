@@ -1,8 +1,9 @@
 import React from 'react';
 import { motion } from 'framer-motion';
-import { X, AlertTriangle, ExternalLink, MapPin, Users, CalendarClock } from 'lucide-react';
+import { X, AlertTriangle, ExternalLink, MapPin, Users, CalendarClock, MessageCircle } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { formatCurrency, EXECUTION_STATUS_LABEL, PROJECT_TYPE_LABEL } from '../lib/constants';
+import { openWhatsApp, vencidasText } from '../lib/whatsapp';
 
 const fmtDate = (d) => {
   const s = (d || '').slice(0, 10);
@@ -36,6 +37,11 @@ export const VencidasModal = ({ open, onClose, items = [] }) => {
             </h3>
             <p className="text-[11px] text-zinc-400">Baseado na Data Vencimento do cadastro · exclui concluídas, executadas, suspensas e canceladas</p>
           </div>
+          {items.length > 0 && (
+            <button data-testid="vencidas-whatsapp" onClick={() => openWhatsApp(vencidasText(items))} title="Enviar lista pelo WhatsApp" className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider px-3 py-1.5 rounded-full border border-[#25D366]/50 text-[#25D366] hover:bg-[#25D366]/10">
+              <MessageCircle className="w-3.5 h-3.5" /> <span className="hidden sm:inline">WhatsApp</span>
+            </button>
+          )}
           <button data-testid="vencidas-modal-close" onClick={onClose} className="p-2 rounded-lg hover:bg-white/10 text-zinc-400 hover:text-white">
             <X className="w-5 h-5" />
           </button>

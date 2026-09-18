@@ -1,8 +1,9 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import axios from 'axios';
 import { toast } from 'sonner';
-import { ArrowLeft, Save, Copy, FileDown, FileCheck2, Trash2, Ban, ChevronRight } from 'lucide-react';
+import { ArrowLeft, Save, Copy, FileDown, FileCheck2, Trash2, Ban, ChevronRight, MessageCircle } from 'lucide-react';
 import { formatCurrency } from '../../lib/constants';
+import { openWhatsApp, orcamentoText } from '../../lib/whatsapp';
 import { API, STATUS, statusOf, calcTotals, downloadPdf, num, fmtDate, btnGhost, btnPrimary } from './orcamentoShared';
 import { OrcamentoClientTab } from './OrcamentoClientTab';
 import { OrcamentoItemsTab } from './OrcamentoItemsTab';
@@ -119,6 +120,7 @@ export const OrcamentoEditor = ({ orc, onRefresh, onDeleted, onCreated, onBack }
             <button data-testid="orc-save" disabled={!dirty || saving} onClick={saveNow} className={btnPrimary}><Save className="w-3.5 h-3.5" /> {saving ? 'Salvando…' : 'Salvar'}</button>
             <button data-testid="orc-pdf-proposta" onClick={() => pdf('proposta')} className={btnGhost}><FileDown className="w-3.5 h-3.5" /> Proposta PDF</button>
             <button data-testid="orc-pdf-conclusao" onClick={() => pdf('conclusao')} className={btnGhost}><FileCheck2 className="w-3.5 h-3.5" /> Conclusão PDF</button>
+            <button data-testid="orc-whatsapp" onClick={() => openWhatsApp(orcamentoText({ ...form, code: orc.code }, totals), form.client.phone)} className={`${btnGhost} border-[#25D366]/50 text-[#25D366]`}><MessageCircle className="w-3.5 h-3.5" /> WhatsApp</button>
             <button data-testid="orc-duplicate" onClick={duplicate} className={btnGhost}><Copy className="w-3.5 h-3.5" /> Duplicar</button>
             <button data-testid="orc-delete" onClick={remove} className={`${btnGhost} text-[#FF003C] border-[#FF003C]/40`}><Trash2 className="w-3.5 h-3.5" /></button>
           </div>

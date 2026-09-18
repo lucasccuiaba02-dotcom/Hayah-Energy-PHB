@@ -5,6 +5,8 @@ import { toast } from 'sonner';
 import { Shield, Lock, MonitorSmartphone, Save, Eye, EyeOff, AlertTriangle, KeyRound } from 'lucide-react';
 import { AppLayout } from '../components/AppLayout';
 import { useAuth } from '../contexts/AuthContext';
+import { NotificationCenter } from '../components/NotificationCenter';
+import { IntegrationsPanel } from '../components/IntegrationsPanel';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -51,8 +53,10 @@ export const SettingsPage = () => {
   };
 
   return (
-    <AppLayout title="Configurações" subtitle="Segurança da sua conta">
+    <AppLayout title="Configurações" subtitle="Notificações, integrações e segurança da conta">
       <div className="max-w-3xl mx-auto space-y-6">
+        <NotificationCenter />
+        {user?.role === 'admin' && <IntegrationsPanel />}
         {/* User summary */}
         <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} className="glass-panel rounded-2xl p-5 border border-[#E0FF00]/25">
           <div className="flex items-center gap-3 mb-2">
