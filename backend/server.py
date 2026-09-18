@@ -46,6 +46,11 @@ db = client[os.environ['DB_NAME']]
 app = FastAPI()
 api_router = APIRouter(prefix="/api")
 
+
+@api_router.get("/health")
+async def health():
+    return {"status": "ok", "ts": datetime.now(timezone.utc).isoformat()}
+
 JWT_ALGORITHM = "HS256"
 
 # --- Emergent Object Storage ---
@@ -3786,7 +3791,7 @@ async def upload_equipamento_photo(
     # Fev/2026 · watermark automático com patrimônio + data/hora Cuiabá
     patrimonio = (equip.get("patrimonio") or "").strip() or "SEM PATRIMÔNIO"
     tipo_lbl = {"transformador": "TRAFO", "religador": "REL", "regulador_tensao": "REG"}.get(equip.get("tipo", ""), "EQUIP")
-    watermarked_bytes, out_ct = _apply_photo_watermark(content, file.content_type or "image/jpeg", patrimonio, tipo_lbl)
+    watermarked_bytes, out_ct = await asyncio.to_thread(_apply_photo_watermark, content, file.content_type or "image/jpeg", patrimonio, tipo_lbl)
 
     fname = file.filename or "foto.jpg"
     ext = "jpg"  # sempre JPEG após watermark
@@ -5877,10 +5882,11 @@ app.include_router(_build_laudo_router(db, get_current_user, safe_object_id, sto
 async def notifications_tick_job():
     await _notifications_tick(db, os.environ.get("FRONTEND_URL", ""))
 
+_cors_env = os.environ.get('CORS_ORIGINS', '').strip()
 app.add_middleware(
     CORSMiddleware,
     allow_credentials=True,
-    allow_origins=[os.environ.get('FRONTEND_URL', 'http://localhost:3000')],
+    allow_origins=['*'] if _cors_env == '*' else ([o.strip() for o in _cors_env.split(',') if o.strip()] or [os.environ.get('FRONTEND_URL', 'http://localhost:3000')]),
     allow_methods=["*"],
     allow_headers=["*"],
 )

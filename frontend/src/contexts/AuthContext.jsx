@@ -18,6 +18,20 @@ axios.interceptors.request.use((config) => {
   return config;
 });
 
+// Resiliência: repete GETs que falharam por queda momentânea do servidor/edge (Cloudflare 52x, 502/503/504 ou sem resposta)
+const RETRY_STATUS = new Set([502, 503, 504, 520, 521, 522, 523, 524, 525, 526, 527, 530]);
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+axios.interceptors.response.use(undefined, async (error) => {
+  const cfg = error?.config;
+  const status = error?.response?.status;
+  const transient = !error?.response || RETRY_STATUS.has(status);
+  const method = (cfg?.method || 'get').toLowerCase();
+  if (!cfg || !transient || method !== 'get' || cfg.__retries >= 3) return Promise.reject(error);
+  cfg.__retries = (cfg.__retries || 0) + 1;
+  await sleep(700 * cfg.__retries);
+  return axios(cfg);
+});
+
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);

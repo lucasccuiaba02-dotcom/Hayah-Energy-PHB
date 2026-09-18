@@ -7,6 +7,7 @@ Threshold em app_settings {user_id, key:'avanco_threshold', value}.
 from datetime import datetime, timezone
 from typing import List
 from uuid import uuid4
+import asyncio
 import base64
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -368,7 +369,7 @@ def build_router(db, get_current_user, require_admin, safe_object_id, today_fn, 
                 photos.append({"bytes": data, "caption": c["caption"]})
             except Exception:
                 continue
-        pdf = build_avanco_pdf(p, detail, photos=photos)
+        pdf = await asyncio.to_thread(build_avanco_pdf, p, detail, photos=photos)
         code = "".join(ch if ch.isalnum() else "_" for ch in (p.get("project_code") or project_id))[:24]
         filename = f"avanco_fisico_{code}_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M')}.pdf"
         return Response(content=pdf, media_type="application/pdf", headers={"Content-Disposition": f'attachment; filename="{filename}"'})

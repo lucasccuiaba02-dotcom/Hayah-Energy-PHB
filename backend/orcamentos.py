@@ -1,5 +1,6 @@
 """Set/2026 · Orçamentos de obras particulares: código em série, cliente, escopo, mão de obra,
 materiais (import de fornecedor), fotos/croquis, Proposta Comercial e Relatório de Conclusão em PDF."""
+import asyncio
 import csv
 import io
 import secrets
@@ -415,7 +416,7 @@ def build_router(db, get_current_user, safe_object_id, storage_put, storage_get,
         content = await file.read()
         if len(content) > 10 * 1024 * 1024:
             raise HTTPException(status_code=400, detail="Arquivo maior que 10MB")
-        items = _parse_material_file(content, file.filename or "")
+        items = await asyncio.to_thread(_parse_material_file, content, file.filename or "")
         for it in items:
             it["supplier"] = supplier.strip()
         final = items if replace else (doc.get("material_items") or []) + items
@@ -497,7 +498,7 @@ def build_router(db, get_current_user, safe_object_id, storage_put, storage_get,
     async def pdf_proposta(oid: str, current_user: dict = Depends(get_current_user)):
         doc = await _get(oid, current_user)
         company, logo, photos = await _assets(doc, current_user)
-        pdf = build_proposta_pdf(_public(doc), company, logo, photos)
+        pdf = await asyncio.to_thread(build_proposta_pdf, _public(doc), company, logo, photos)
         return Response(content=pdf, media_type="application/pdf",
                         headers={"Content-Disposition": f'attachment; filename="{_fname("proposta_comercial", doc)}"'})
 
@@ -505,7 +506,7 @@ def build_router(db, get_current_user, safe_object_id, storage_put, storage_get,
     async def pdf_conclusao(oid: str, current_user: dict = Depends(get_current_user)):
         doc = await _get(oid, current_user)
         company, logo, photos = await _assets(doc, current_user)
-        pdf = build_conclusao_pdf(_public(doc), company, logo, photos)
+        pdf = await asyncio.to_thread(build_conclusao_pdf, _public(doc), company, logo, photos)
         return Response(content=pdf, media_type="application/pdf",
                         headers={"Content-Disposition": f'attachment; filename="{_fname("relatorio_conclusao", doc)}"'})
 

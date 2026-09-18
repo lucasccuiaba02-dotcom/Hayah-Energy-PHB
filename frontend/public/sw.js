@@ -3,7 +3,7 @@
 // Hayah Energy - Service Worker (Full offline app shell)
 // Fev/2026 - v3: precache + stale-while-revalidate + navigation fallback
 
-const SW_VERSION = 'hayah-v3-2026-02';
+const SW_VERSION = 'hayah-v4-2026-09';
 const APP_SHELL_CACHE = `${SW_VERSION}-shell`;
 const STATIC_CACHE = `${SW_VERSION}-static`;
 const IMAGE_CACHE = `${SW_VERSION}-images`;
@@ -133,6 +133,16 @@ async function handleApi(req) {
         cache.put(req, net.clone()).catch(() => {});
       }
       return net;
+    }
+    // Erro de borda/servidor (502/503/504/52x) em leitura: serve a última cópia boa em cache, se houver
+    if (req.method === 'GET' && net && net.status >= 500) {
+      const cached = await caches.match(req);
+      if (cached) {
+        const headers = new Headers(cached.headers);
+        headers.set('X-From-Cache', 'true');
+        headers.set('X-Upstream-Status', String(net.status));
+        return new Response(await cached.blob(), { status: cached.status, headers });
+      }
     }
     return net;
   } catch (_) {

@@ -1,4 +1,5 @@
 """Set/2026 · Laudo de Transformador (formulário padrão Energisa) por equipamento: dados + 8 fotos + PDF A4 fiel ao modelo."""
+import asyncio
 import io
 import os
 import secrets
@@ -400,7 +401,7 @@ def build_router(db, get_current_user, safe_object_id, storage_put, storage_get,
         if not content or len(content) > 15 * 1024 * 1024:
             raise HTTPException(status_code=400, detail="Imagem vazia ou maior que 15MB")
         try:
-            data, ct = _prepare_image(content)
+            data, ct = await asyncio.to_thread(_prepare_image, content)
         except Exception:
             raise HTTPException(status_code=400, detail="Arquivo não é uma imagem válida")
         if watermark_fn and slot in ("placa", "instalado"):
@@ -461,7 +462,7 @@ def build_router(db, get_current_user, safe_object_id, storage_put, storage_get,
                 logo = fh.read()
         except Exception:
             logo = None
-        pdf = build_laudo_pdf(v, photos, logo)
+        pdf = await asyncio.to_thread(build_laudo_pdf, v, photos, logo)
         code = "".join(ch for ch in (v.get("projeto") or v.get("patrimonio") or eid) if ch.isalnum()) or eid
         return Response(content=pdf, media_type="application/pdf",
                         headers={"Content-Disposition": f'attachment; filename="Laudo_Transformador_{code}.pdf"'})
