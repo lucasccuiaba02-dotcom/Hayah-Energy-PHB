@@ -10,8 +10,9 @@ import { APREditor } from '../components/APREditor';
 import { PinchZoomImage } from '../components/PinchZoomImage';
 import { AvancoQuickEntry, AvancoItemsTable, ProgressBar, effColor } from '../components/AvancoWidgets';
 import { AvancoPdfModal } from '../components/AvancoPdfModal';
-import { enqueue, syncQueue } from '../lib/offline';
+import { enqueue, syncQueue, getQueue } from '../lib/offline';
 import { enqueuePhoto, syncPhotoQueue, getQueuedPhotoCount } from '../lib/photoQueue';
+import { findProjectInPacote, updateProjectInPacote, loadPacote } from '../lib/campoStore';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -38,8 +39,8 @@ export const ProjectDetailPage = () => {
   const [photoPoint, setPhotoPoint] = useState(''); // P1, P2, P3...
   const [dailyNotes, setDailyNotes] = useState('');
   const [downloadingPdf, setDownloadingPdf] = useState(false);
-  // Fev/2026 · Se veio de /carteira com ?camera=1, abre já na aba Arquivos
-  const [tab, setTab] = useState(searchParams.get('camera') === '1' ? 'arquivos' : 'operacional');
+  // Fev/2026 · Se veio de /carteira com ?camera=1, abre já na aba Arquivos (Set/2026: ?tab=arquivos idem)
+  const [tab, setTab] = useState(searchParams.get('camera') === '1' || searchParams.get('tab') === 'arquivos' ? 'arquivos' : 'operacional');
   const [uploadingPdf, setUploadingPdf] = useState(false);
   // Fev/2026 · Preview modal pós-captura
   const [previewSrc, setPreviewSrc] = useState(null);
@@ -52,27 +53,55 @@ export const ProjectDetailPage = () => {
   const [aprOpen, setAprOpen] = useState(false);
   const [aprList, setAprList] = useState([]);
   const [aprSelected, setAprSelected] = useState(null); // objeto ou null para nova
+  const [aprLineType, setAprLineType] = useState(null); // Set/2026 · 'viva' força APR Linha Viva
+  const [fromPacote, setFromPacote] = useState(false); // Set/2026 · dados vindos do pacote do dia (offline)
   const [teams, setTeams] = useState([]);
   const [equipamentos, setEquipamentos] = useState([]);
   const [avanco, setAvanco] = useState(null);
   const [avancoPdfOpen, setAvancoPdfOpen] = useState(false);
   const loadAvanco = () => axios.get(`${API}/projects/${id}/avanco`).then(({ data }) => setAvanco(data)).catch(() => {});
 
+  // Set/2026 · Modo Campo offline: usa o pacote do dia salvo no celular quando a rede falha
+  const applyPacote = (force = false) => {
+    const cached = findProjectInPacote(id);
+    if (!cached) return false;
+    setProject((prev) => (force || !prev ? cached : prev));
+    setChecklist((prev) => (force || Object.keys(prev).length === 0 ? cached.checklist || {} : prev));
+    setPhotos((prev) => (force || prev.length === 0 ? cached.photos || [] : prev));
+    setAprList((prev) => (force || prev.length === 0 ? cached.apr_list || [] : prev));
+    setTeams((prev) => (force || prev.length === 0 ? loadPacote()?.teams || [] : prev));
+    setEquipamentos((prev) => (force || prev.length === 0 ? cached.equipamentos || [] : prev));
+    setFromPacote(true);
+    return true;
+  };
+  const refreshAprs = () => axios.get(`${API}/projects/${id}/aprs`).then(({ data, headers }) => {
+    if (headers?.['x-from-cache']) return; // cópia antiga do Service Worker — não sobrescreve APRs salvas offline
+    const pending = getQueue().filter((a) => a.type === 'apr' && a.projectId === id).map((a) => a.data?.client_id);
+    setAprList((prev) => {
+      const keep = prev.filter((a) => a._offline && pending.includes(a.client_id) && !(data || []).some((s) => s.client_id === a.client_id));
+      const next = [...keep, ...(data || [])];
+      updateProjectInPacote(id, { apr_list: next });
+      return next;
+    });
+  }).catch(() => {});
+
   useEffect(() => {
-    axios.get(`${API}/projects/${id}`).then(({ data }) => setProject(data)).catch(() => toast.error('Projeto não encontrado'));
+    const hasCache = !navigator.onLine && applyPacote();
+    axios.get(`${API}/projects/${id}`).then(({ data }) => { setProject(data); setFromPacote(false); }).catch(() => { if (!applyPacote(true)) toast.error(hasCache ? 'Sem sinal' : 'Projeto não encontrado'); });
     axios.get(`${API}/operacional/checklist/${id}`).then(({ data }) => {
       setChecklist(data.checklist || {});
       setPhotos(data.photos || []);
+      updateProjectInPacote(id, { checklist: data.checklist || {}, photos: data.photos || [] });
     }).catch(() => { /* offline OK */ });
     // APRs + teams + equipamentos vinculados + avanço físico
-    axios.get(`${API}/projects/${id}/aprs`).then(({ data }) => setAprList(data || [])).catch(() => {});
+    refreshAprs();
     axios.get(`${API}/teams`).then(({ data }) => setTeams(data || [])).catch(() => {});
     axios.get(`${API}/equipamentos?project_id=${id}`).then(({ data }) => setEquipamentos(Array.isArray(data) ? data : [])).catch(() => {});
     loadAvanco();
 
     const onOn = () => {
       setOnline(true);
-      syncQueue(axios, API).then((r) => { if (r.synced > 0) toast.success(`${r.synced} checklist(s) sincronizado(s)`); });
+      syncQueue(axios, API).then((r) => { if (r.synced > 0) { toast.success(`${r.synced} registro(s) offline sincronizado(s)`); refreshAprs(); } });
       // Fev/2026 · sincroniza fotos que estavam no IDB aguardando sinal
       syncPhotoQueue(axios, API, null, { force: true }).then(async (r) => {
         if (r.synced > 0) {
@@ -119,13 +148,20 @@ export const ProjectDetailPage = () => {
     return () => clearTimeout(t);
   }, [searchParams]);
 
-  // Fev/2026 · Se veio de /programacao com ?apr=1, abre o editor de APR
+  // Fev/2026 · Se veio de /programacao com ?apr=1, abre o editor de APR (Set/2026: ?apr=viva abre APR Linha Viva) — só uma vez
+  const aprAutoOpened = useRef(false);
   useEffect(() => {
-    if (searchParams.get('apr') === '1' && project) {
+    const q = searchParams.get('apr');
+    if ((q === '1' || q === 'viva') && project && !aprAutoOpened.current) {
+      aprAutoOpened.current = true;
       setAprSelected(null);
+      setAprLineType(q === 'viva' ? 'viva' : null);
       setAprOpen(true);
     }
   }, [searchParams, project]);
+
+  const openApr = (apr, lineType = null) => { setAprSelected(apr); setAprLineType(lineType); setAprOpen(true); };
+  const aprsViva = aprList.filter((a) => a.line_type === 'viva');
 
   const updateCheck = async (key) => {
     const updated = { ...checklist, [key]: !checklist[key] };
@@ -519,26 +555,28 @@ export const ProjectDetailPage = () => {
             </div>
             <button
               data-testid="pd-apr-new"
-              onClick={() => { setAprSelected(null); setAprOpen(true); }}
+              onClick={() => openApr(null, null)}
               className="text-xs font-black px-3 py-2 rounded-full bg-[#FF003C] text-white flex items-center gap-1"
             >
               <ShieldCheck className="w-3 h-3" /> Nova APR
             </button>
           </div>
+          {fromPacote && <p data-testid="pd-from-pacote" className="text-[10px] text-[#FF5E00] mb-2 flex items-center gap-1"><WifiOff className="w-3 h-3" /> Dados do pacote do dia (offline)</p>}
           {aprList.length === 0 ? (
             <p className="text-[11px] text-zinc-500 italic">Nenhuma APR emitida ainda</p>
           ) : (
             <div className="space-y-1.5">
-              {aprList.map((a) => (
+              {aprList.map((a, idx) => (
                 <button
-                  key={a.id}
-                  data-testid={`pd-apr-item-${a.id}`}
-                  onClick={() => { setAprSelected(a); setAprOpen(true); }}
+                  key={a.id || a.client_id || idx}
+                  data-testid={`pd-apr-item-${a.id || a.client_id}`}
+                  onClick={() => openApr(a, null)}
                   className="w-full flex items-center justify-between gap-2 px-3 py-2 rounded-lg bg-white/[0.03] border border-white/10 hover:border-white/30 text-left"
                 >
                   <div className="flex-1 min-w-0">
                     <p className="text-xs text-white font-bold truncate">
                       {a.header?.task || 'APR'} <span className="font-mono text-[10px] text-[#E0FF00]">#{a.os_number || '—'}</span>
+                      {a._offline && <span data-testid={`pd-apr-offline-${a.client_id}`} className="ml-1 text-[9px] font-black px-1.5 py-0.5 rounded-full bg-[#FF5E00]/15 border border-[#FF5E00]/40 text-[#FF5E00]">AGUARDANDO SYNC</span>}
                     </p>
                     <p className="text-[10px] text-zinc-500">{(a.header?.date || '').slice(0, 10)} · <span className={a.line_type === 'viva' ? 'text-[#FF003C] font-bold' : 'text-[#39FF14] font-bold'}>LINHA {a.line_type === 'viva' ? 'VIVA' : 'MORTA'}</span> · {(a.executores || []).length + (a.supervisor?.nome ? 1 : 0)} assinatura(s)</p>
                   </div>
@@ -553,15 +591,30 @@ export const ProjectDetailPage = () => {
           <p className="text-xs tracking-[0.2em] uppercase font-bold text-zinc-500 mb-3">Checklist de Segurança</p>
           <div className="space-y-2">
             {project.requires_hot_line && (
-              <ChecklistRow
-                testid="pd-check-hotline"
-                icon={Zap}
-                color="#FF5E00"
-                label="Linha Viva — EPI Completo"
-                sub="Confirmar equipamentos de proteção"
-                checked={checklist.hotline_confirmed}
-                onToggle={() => updateCheck('hotline_confirmed')}
-              />
+              <div
+                data-testid="pd-apr-viva-row"
+                className="flex items-center gap-3 p-3 rounded-lg border transition-all"
+                style={{
+                  backgroundColor: aprsViva.length ? '#FF003C15' : 'rgba(255,255,255,0.02)',
+                  borderColor: aprsViva.length ? '#FF003C' : 'rgba(255,255,255,0.1)',
+                }}
+              >
+                <Zap className="w-5 h-5 flex-shrink-0" style={{ color: aprsViva.length ? '#FF003C' : '#71717a' }} />
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-bold" style={{ color: aprsViva.length ? '#FF003C' : '#fff' }}>APR Linha Viva</p>
+                  <p data-testid="pd-apr-viva-status" className="text-xs text-zinc-500 truncate">
+                    {aprsViva.length ? `${aprsViva.length} APR(s) de linha viva emitida(s) · última ${(aprsViva[0].header?.date || '').slice(0, 10).split('-').reverse().join('/')}` : 'Obrigatória antes de iniciar — EPI/EPC, riscos e procedimentos de rede energizada'}
+                  </p>
+                </div>
+                <button
+                  data-testid="pd-apr-viva-open"
+                  onClick={() => (aprsViva.length ? openApr(aprsViva[0], null) : openApr(null, 'viva'))}
+                  className="text-[11px] font-black px-3 py-2 rounded-full flex-shrink-0"
+                  style={{ background: '#FF003C', color: '#fff' }}
+                >
+                  {aprsViva.length ? 'Abrir' : 'Fazer APR LV'}
+                </button>
+              </div>
             )}
             {project.shutdown_info && (
               <ChecklistRow
@@ -1066,10 +1119,21 @@ export const ProjectDetailPage = () => {
           project={project}
           teams={teams}
           initialApr={aprSelected}
+          initialLineType={aprLineType}
           onClose={() => setAprOpen(false)}
-          onSaved={async (saved) => {
-            const { data } = await axios.get(`${API}/projects/${id}/aprs`);
-            setAprList(data || []);
+          onSaved={async (saved, meta) => {
+            if (meta?.offline) {
+              // Set/2026 · salva localmente (lista + pacote do dia); sincroniza depois
+              setAprList((prev) => {
+                const rest = prev.filter((a) => !((saved.id && a.id === saved.id) || (saved.client_id && a.client_id === saved.client_id)));
+                const next = [saved, ...rest];
+                updateProjectInPacote(id, { apr_list: next });
+                return next;
+              });
+              setAprSelected(saved);
+              return;
+            }
+            await refreshAprs();
             setAprSelected(saved);
           }}
         />

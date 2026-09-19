@@ -6,10 +6,15 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import axios from 'axios';
 import { toast } from 'sonner';
 import { motion } from 'framer-motion';
-import { X, Save, FileDown, Zap, ShieldCheck, Trash2, Plus, PenLine, Loader } from 'lucide-react';
+import { X, Save, FileDown, Zap, ShieldCheck, Trash2, Plus, PenLine, Loader, WifiOff, ClipboardCheck } from 'lucide-react';
+import { EPI_ITEMS_VIVA, EPC_ITEMS_VIVA, RISK_ITEMS_VIVA, PROCEDIMENTOS_VIVA, CHECKLIST_SECTIONS } from '../lib/aprLists';
+import { enqueue } from '../lib/offline';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
+const EMPTY_CHECKLISTS = { ferramental: { items: {}, obs: '' }, epi: { items: {}, obs: '' }, epc: { items: {}, obs: '' } };
+const CHECK_STATUS = [['c', 'C', '#39FF14', 'Conforme'], ['nc', 'NC', '#FF003C', 'Não conforme'], ['na', 'N/A', '#E0FF00', 'Não se aplica']];
+const newClientId = () => `apr_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 
 // Listas fiéis ao PDF anexado pelo usuário
 export const EPI_ITEMS = [
@@ -171,13 +176,14 @@ const SignaturePad = ({ value, onChange, testid }) => {
 };
 
 // ─── Editor principal (modal fullscreen) ────────────────────────────────────
-export const APREditor = ({ projectId, project, teams = [], initialApr = null, onClose, onSaved }) => {
+export const APREditor = ({ projectId, project, teams = [], initialApr = null, initialLineType = null, onClose, onSaved }) => {
   const team = useMemo(() => teams.find((t) => t.id === project?.team_id) || null, [teams, project]);
   const teamMembers = team ? (team.members || []) : [];
 
-  const [apr, setApr] = useState(initialApr || {
-    line_type: 'morta',
+  const [apr, setApr] = useState(() => initialApr ? { ...initialApr, checklists: { ...EMPTY_CHECKLISTS, ...(initialApr.checklists || {}) } } : {
+    line_type: initialLineType || (project?.requires_hot_line ? 'viva' : 'morta'),
     os_number: '',
+    client_id: newClientId(),
     header: {
       date: new Date().toISOString().slice(0, 10),
       task: project?.name || '',
@@ -186,7 +192,7 @@ export const APREditor = ({ projectId, project, teams = [], initialApr = null, o
       location: project?.location || '',
       professionals_count: teamMembers.length || 1,
       company: 'HAYAH ENERGY',
-      os_number: '',
+      os_number: project?.project_code || '',
     },
     epis: {},
     epcs: {},
@@ -196,13 +202,29 @@ export const APREditor = ({ projectId, project, teams = [], initialApr = null, o
     observacoes: '',
     supervisor: { nome: team?.supervisor || '', matricula: '', assinatura: '' },
     executores: [],
+    checklists: EMPTY_CHECKLISTS,
   });
   const [saving, setSaving] = useState(false);
+  const [online, setOnline] = useState(navigator.onLine);
+  useEffect(() => {
+    const on = () => setOnline(true); const off = () => setOnline(false);
+    window.addEventListener('online', on); window.addEventListener('offline', off);
+    return () => { window.removeEventListener('online', on); window.removeEventListener('offline', off); };
+  }, []);
+
+  const isLive = apr.line_type === 'viva';
+  const LISTS = isLive
+    ? { epi: EPI_ITEMS_VIVA, epc: EPC_ITEMS_VIVA, risk: RISK_ITEMS_VIVA, proc: PROCEDIMENTOS_VIVA }
+    : { epi: EPI_ITEMS, epc: EPC_ITEMS, risk: RISK_ITEMS, proc: PROCEDIMENTOS };
+  const accent = isLive ? '#FF003C' : '#E0FF00';
 
   const toggle = (section, key) => setApr((s) => ({ ...s, [section]: { ...s[section], [key]: !s[section][key] } }));
   const setYNA = (key, val) => setApr((s) => ({ ...s, procedimentos: { ...s.procedimentos, [key]: val } }));
   const setHeader = (k, v) => setApr((s) => ({ ...s, header: { ...s.header, [k]: v } }));
   const setSup = (k, v) => setApr((s) => ({ ...s, supervisor: { ...s.supervisor, [k]: v } }));
+  const setCheckItem = (sec, k, val) => setApr((s) => ({ ...s, checklists: { ...s.checklists, [sec]: { ...(s.checklists?.[sec] || { items: {} }), items: { ...(s.checklists?.[sec]?.items || {}), [k]: val } } } }));
+  const setCheckObs = (sec, obs) => setApr((s) => ({ ...s, checklists: { ...s.checklists, [sec]: { ...(s.checklists?.[sec] || { items: {} }), obs } } }));
+  const setCheckAll = (sec, items, status) => setApr((s) => ({ ...s, checklists: { ...s.checklists, [sec]: { ...(s.checklists?.[sec] || {}), items: Object.fromEntries(items.map(([k]) => [k, { ...(s.checklists?.[sec]?.items?.[k] || {}), status }])) } } }));
 
   const addExecutor = () => setApr((s) => ({ ...s, executores: [...s.executores, { nome: '', matricula: '', assinatura: '' }] }));
   const removeExecutor = (idx) => setApr((s) => ({ ...s, executores: s.executores.filter((_, i) => i !== idx) }));
@@ -211,8 +233,18 @@ export const APREditor = ({ projectId, project, teams = [], initialApr = null, o
   const save = async () => {
     if (!projectId) { toast.error('Sem obra selecionada'); return; }
     setSaving(true);
+    const clientId = apr.client_id || newClientId();
+    const { id: _id, _offline, created_at, created_by, updated_at, project_id: _pid, ...rest } = apr;
+    const payload = { ...rest, client_id: clientId, os_number: apr.os_number || apr.header?.os_number || '' };
+    const saveOffline = () => {
+      enqueue({ type: 'apr', projectId, aprId: initialApr?.id || null, data: payload });
+      const local = { ...payload, id: initialApr?.id || null, project_id: projectId, created_at: initialApr?.created_at || new Date().toISOString(), _offline: true };
+      setApr((s) => ({ ...s, client_id: clientId }));
+      toast.info('Sem sinal — APR salva no celular. Sincroniza automaticamente ao voltar a internet.');
+      onSaved?.(local, { offline: true });
+    };
     try {
-      const payload = { ...apr, os_number: apr.os_number || apr.header?.os_number || '' };
+      if (!navigator.onLine) { saveOffline(); return; }
       let saved;
       if (initialApr?.id) {
         const { data } = await axios.patch(`${API}/aprs/${initialApr.id}`, payload);
@@ -222,9 +254,10 @@ export const APREditor = ({ projectId, project, teams = [], initialApr = null, o
         saved = data;
       }
       toast.success('APR salva');
-      onSaved?.(saved);
+      onSaved?.(saved, { offline: false });
     } catch (err) {
-      toast.error(err?.response?.data?.detail || 'Erro ao salvar APR');
+      if (!err?.response) saveOffline();
+      else toast.error(err?.response?.data?.detail || 'Erro ao salvar APR');
     } finally { setSaving(false); }
   };
 
@@ -247,15 +280,16 @@ export const APREditor = ({ projectId, project, teams = [], initialApr = null, o
           <button data-testid="apr-close" onClick={onClose} className="w-9 h-9 rounded-full bg-white/5 border border-white/10 text-white flex items-center justify-center">
             <X className="w-4 h-4" />
           </button>
-          <div className="flex-1">
-            <p className="text-[10px] tracking-[0.2em] uppercase font-bold text-[#E0FF00]">Análise Preliminar de Risco</p>
-            <h2 className="text-white font-bold">{project?.name || 'Obra'}</h2>
+          <div className="flex-1 min-w-0">
+            <p className="text-[10px] tracking-[0.2em] uppercase font-bold" style={{ color: accent }}>Análise Preliminar de Risco{isLive ? ' · LINHA VIVA' : ''}</p>
+            <h2 className="text-white font-bold truncate">{project?.name || 'Obra'}</h2>
           </div>
-          <button data-testid="apr-download-pdf" onClick={downloadPdf} disabled={!initialApr?.id} className="text-xs font-bold px-3 py-2 rounded-full bg-white/5 border border-white/10 text-white flex items-center gap-1 disabled:opacity-40" title={!initialApr?.id ? 'Salve primeiro' : 'Baixar PDF'}>
+          {!online && <span data-testid="apr-offline-badge" className="text-[10px] font-bold px-2 py-1 rounded-full bg-[#FF5E00]/15 border border-[#FF5E00]/40 text-[#FF5E00] inline-flex items-center gap-1"><WifiOff className="w-3 h-3" /> offline</span>}
+          <button data-testid="apr-download-pdf" onClick={downloadPdf} disabled={!initialApr?.id || !online} className="text-xs font-bold px-3 py-2 rounded-full bg-white/5 border border-white/10 text-white flex items-center gap-1 disabled:opacity-40" title={!initialApr?.id ? 'Salve primeiro' : !online ? 'PDF só com internet' : 'Baixar PDF'}>
             <FileDown className="w-3 h-3" /> PDF
           </button>
           <button data-testid="apr-save" onClick={save} disabled={saving} className="text-xs font-black px-4 py-2 rounded-full bg-[#E0FF00] text-black flex items-center gap-1 disabled:opacity-60">
-            {saving ? <Loader className="w-3 h-3 animate-spin" /> : <Save className="w-3 h-3" />} Salvar
+            {saving ? <Loader className="w-3 h-3 animate-spin" /> : <Save className="w-3 h-3" />} {online ? 'Salvar' : 'Salvar offline'}
           </button>
         </div>
 
@@ -277,6 +311,11 @@ export const APREditor = ({ projectId, project, teams = [], initialApr = null, o
             </button>
           ))}
         </div>
+        {isLive && (
+          <div data-testid="apr-viva-notice" className="rounded-xl border border-[#FF003C]/40 bg-[#FF003C]/[0.08] p-3 text-[11px] text-zinc-200">
+            <b className="text-[#FF003C]">APR LINHA VIVA (rede energizada · NR-10 SEP):</b> EPI/EPC, riscos e procedimentos específicos para trabalho em linha viva. Exige equipe habilitada, comunicação com o COD e bloqueio de religamento automático.
+          </div>
+        )}
 
         {/* Identificação */}
         <Section title="IDENTIFICAÇÃO">
@@ -296,7 +335,7 @@ export const APREditor = ({ projectId, project, teams = [], initialApr = null, o
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           <Section title="EPIs — O QUE SERÁ UTILIZADO?">
             <div className="grid grid-cols-1 gap-1">
-              {EPI_ITEMS.map(([k, lbl]) => (
+              {LISTS.epi.map(([k, lbl]) => (
                 <CheckLine key={k} testid={`apr-epi-${k}`} label={lbl} checked={!!apr.epis[k]} onToggle={() => toggle('epis', k)} />
               ))}
               <input
@@ -310,7 +349,7 @@ export const APREditor = ({ projectId, project, teams = [], initialApr = null, o
           </Section>
           <Section title="EPCs / FERRAMENTAS">
             <div className="grid grid-cols-1 gap-1">
-              {EPC_ITEMS.map(([k, lbl]) => (
+              {LISTS.epc.map(([k, lbl]) => (
                 <CheckLine key={k} testid={`apr-epc-${k}`} label={lbl} checked={!!apr.epcs[k]} onToggle={() => toggle('epcs', k)} />
               ))}
               <input
@@ -327,7 +366,7 @@ export const APREditor = ({ projectId, project, teams = [], initialApr = null, o
         {/* Riscos */}
         <Section title="RISCOS POTENCIAIS">
           <div className="grid grid-cols-2 md:grid-cols-3 gap-1">
-            {RISK_ITEMS.map(([k, lbl]) => (
+            {LISTS.risk.map(([k, lbl]) => (
               <CheckLine key={k} testid={`apr-risk-${k}`} label={lbl} checked={!!apr.riscos[k]} onToggle={() => toggle('riscos', k)} />
             ))}
           </div>
@@ -341,9 +380,9 @@ export const APREditor = ({ projectId, project, teams = [], initialApr = null, o
         </Section>
 
         {/* Procedimentos preliminares */}
-        <Section title="PROCEDIMENTOS PRELIMINARES / MEDIDAS GERAIS DE CONTROLE">
+        <Section title={isLive ? 'PROCEDIMENTOS PRELIMINARES — LINHA VIVA (NR-10 SEP)' : 'PROCEDIMENTOS PRELIMINARES / MEDIDAS GERAIS DE CONTROLE'}>
           <div className="space-y-1">
-            {PROCEDIMENTOS.map(([k, q], i) => (
+            {LISTS.proc.map(([k, q], i) => (
               <div key={k} data-testid={`apr-proc-${k}`} className="flex items-start justify-between gap-2 py-1.5 border-b border-white/5">
                 <p className="text-[11px] text-zinc-300 flex-1">{i + 1}. {q}</p>
                 <div className="flex gap-1 flex-shrink-0">
@@ -365,6 +404,20 @@ export const APREditor = ({ projectId, project, teams = [], initialApr = null, o
             ))}
           </div>
         </Section>
+
+        {/* Set/2026 · Checklists de inspeção — Ferramental / EPI / EPC (C · NC · N.A.) */}
+        {CHECKLIST_SECTIONS.map(([sec, title, items]) => (
+          <InspectionChecklist
+            key={sec}
+            sec={sec}
+            title={title}
+            items={items}
+            data={apr.checklists?.[sec] || { items: {}, obs: '' }}
+            onItem={(k, val) => setCheckItem(sec, k, val)}
+            onObs={(v) => setCheckObs(sec, v)}
+            onAll={(status) => setCheckAll(sec, items, status)}
+          />
+        ))}
 
         {/* Observações */}
         <Section title="OBSERVAÇÕES GERAIS">
@@ -419,6 +472,67 @@ const Section = ({ title, children }) => (
     {children}
   </motion.div>
 );
+
+// Set/2026 · Checklist de inspeção (Conforme / Não conforme / N.A.) com observação por item
+const InspectionChecklist = ({ sec, title, items, data, onItem, onObs, onAll }) => {
+  const marks = data.items || {};
+  const done = items.filter(([k]) => marks[k]?.status).length;
+  const nc = items.filter(([k]) => marks[k]?.status === 'nc').length;
+  return (
+    <Section title={`${title} — CONFORME · NÃO CONFORME · N.A.`}>
+      <div data-testid={`apr-chk-${sec}`} className="space-y-1">
+        <div className="flex items-center gap-2 flex-wrap mb-1">
+          <ClipboardCheck className="w-4 h-4 text-zinc-400" />
+          <p data-testid={`apr-chk-${sec}-summary`} className="text-[11px] text-zinc-400 flex-1">{done}/{items.length} inspecionados{nc > 0 ? <span className="text-[#FF003C] font-bold"> · {nc} não conforme</span> : ''}</p>
+          <button data-testid={`apr-chk-${sec}-all-c`} onClick={() => onAll('c')} className="text-[10px] font-bold px-2 py-1 rounded-full border border-[#39FF14]/40 text-[#39FF14] bg-[#39FF14]/10">Todos conformes</button>
+          <button data-testid={`apr-chk-${sec}-all-na`} onClick={() => onAll('na')} className="text-[10px] font-bold px-2 py-1 rounded-full border border-white/10 text-zinc-400">Todos N/A</button>
+        </div>
+        {items.map(([k, lbl]) => {
+          const m = marks[k] || {};
+          return (
+            <div key={k} data-testid={`apr-chk-${sec}-${k}`} className="py-1.5 border-b border-white/5">
+              <div className="flex items-center justify-between gap-2">
+                <p className={`text-[11px] flex-1 ${m.status === 'nc' ? 'text-[#FF003C] font-bold' : 'text-zinc-300'}`}>{lbl}</p>
+                <div className="flex gap-1 flex-shrink-0">
+                  {CHECK_STATUS.map(([v, l, c, tip]) => (
+                    <button
+                      key={v}
+                      data-testid={`apr-chk-${sec}-${k}-${v}`}
+                      title={tip}
+                      onClick={() => onItem(k, { ...m, status: m.status === v ? '' : v })}
+                      className="text-[10px] font-black w-9 py-1 rounded border transition-all"
+                      style={{
+                        color: m.status === v ? '#000' : c,
+                        borderColor: m.status === v ? c : `${c}40`,
+                        backgroundColor: m.status === v ? c : 'transparent',
+                      }}
+                    >{l}</button>
+                  ))}
+                </div>
+              </div>
+              {m.status === 'nc' && (
+                <input
+                  data-testid={`apr-chk-${sec}-${k}-obs`}
+                  placeholder="Descreva a não conformidade / ação tomada…"
+                  value={m.obs || ''}
+                  onChange={(e) => onItem(k, { ...m, obs: e.target.value })}
+                  className="mt-1 w-full text-xs bg-[#FF003C]/[0.06] border border-[#FF003C]/30 rounded px-2 py-1 text-white"
+                />
+              )}
+            </div>
+          );
+        })}
+        <input
+          data-testid={`apr-chk-${sec}-obs`}
+          placeholder="Observações gerais deste checklist…"
+          value={data.obs || ''}
+          onChange={(e) => onObs(e.target.value)}
+          className="mt-2 w-full text-xs bg-zinc-950/60 border border-white/10 rounded px-2 py-1 text-white"
+        />
+      </div>
+    </Section>
+  );
+};
 
 const Field = ({ label, testid, type = 'text', value, onChange, span = 1 }) => (
   <label className={`col-span-${span === 2 ? '2' : '1'} block`}>

@@ -26,21 +26,31 @@ import { ImprodutividadePage } from './pages/ImprodutividadePage';
 import { EquipamentosPage } from './pages/EquipamentosPage';
 import { AvancoFisicoPage } from './pages/AvancoFisicoPage';
 import OrcamentosPage from './pages/OrcamentosPage';
+import CampoPage from './pages/CampoPage';
 import { ProtectedRoute } from './components/ProtectedRoute';
 import { OfflineBanner } from './components/OfflineBanner';
 import '@/App.css';
 
+// Set/2026 · Encarregado de campo cai direto no Modo Campo
+export const homePath = (user) => (user?.is_encarregado && user?.role !== 'admin' ? '/campo' : '/dashboard');
+
+const HomeRedirect = () => {
+  const { user } = useAuth();
+  return <Navigate to={homePath(user)} replace />;
+};
+
 const PublicRoute = ({ children }) => {
   const { user, loading } = useAuth();
   if (loading) return null;
-  if (user) return <Navigate to="/dashboard" replace />;
+  if (user) return <Navigate to={homePath(user)} replace />;
   return children;
 };
 
 function AppRoutes() {
   return (
     <Routes>
-      <Route path="/" element={<Navigate to="/dashboard" replace />} />
+      <Route path="/" element={<ProtectedRoute><HomeRedirect /></ProtectedRoute>} />
+      <Route path="/campo" element={<ProtectedRoute><CampoPage /></ProtectedRoute>} />
       <Route path="/login" element={<PublicRoute><LoginPage /></PublicRoute>} />
       <Route path="/dashboard" element={<ProtectedRoute><DashboardPage /></ProtectedRoute>} />
       <Route path="/operacional" element={<ProtectedRoute><OperacionalPage /></ProtectedRoute>} />

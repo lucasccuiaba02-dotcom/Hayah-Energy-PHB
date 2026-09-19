@@ -26,7 +26,8 @@ axios.interceptors.response.use(undefined, async (error) => {
   const status = error?.response?.status;
   const transient = !error?.response || RETRY_STATUS.has(status);
   const method = (cfg?.method || 'get').toLowerCase();
-  if (!cfg || !transient || method !== 'get' || cfg.__retries >= 3) return Promise.reject(error);
+  // Set/2026 · sem sinal: não insiste (modo campo usa o pacote local imediatamente)
+  if (!cfg || !transient || method !== 'get' || cfg.__retries >= 3 || navigator.onLine === false) return Promise.reject(error);
   cfg.__retries = (cfg.__retries || 0) + 1;
   await sleep(700 * cfg.__retries);
   return axios(cfg);

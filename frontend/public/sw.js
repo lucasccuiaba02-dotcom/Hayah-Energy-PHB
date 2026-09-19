@@ -3,7 +3,7 @@
 // Hayah Energy - Service Worker (Full offline app shell)
 // Fev/2026 - v3: precache + stale-while-revalidate + navigation fallback
 
-const SW_VERSION = 'hayah-v4-2026-09';
+const SW_VERSION = 'hayah-v5-2026-09-campo';
 const APP_SHELL_CACHE = `${SW_VERSION}-shell`;
 const STATIC_CACHE = `${SW_VERSION}-static`;
 const IMAGE_CACHE = `${SW_VERSION}-images`;
@@ -163,7 +163,7 @@ async function handleApi(req) {
 }
 
 function isCacheableApi(pathname) {
-  // Cacheia listas de leitura essenciais
+  // Cacheia listas de leitura essenciais (+ Set/2026: pacote do dia do Modo Campo, checklist/fotos/APRs da obra)
   const patterns = [
     '/api/projects',
     '/api/teams',
@@ -173,13 +173,16 @@ function isCacheableApi(pathname) {
     '/api/dashboard',
     '/api/analytics',
     '/api/auth/me',
+    '/api/campo',
+    '/api/operacional',
+    '/api/aprs',
   ];
   return patterns.some((p) => pathname.includes(p));
 }
 
 async function handleImage(req) {
   const cache = await caches.open(IMAGE_CACHE);
-  const cached = await cache.match(req);
+  const cached = (await cache.match(req)) || (await caches.match(req));
   if (cached) {
     // Revalida em background
     fetch(req).then((res) => {

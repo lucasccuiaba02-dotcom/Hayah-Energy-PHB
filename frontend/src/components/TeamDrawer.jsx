@@ -5,14 +5,14 @@ import { X, Plus, Trash2, Edit2 } from 'lucide-react';
 export const TeamDrawer = ({ isOpen, onClose, onSave, team, teams, onDelete }) => {
   const [showForm, setShowForm] = useState(false);
   const [editingTeam, setEditingTeam] = useState(null);
-  const [formData, setFormData] = useState({ name: '', members: [], supervisor: '', member_count: 0, daily_target: 4000 });
+  const [formData, setFormData] = useState({ name: '', members: [], supervisor: '', member_count: 0, daily_target: 4000, tipo: 'linha_morta' });
   const [memberInput, setMemberInput] = useState('');
 
   useEffect(() => {
     if (!isOpen) {
       setShowForm(false);
       setEditingTeam(null);
-      setFormData({ name: '', members: [], supervisor: '', member_count: 0, daily_target: 4000 });
+      setFormData({ name: '', members: [], supervisor: '', member_count: 0, daily_target: 4000, tipo: 'linha_morta' });
       setMemberInput('');
     }
   }, [isOpen]);
@@ -25,13 +25,14 @@ export const TeamDrawer = ({ isOpen, onClose, onSave, team, teams, onDelete }) =
       supervisor: t.supervisor || '',
       member_count: t.member_count || (t.members || []).length,
       daily_target: t.daily_target || 4000,
+      tipo: t.tipo || 'linha_morta',
     });
     setShowForm(true);
   };
 
   const startCreate = () => {
     setEditingTeam(null);
-    setFormData({ name: '', members: [], supervisor: '', member_count: 0, daily_target: 4000 });
+    setFormData({ name: '', members: [], supervisor: '', member_count: 0, daily_target: 4000, tipo: 'linha_morta' });
     setShowForm(true);
   };
 
@@ -190,6 +191,27 @@ export const TeamDrawer = ({ isOpen, onClose, onSave, team, teams, onDelete }) =
                       className="w-full bg-zinc-950/90 border border-white/10 rounded-lg px-4 py-3 text-white placeholder-zinc-600 focus:border-[#E0FF00] focus:outline-none transition-all"
                       placeholder="Nome do encarregado"
                     />
+                  </div>
+
+                  <div>
+                    <label className="text-xs tracking-[0.2em] uppercase font-bold text-zinc-500 block mb-2">
+                      Tipo de Equipe
+                    </label>
+                    <div className="grid grid-cols-3 gap-2">
+                      {[['linha_morta', 'Linha Morta', '#39FF14'], ['linha_viva', 'Linha Viva', '#FF003C'], ['mista', 'Mista', '#FF5E00']].map(([v, l, c]) => (
+                        <button
+                          key={v}
+                          type="button"
+                          data-testid={`team-tipo-${v}`}
+                          onClick={() => setFormData({ ...formData, tipo: v })}
+                          className="py-2.5 rounded-lg text-xs font-black border transition"
+                          style={formData.tipo === v ? { background: c, color: '#000', borderColor: c } : { color: c, borderColor: `${c}55`, background: `${c}10` }}
+                        >
+                          {l}
+                        </button>
+                      ))}
+                    </div>
+                    <p className="text-[10px] text-zinc-600 mt-1.5">Define a APR padrão do encarregado no Modo Campo (Linha Viva usa lista NR-10 SEP).</p>
                   </div>
 
                   <div>

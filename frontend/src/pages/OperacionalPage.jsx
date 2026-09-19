@@ -153,21 +153,27 @@ export const OperacionalPage = () => {
 
                           {/* Checklist */}
                           <div className="space-y-2 mt-4 border-t border-white/5 pt-3">
-                            {p.requires_hot_line && (
-                              <label className="flex items-center gap-3 p-2 rounded-lg bg-[#FF5E00]/10 border border-[#FF5E00]/30 cursor-pointer">
-                                <input
-                                  data-testid={`op-check-hotline-${p.id}`}
-                                  type="checkbox"
-                                  checked={cl.hotline || false}
-                                  onChange={() => toggleCheck(p.id, 'hotline')}
-                                  className="w-5 h-5 accent-[#FF5E00] flex-shrink-0"
-                                />
-                                <Zap className="w-4 h-4 text-[#FF5E00] flex-shrink-0" />
-                                <div className="flex-1">
-                                  <p className="text-sm font-bold text-[#FF5E00]">Linha Viva — EPI Completo?</p>
-                                  <p className="text-xs text-zinc-400">Confirmar equipamentos de proteção</p>
+                            {/* Set/2026 · Check-in do encarregado (Modo Campo) */}
+                            {(p.checkins_today || []).length > 0 && (
+                              <div data-testid={`op-checkin-${p.id}`} className="flex items-center gap-3 p-2 rounded-lg bg-[#00F0FF]/10 border border-[#00F0FF]/30">
+                                <Users className="w-4 h-4 text-[#00F0FF] flex-shrink-0" />
+                                <div className="flex-1 min-w-0">
+                                  <p className="text-sm font-bold text-[#00F0FF]">
+                                    {({ a_caminho: 'Equipe a caminho', no_local: 'Equipe no local', concluido: 'Serviço concluído' })[p.checkins_today[p.checkins_today.length - 1].status] || 'Check-in'}{p.turno_label ? ` · ${p.turno_label}` : ''}
+                                  </p>
+                                  <p className="text-xs text-zinc-400 truncate">{p.checkins_today.map((c) => `${c.by_name} ${new Date(c.at).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}`).join(' · ')}</p>
                                 </div>
-                              </label>
+                              </div>
+                            )}
+                            {p.requires_hot_line && (
+                              <div data-testid={`op-apr-viva-${p.id}`} className={`flex items-center gap-3 p-2 rounded-lg border ${p.aprs?.viva ? 'bg-[#FF003C]/10 border-[#FF003C]/40' : 'bg-[#FF5E00]/10 border-[#FF5E00]/30'}`}>
+                                <Zap className={`w-4 h-4 flex-shrink-0 ${p.aprs?.viva ? 'text-[#FF003C]' : 'text-[#FF5E00]'}`} />
+                                <div className="flex-1">
+                                  <p className={`text-sm font-bold ${p.aprs?.viva ? 'text-[#FF003C]' : 'text-[#FF5E00]'}`}>APR Linha Viva {p.aprs?.viva ? `· ${p.aprs.viva} emitida(s)` : '· pendente'}</p>
+                                  <p className="text-xs text-zinc-400">{p.aprs?.viva ? 'Equipe habilitada e riscos de rede energizada analisados' : 'Obrigatória antes de iniciar o serviço energizado'}</p>
+                                </div>
+                                <button data-testid={`op-apr-viva-open-${p.id}`} onClick={() => navigate(`/projeto/${p.id}?apr=${p.aprs?.viva ? '0' : 'viva'}`)} className="text-[10px] font-black px-2.5 py-1.5 rounded-full bg-[#FF003C] text-white">{p.aprs?.viva ? 'Ver' : 'Fazer'}</button>
+                              </div>
                             )}
                             {(p.shutdown_today || p.shutdown_info) && (
                               <label className="flex items-center gap-3 p-2 rounded-lg bg-[#E0FF00]/10 border border-[#E0FF00]/30 cursor-pointer">
@@ -199,6 +205,12 @@ export const OperacionalPage = () => {
                                 <p className="text-xs" style={{ color: matStatus?.color }}>
                                   Status: {matStatus?.label}
                                 </p>
+                                {p.last_requisition && (
+                                  <p data-testid={`op-material-stage-${p.id}`} className="text-[10px] mt-0.5" style={{ color: ({ enviada: '#00F0FF', separado: '#39FF14', parcial: '#FF5E00', pendencia: '#FF003C', recebido: '#E0FF00' })[p.last_requisition.stage] || '#a1a1aa' }}>
+                                    Almoxarifado: {({ enviada: 'requisição enviada', separado: 'material separado', parcial: 'separado parcial', pendencia: 'pendência', recebido: 'recebido na obra' })[p.last_requisition.stage] || p.last_requisition.stage}
+                                    {p.last_requisition.receipt ? ` por ${p.last_requisition.receipt.received_by || p.last_requisition.receipt.receiver_name || '—'}` : ''}
+                                  </p>
+                                )}
                               </div>
                             </label>
                             <label className="flex items-center gap-3 p-2 rounded-lg bg-white/[0.02] border border-white/10 cursor-pointer">

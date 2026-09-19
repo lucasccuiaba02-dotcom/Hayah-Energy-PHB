@@ -123,6 +123,7 @@ export const ITEM_WAREHOUSE_STATUS = [
 export const ITEM_WAREHOUSE_STATUS_LABEL = ITEM_WAREHOUSE_STATUS.reduce((acc, s) => { acc[s.value] = s; return acc; }, {});
 
 export const PERMISSION_TABS = [
+  { value: 'campo', label: 'Modo Campo' },
   { value: 'dashboard', label: 'Dashboard' },
   { value: 'carteira', label: 'Carteira' },
   { value: 'programacao', label: 'Programação' },

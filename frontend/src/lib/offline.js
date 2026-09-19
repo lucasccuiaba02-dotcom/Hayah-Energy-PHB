@@ -27,12 +27,29 @@ export const syncQueue = async (axios, API) => {
       if (action.type === 'checklist') {
         await axios.put(`${API}/operacional/checklist/${action.projectId}`, action.data);
         synced += 1;
+      } else if (action.type === 'apr') {
+        if (action.aprId) await axios.patch(`${API}/aprs/${action.aprId}`, action.data);
+        else await axios.post(`${API}/projects/${action.projectId}/aprs`, action.data);
+        synced += 1;
+      } else if (action.type === 'checkin') {
+        await axios.post(`${API}/campo/checkin`, action.data);
+        synced += 1;
+      } else if (action.type === 'material_receipt') {
+        const fd = new FormData();
+        fd.append('receiver_name', action.data.receiver_name || '');
+        fd.append('notes', action.data.notes || '');
+        await axios.post(`${API}/projects/${action.projectId}/requisitions/${action.reqId}/confirm-receipt`, fd);
+        synced += 1;
+      } else {
+        synced += 1;
       }
     } catch (e) {
+      if (e?.response?.status && e.response.status >= 400 && e.response.status < 500 && e.response.status !== 401) continue;
       remaining.push(action);
     }
   }
   localStorage.setItem(QUEUE_KEY, JSON.stringify(remaining));
+  if (synced > 0) { try { window.dispatchEvent(new CustomEvent('hayah-queue-synced', { detail: { synced } })); } catch (_) {} }
   return { synced, remaining: remaining.length };
 };
 

@@ -29,9 +29,11 @@ import {
   Zap,
   Gauge,
   FileSignature,
+  Smartphone,
 } from 'lucide-react';
 
 const navItems = [
+  { to: '/campo', icon: Smartphone, label: 'Modo Campo', testid: 'nav-campo', perm: 'campo' },
   { to: '/dashboard', icon: LayoutGrid, label: 'Dashboard', testid: 'nav-dashboard', perm: 'dashboard' },
   { to: '/buscar', icon: Search, label: 'Buscar Obras', testid: 'nav-buscar', perm: 'carteira' },
   { to: '/operacional', icon: HardHat, label: 'Operacional', testid: 'nav-operacional', perm: 'operacional' },
@@ -118,6 +120,8 @@ export const AppLayout = ({ children, title, subtitle, actions }) => {
                 if (!user) return false;
                 if (user.role === 'admin') return true;
                 const perms = user.permissions || [];
+                // Set/2026 · Encarregado de campo: menu enxuto — Modo Campo + só as abas liberadas pelo admin
+                if (user.is_encarregado) return item.perm === 'campo' || perms.includes(item.perm);
                 // Se lista vazia → libera tudo (open-by-default). Admin pode restringir em /admin/usuarios
                 if (perms.length === 0) return true;
                 return perms.includes(item.perm);
@@ -168,7 +172,7 @@ export const AppLayout = ({ children, title, subtitle, actions }) => {
 
         <main className="flex-1 ml-20 min-w-0 overflow-hidden">
           <div className="border-b border-white/8 bg-[#09090b]/50 backdrop-blur-xl sticky top-0 z-20">
-            <div className="px-8 py-4 flex items-center justify-between flex-wrap gap-4">
+            <div className="px-4 md:px-8 py-3 md:py-4 flex items-center justify-between flex-wrap gap-3 md:gap-4">
               <div className="flex items-center gap-4">
                 <HayahLogo size="md" showText={true} />
                 <div className="border-l border-white/10 pl-4">
@@ -185,7 +189,7 @@ export const AppLayout = ({ children, title, subtitle, actions }) => {
             </div>
           </div>
 
-          <div className="px-8 py-6">{children}</div>
+          <div className="px-4 md:px-8 py-4 md:py-6">{children}</div>
         </main>
       </div>
     </div>

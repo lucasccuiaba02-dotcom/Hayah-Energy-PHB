@@ -71,7 +71,7 @@ export const LoginPage = () => {
       : await register(name, email, password);
 
     if (result.success) {
-      navigate('/dashboard');
+      navigate('/');
     } else {
       setError(result.error);
     }

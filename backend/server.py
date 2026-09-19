@@ -30,6 +30,7 @@ from push_notifications import ensure_vapid_keys, broadcast_push
 from notifications import (resend_credentials as _resend_credentials, notification_emails as _notification_emails,
                            warehouse_emails as _warehouse_emails, stock_instant_alert as _stock_instant_alert,
                            notifications_tick as _notifications_tick, build_router as _build_notifications_router)
+import campo as _campo
 from daily_log_pdf import build_daily_log_pdf
 from route_pdf import build_route_pdf
 from material_requisition_pdf import build_requisition_pdf
@@ -265,12 +266,14 @@ class UserResponse(BaseModel):
     permissions: List[str] = Field(default_factory=list)
     created_at: str
     access_token: Optional[str] = None
+    is_encarregado: bool = False
+    team_ids: List[str] = Field(default_factory=list)
 
 # Available page permissions
 ALL_PERMISSIONS = [
     "dashboard", "carteira", "programacao", "calendario",
     "operacional", "geolocalizacao", "materiais", "analise",
-    "relatorios", "equipes", "estoque", "faturamento", "documentos", "settings", "admin", "avanco", "orcamentos",
+    "relatorios", "equipes", "estoque", "faturamento", "documentos", "settings", "admin", "avanco", "orcamentos", "campo",
 ]
 
 class TeamCreate(BaseModel):
@@ -279,6 +282,7 @@ class TeamCreate(BaseModel):
     supervisor: str = ""
     member_count: int = 0
     daily_target: float = 4000.0  # Meta diária por equipe (R$/dia) — Fev/2026
+    tipo: str = "linha_morta"  # linha_morta | linha_viva | mista (Set/2026)
 
 class TeamResponse(BaseModel):
     id: str
@@ -287,6 +291,7 @@ class TeamResponse(BaseModel):
     supervisor: str = ""
     member_count: int = 0
     daily_target: float = 4000.0
+    tipo: str = "linha_morta"
     created_at: str
 
 class ProjectCreate(BaseModel):
@@ -512,6 +517,8 @@ async def login(credentials: UserLogin, response: Response, request: Request):
         permissions=user.get("permissions") if user.get("permissions") is not None else (ALL_PERMISSIONS if user.get("role") == "admin" else []),
         created_at=user["created_at"].isoformat(),
         access_token=access_token,
+        is_encarregado=bool(user.get("is_encarregado")),
+        team_ids=[str(t) for t in (user.get("team_ids") or [])],
     )
 
 @api_router.post("/auth/logout")
@@ -591,7 +598,9 @@ async def get_me(current_user: dict = Depends(get_current_user)):
         role=current_user["role"],
         status=current_user.get("status", "approved"),
         permissions=current_user.get("permissions") if current_user.get("permissions") else ALL_PERMISSIONS,
-        created_at=current_user["created_at"].isoformat()
+        created_at=current_user["created_at"].isoformat(),
+        is_encarregado=bool(current_user.get("is_encarregado")),
+        team_ids=[str(t) for t in (current_user.get("team_ids") or [])],
     )
 
 async def require_admin(current_user: dict = Depends(get_current_user)) -> dict:
@@ -609,12 +618,16 @@ async def admin_list_users(current_user: dict = Depends(require_admin)):
         "role": u.get("role", "user"),
         "status": u.get("status", "approved"),
         "permissions": u.get("permissions", []),
+        "is_encarregado": bool(u.get("is_encarregado")),
+        "team_ids": [str(t) for t in (u.get("team_ids") or [])],
         "created_at": u["created_at"].isoformat() if hasattr(u["created_at"], "isoformat") else u["created_at"],
     } for u in users]
 
 class UserApprovalBody(BaseModel):
     permissions: List[str] = Field(default_factory=list)
     role: Optional[str] = "user"
+    is_encarregado: Optional[bool] = None
+    team_ids: Optional[List[str]] = None
 
 @api_router.post("/admin/users/{user_id}/approve")
 async def admin_approve_user(user_id: str, body: UserApprovalBody, current_user: dict = Depends(require_admin)):
@@ -634,6 +647,10 @@ async def admin_approve_user(user_id: str, body: UserApprovalBody, current_user:
         "permissions": perms,
         "role": approved_role,
     }
+    if body.is_encarregado is not None:
+        set_doc["is_encarregado"] = bool(body.is_encarregado)
+    if body.team_ids is not None:
+        set_doc["team_ids"] = [str(t) for t in body.team_ids]
     if approved_role == "admin":
         # Grant admin ownership of THEIR OWN workspace (independent data namespace).
         set_doc["owner_id"] = None
@@ -652,6 +669,10 @@ async def admin_reject_user(user_id: str, current_user: dict = Depends(require_a
 async def admin_update_permissions(user_id: str, body: UserApprovalBody, current_user: dict = Depends(require_admin)):
     perms = [p for p in body.permissions if p in ALL_PERMISSIONS]
     update = {"permissions": perms}
+    if body.is_encarregado is not None:
+        update["is_encarregado"] = bool(body.is_encarregado)
+    if body.team_ids is not None:
+        update["team_ids"] = [str(t) for t in body.team_ids]
     if body.role:
         update["role"] = body.role
         # If admin promotes/demotes, adjust workspace ownership accordingly
@@ -1285,6 +1306,7 @@ def build_team_response(team: dict) -> TeamResponse:
         supervisor=team.get("supervisor", ""),
         member_count=team.get("member_count", len(team.get("members", []))),
         daily_target=float(team.get("daily_target") or 4000.0),
+        tipo=team.get("tipo") or "linha_morta",
         created_at=team["created_at"].isoformat() if hasattr(team["created_at"], 'isoformat') else team["created_at"],
     )
 
@@ -1297,6 +1319,7 @@ async def create_team(team_data: TeamCreate, current_user: dict = Depends(get_cu
         "supervisor": team_data.supervisor,
         "member_count": team_data.member_count or len(team_data.members),
         "daily_target": float(team_data.daily_target or 4000.0),
+        "tipo": team_data.tipo if team_data.tipo in ("linha_morta", "linha_viva", "mista") else "linha_morta",
         "created_at": datetime.now(timezone.utc),
         "user_id": current_user["_id"]
     }
@@ -1324,6 +1347,7 @@ async def update_team(team_id: str, team_data: TeamCreate, current_user: dict = 
         "supervisor": team_data.supervisor,
         "member_count": team_data.member_count or len(team_data.members),
         "daily_target": float(team_data.daily_target or 4000.0),
+        "tipo": team_data.tipo if team_data.tipo in ("linha_morta", "linha_viva", "mista") else "linha_morta",
     }
     result = await db.teams.update_one(
         {"_id": safe_object_id(team_id), "user_id": current_user["_id"]},
@@ -3654,6 +3678,10 @@ async def get_today_operations(current_user: dict = Depends(get_current_user)):
 
     grouped: dict = {}
     today_projects: list = []
+    _allowed_teams = await _campo.allowed_team_names(db, current_user)
+    _pids = [str(p["_id"]) for p in projects]
+    _checkins = await _campo.checkins_by_project(db, current_user["_id"], today, _pids)
+    _apr_counts = await _campo.apr_counts(db, current_user["_id"], _pids)
     for p in projects:
         entries = p.get("schedule_entries") or []
         teams_today: list = []
@@ -3670,11 +3698,16 @@ async def get_today_operations(current_user: dict = Depends(get_current_user)):
             teams_today = [n for n in [p.get("team_name"), p.get("additional_team_name")] if n] or ["Sem equipe"]
         if not teams_today:
             continue
+        if _allowed_teams is not None and not (set(teams_today) & _allowed_teams):
+            continue
         today_projects.append(p)
         item = build_project_response(p).model_dump()
         item["shutdown_today"] = today in (p.get("shutdown_dates") or []) or (not p.get("shutdown_dates") and bool(p.get("shutdown_info")))
         item["teams_today"] = sorted(set(teams_today))
+        _campo.enrich_item(item, p, _checkins, _apr_counts)
         for name in item["teams_today"]:
+            if _allowed_teams is not None and name not in _allowed_teams:
+                continue
             grouped.setdefault(name, []).append(item)
 
     total_value = sum(p.get("programmed_value", 0) for p in today_projects)
@@ -4470,6 +4503,8 @@ class APRBody(BaseModel):
     observacoes: str = ""
     supervisor: APRSignerBody = Field(default_factory=APRSignerBody)
     executores: List[APRSignerBody] = Field(default_factory=list)
+    checklists: dict = Field(default_factory=dict)  # Set/2026 · {ferramental|epi|epc: {items: {k: {status: c|nc|na, obs}}, obs}}
+    client_id: str = ""  # Set/2026 · id gerado offline p/ evitar duplicidade no sync
 
 
 @api_router.post("/projects/{project_id}/aprs")
@@ -4477,6 +4512,16 @@ async def create_apr(project_id: str, body: APRBody, current_user: dict = Depend
     project = await db.projects.find_one({"_id": safe_object_id(project_id), "user_id": current_user["_id"]})
     if not project:
         raise HTTPException(status_code=404, detail="Obra não encontrada")
+    if body.client_id:
+        existing = await db.aprs.find_one({"project_id": project_id, "user_id": current_user["_id"], "client_id": body.client_id})
+        if existing:
+            # Set/2026 · reenvio offline do mesmo client_id → atualiza em vez de duplicar
+            updates = body.model_dump()
+            updates["updated_at"] = datetime.now(timezone.utc).isoformat()
+            await db.aprs.update_one({"_id": existing["_id"]}, {"$set": updates})
+            existing = await db.aprs.find_one({"_id": existing["_id"]})
+            existing["id"] = str(existing.pop("_id"))
+            return existing
     doc = {
         "project_id": project_id,
         "user_id": current_user["_id"],
@@ -5877,6 +5922,7 @@ app.include_router(_build_orcamentos_router(db, get_current_user, safe_object_id
 app.include_router(_build_notifications_router(db, get_current_user, os.environ.get("FRONTEND_URL", "")))
 from laudo_trafo import build_router as _build_laudo_router
 app.include_router(_build_laudo_router(db, get_current_user, safe_object_id, storage_put, storage_get, APP_NAME, _apply_photo_watermark))
+app.include_router(_campo.build_router(db, get_current_user, safe_object_id, build_project_response, _photo_public))
 
 
 async def notifications_tick_job():

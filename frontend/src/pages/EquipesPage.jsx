@@ -6,6 +6,8 @@ import { Plus, Edit2, Trash2, User, Users as UsersIcon } from 'lucide-react';
 import { AppLayout } from '../components/AppLayout';
 import { TeamDrawer } from '../components/TeamDrawer';
 
+const TEAM_TIPO = { linha_morta: ['Linha Morta', '#39FF14'], linha_viva: ['Linha Viva', '#FF003C'], mista: ['Mista', '#FF5E00'] };
+
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
 
@@ -91,6 +93,9 @@ export const EquipesPage = () => {
                   <div>
                     <h3 className="font-heading font-black text-lg tracking-tighter text-white">{t.name}</h3>
                     <p className="text-xs text-zinc-500">{t.member_count || (t.members || []).length} {(t.member_count || (t.members || []).length) === 1 ? 'membro' : 'membros'}</p>
+                    <span data-testid={`team-tipo-badge-${i}`} className="inline-block mt-1 px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider border" style={{ color: TEAM_TIPO[t.tipo]?.[1] || TEAM_TIPO.linha_morta[1], borderColor: `${TEAM_TIPO[t.tipo]?.[1] || TEAM_TIPO.linha_morta[1]}55`, background: `${TEAM_TIPO[t.tipo]?.[1] || TEAM_TIPO.linha_morta[1]}12` }}>
+                      {TEAM_TIPO[t.tipo]?.[0] || TEAM_TIPO.linha_morta[0]}
+                    </span>
                   </div>
                 </div>
                 <button

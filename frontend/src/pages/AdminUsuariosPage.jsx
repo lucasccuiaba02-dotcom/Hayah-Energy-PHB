@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import axios from 'axios';
 import { toast } from 'sonner';
-import { Shield, CheckCircle2, XCircle, Trash2, Save, Clock, LogOut, KeyRound, Target, History, DollarSign } from 'lucide-react';
+import { Shield, CheckCircle2, XCircle, Trash2, Save, Clock, LogOut, KeyRound, Smartphone } from 'lucide-react';
 import { AppLayout } from '../components/AppLayout';
 import { PERMISSION_TABS } from '../lib/constants';
 import { ContractTargetSection } from '../components/ContractTargetSection';
@@ -10,13 +10,17 @@ import { AvancoThresholdSection } from '../components/AvancoThresholdSection';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
+const TEAM_TIPO = { linha_morta: 'Linha Morta', linha_viva: 'Linha Viva', mista: 'Mista' };
 
 export const AdminUsuariosPage = () => {
   const [users, setUsers] = useState([]);
+  const [teams, setTeams] = useState([]);
   const [loading, setLoading] = useState(true);
   const [expanded, setExpanded] = useState(null); // user id
   const [editedPerms, setEditedPerms] = useState({}); // { userId: [perms] }
   const [editedRole, setEditedRole] = useState({});
+  const [editedEnc, setEditedEnc] = useState({}); // Set/2026 · { userId: bool } encarregado de campo
+  const [editedTeams, setEditedTeams] = useState({}); // { userId: [team_ids] }
 
   const fetch = async () => {
     try {
@@ -25,12 +29,14 @@ export const AdminUsuariosPage = () => {
     } catch { toast.error('Sem permissão de admin'); }
     finally { setLoading(false); }
   };
-  useEffect(() => { fetch(); }, []);
+  useEffect(() => { fetch(); axios.get(`${API}/teams`).then(({ data }) => setTeams(data || [])).catch(() => {}); }, []);
 
   const startEdit = (u) => {
     setExpanded(u.id);
     setEditedPerms({ ...editedPerms, [u.id]: [...(u.permissions || [])] });
     setEditedRole({ ...editedRole, [u.id]: u.role });
+    setEditedEnc({ ...editedEnc, [u.id]: !!u.is_encarregado });
+    setEditedTeams({ ...editedTeams, [u.id]: [...(u.team_ids || [])] });
   };
 
   const togglePerm = (uid, perm) => {
@@ -38,17 +44,30 @@ export const AdminUsuariosPage = () => {
     setEditedPerms({ ...editedPerms, [uid]: list.includes(perm) ? list.filter((p) => p !== perm) : [...list, perm] });
   };
 
+  const toggleTeam = (uid, tid) => {
+    const list = editedTeams[uid] || [];
+    setEditedTeams({ ...editedTeams, [uid]: list.includes(tid) ? list.filter((t) => t !== tid) : [...list, tid] });
+  };
+
+  const bodyFor = (u) => ({
+    permissions: editedPerms[u.id] || [],
+    role: editedRole[u.id] || 'user',
+    is_encarregado: !!editedEnc[u.id],
+    team_ids: editedTeams[u.id] || [],
+  });
+
   const approve = async (u) => {
     try {
-      await axios.post(`${API}/admin/users/${u.id}/approve`, { permissions: editedPerms[u.id] || [], role: editedRole[u.id] || 'user' });
+      await axios.post(`${API}/admin/users/${u.id}/approve`, bodyFor(u));
       toast.success(`${u.name} aprovado!`);
       fetch();
     } catch { toast.error('Erro ao aprovar'); }
   };
 
   const savePerms = async (u) => {
+    if (editedEnc[u.id] && (editedTeams[u.id] || []).length === 0) { toast.error('Selecione ao menos uma equipe para o encarregado'); return; }
     try {
-      await axios.put(`${API}/admin/users/${u.id}/permissions`, { permissions: editedPerms[u.id] || [], role: editedRole[u.id] || 'user' });
+      await axios.put(`${API}/admin/users/${u.id}/permissions`, bodyFor(u));
       toast.success(`Permissões atualizadas!`);
       fetch();
     } catch { toast.error('Erro'); }
@@ -116,6 +135,11 @@ export const AdminUsuariosPage = () => {
             <span className="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-widest bg-white/5 border border-white/10 text-zinc-400">
               {u.role}
             </span>
+            {u.is_encarregado && (
+              <span data-testid={`admin-enc-badge-${u.id}`} className="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-widest bg-[#E0FF00]/15 border border-[#E0FF00]/40 text-[#E0FF00] inline-flex items-center gap-1">
+                <Smartphone className="w-3 h-3" /> Encarregado · {(u.team_ids || []).map((tid) => teams.find((t) => t.id === tid)?.name).filter(Boolean).join(', ') || 'sem equipe'}
+              </span>
+            )}
           </div>
           <div className="flex gap-2">
             <button data-testid={`admin-edit-${u.id}`} onClick={() => isEdit ? setExpanded(null) : startEdit(u)} className="text-xs font-bold px-3 py-1.5 rounded-full bg-white/5 border border-white/10 hover:bg-white/10 text-white">
@@ -171,6 +195,47 @@ export const AdminUsuariosPage = () => {
                   <span className="text-xs text-white">{tab.label}</span>
                 </label>
               ))}
+            </div>
+
+            {/* Set/2026 · Modo Campo — encarregado + equipes */}
+            <div data-testid={`admin-campo-${u.id}`} className="mt-4 rounded-xl border border-[#E0FF00]/25 bg-[#E0FF00]/[0.03] p-3">
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  data-testid={`admin-encarregado-${u.id}`}
+                  type="checkbox"
+                  checked={!!editedEnc[u.id]}
+                  onChange={() => setEditedEnc({ ...editedEnc, [u.id]: !editedEnc[u.id] })}
+                  className="w-5 h-5 accent-[#E0FF00]"
+                />
+                <Smartphone className="w-4 h-4 text-[#E0FF00]" />
+                <div>
+                  <p className="text-sm font-bold text-white">Encarregado de campo</p>
+                  <p className="text-[10px] text-zinc-500">Ao logar cai no Modo Campo (obras do dia da equipe, câmera, APR e documentos offline). Menu enxuto: só as abas marcadas acima.</p>
+                </div>
+              </label>
+              {editedEnc[u.id] && (
+                <div className="mt-3">
+                  <p className="text-[10px] tracking-[0.2em] uppercase font-bold text-zinc-500 mb-2">Equipes do encarregado</p>
+                  {teams.length === 0 ? <p className="text-xs text-zinc-500 italic">Nenhuma equipe cadastrada (aba Equipes).</p> : (
+                    <div className="flex flex-wrap gap-2">
+                      {teams.map((t) => {
+                        const on = (editedTeams[u.id] || []).includes(t.id);
+                        return (
+                          <button
+                            key={t.id}
+                            type="button"
+                            data-testid={`admin-team-${u.id}-${t.id}`}
+                            onClick={() => toggleTeam(u.id, t.id)}
+                            className={`px-3 py-1.5 rounded-full text-xs font-bold border transition ${on ? 'bg-[#E0FF00] text-black border-[#E0FF00]' : 'bg-white/5 text-zinc-300 border-white/10 hover:border-white/30'}`}
+                          >
+                            {t.name} <span className="opacity-60 font-normal">· {TEAM_TIPO[t.tipo] || 'Linha Morta'}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
             <div className="mt-3 flex justify-end">
               <button data-testid={`admin-save-${u.id}`} onClick={() => (u.status === 'pending' ? approve(u) : savePerms(u))} className="flex items-center gap-2 text-xs font-bold px-4 py-2 rounded-full bg-[#E0FF00] text-black hover:bg-[#C8E600]">

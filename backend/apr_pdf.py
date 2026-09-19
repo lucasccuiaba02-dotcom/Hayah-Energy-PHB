@@ -11,9 +11,10 @@ from reportlab.lib import colors
 from reportlab.lib.units import mm
 from reportlab.lib.styles import ParagraphStyle
 from reportlab.platypus import (
-    SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image,
+    SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image, KeepTogether,
 )
-from apr_pdf_constants import EPI_ITEMS, EPC_ITEMS, RISK_ITEMS, PROCEDIMENTOS
+from apr_pdf_constants import (EPI_ITEMS, EPC_ITEMS, RISK_ITEMS, PROCEDIMENTOS,
+                               EPI_ITEMS_VIVA, EPC_ITEMS_VIVA, RISK_ITEMS_VIVA, PROCEDIMENTOS_VIVA, CHECKLIST_SECTIONS)
 
 BLACK = colors.HexColor("#111827")
 INK = colors.HexColor("#1f2937")
@@ -70,6 +71,8 @@ def build_apr_pdf(apr: dict, project: dict, team: dict | None = None) -> bytes:
     line_type = apr.get("line_type", "morta")
     is_live = line_type == "viva"
     line_color = LIVE_RED if is_live else DEAD_GREEN
+    EPI_LIST, EPC_LIST, RISK_LIST, PROC_LIST = ((EPI_ITEMS_VIVA, EPC_ITEMS_VIVA, RISK_ITEMS_VIVA, PROCEDIMENTOS_VIVA) if is_live
+                                                else (EPI_ITEMS, EPC_ITEMS, RISK_ITEMS, PROCEDIMENTOS))
 
     # ── Cabeçalho principal ─────────────────────────────────────────────────
     header_left = [
@@ -137,8 +140,8 @@ def build_apr_pdf(apr: dict, project: dict, team: dict | None = None) -> bytes:
             rows.append([_checklist_cell(k, lbl, bool(dic.get(k)))])
         return rows
 
-    epi_rows = _column(EPI_ITEMS, epis)
-    epc_rows = _column(EPC_ITEMS, epcs)
+    epi_rows = _column(EPI_LIST, epis)
+    epc_rows = _column(EPC_LIST, epcs)
 
     max_len = max(len(epi_rows), len(epc_rows))
     while len(epi_rows) < max_len:
@@ -184,7 +187,7 @@ def build_apr_pdf(apr: dict, project: dict, team: dict | None = None) -> bytes:
 
     # ── Riscos Potenciais ──────────────────────────────────────────────────
     riscos = apr.get("riscos", {}) or {}
-    r_cells = [_checklist_cell(k, lbl, bool(riscos.get(k))) for k, lbl in RISK_ITEMS]
+    r_cells = [_checklist_cell(k, lbl, bool(riscos.get(k))) for k, lbl in RISK_LIST]
     while len(r_cells) % 3 != 0:
         r_cells.append("")
     risco_grid = [r_cells[i:i + 3] for i in range(0, len(r_cells), 3)]
@@ -211,7 +214,7 @@ def build_apr_pdf(apr: dict, project: dict, team: dict | None = None) -> bytes:
     proc_rows = [[Paragraph("PROCEDIMENTOS PRELIMINARES / MEDIDAS GERAIS DE CONTROLE", S["sec"]),
                   Paragraph("SIM", S["sec"]), Paragraph("NÃO", S["sec"]), Paragraph("N/A", S["sec"])]]
     styles_extra = []
-    for idx, (k, q) in enumerate(PROCEDIMENTOS, start=1):
+    for idx, (k, q) in enumerate(PROC_LIST, start=1):
         v = (proc.get(k) or "").lower()
         row = [Paragraph(f"<b>{idx}.</b> {q}", S["small"]),
                Paragraph("<b>✓</b>" if v == "sim" else "", S["cellb"]),
@@ -241,6 +244,47 @@ def build_apr_pdf(apr: dict, project: dict, team: dict | None = None) -> bytes:
     ] + styles_extra))
     story.append(t)
     story.append(Spacer(1, 3 * mm))
+
+    # ── Set/2026 · Checklists de inspeção (Ferramental / EPI / EPC) — C / NC / N.A. ──
+    checklists = apr.get("checklists") or {}
+    if any((checklists.get(sec) or {}).get("items") for sec, _, _ in CHECKLIST_SECTIONS) or any(checklists.get(sec) for sec, _, _ in CHECKLIST_SECTIONS):
+        for sec, title, items in CHECKLIST_SECTIONS:
+            data_sec = checklists.get(sec) or {}
+            marks = data_sec.get("items") or {}
+            if not marks and not data_sec.get("obs"):
+                continue
+            rows = [[Paragraph(title, S["sec"]), Paragraph("C", S["sec"]), Paragraph("NC", S["sec"]), Paragraph("N/A", S["sec"]), Paragraph("OBSERVAÇÃO", S["sec"])]]
+            st_extra = []
+            for i, (k, lbl) in enumerate(items, start=1):
+                m = marks.get(k) or {}
+                status = (m.get("status") if isinstance(m, dict) else m) or ""
+                obs = (m.get("obs") if isinstance(m, dict) else "") or ""
+                rows.append([Paragraph(lbl, S["small"]),
+                             Paragraph("<b>✓</b>" if status == "c" else "", S["cellb"]),
+                             Paragraph("<b>✗</b>" if status == "nc" else "", S["cellb"]),
+                             Paragraph("<b>—</b>" if status == "na" else "", S["cellb"]),
+                             Paragraph(obs, S["small"])])
+                if status == "c":
+                    st_extra += [("BACKGROUND", (1, i), (1, i), GREEN_HL), ("TEXTCOLOR", (1, i), (1, i), GREEN_DK)]
+                elif status == "nc":
+                    st_extra += [("BACKGROUND", (2, i), (2, i), RED_HL), ("TEXTCOLOR", (2, i), (2, i), RED_DK)]
+                elif status == "na":
+                    st_extra += [("BACKGROUND", (3, i), (3, i), AMBER_HL), ("TEXTCOLOR", (3, i), (3, i), AMBER_DK)]
+            if data_sec.get("obs"):
+                rows.append([Paragraph(f"<b>Obs. gerais:</b> {data_sec['obs']}", S["small"]), "", "", "", ""])
+                st_extra.append(("SPAN", (0, len(rows) - 1), (-1, len(rows) - 1)))
+            tc = Table(rows, colWidths=[92 * mm, 12 * mm, 12 * mm, 12 * mm, 62 * mm], repeatRows=1)
+            tc.setStyle(TableStyle([
+                ("BACKGROUND", (0, 0), (-1, 0), HEADER_BG),
+                ("ALIGN", (1, 1), (3, -1), "CENTER"),
+                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                ("BOX", (0, 0), (-1, -1), 0.7, BLACK),
+                ("INNERGRID", (0, 0), (-1, -1), 0.35, BORDER),
+                ("TOPPADDING", (0, 0), (-1, -1), 2.5), ("BOTTOMPADDING", (0, 0), (-1, -1), 2.5),
+                ("LEFTPADDING", (0, 0), (-1, -1), 5),
+            ] + st_extra))
+            story.append(tc)
+            story.append(Spacer(1, 3 * mm))
 
     # ── Medidas de controle não pré-identificadas ───────────────────────────
     extra_rows = apr.get("medidas_extra", []) or []
@@ -302,7 +346,7 @@ def build_apr_pdf(apr: dict, project: dict, team: dict | None = None) -> bytes:
         ])
     while len(sig_rows) < 6:
         sig_rows.append([Paragraph(f"Executor {len(sig_rows) - 1}", S["cell"]), "", "", ""])
-    t = Table(sig_rows, colWidths=[38 * mm, 22 * mm, 65 * mm, 65 * mm])
+    t = Table(sig_rows, colWidths=[36 * mm, 26 * mm, 63 * mm, 65 * mm])
     t.setStyle(TableStyle([
         ("BACKGROUND", (0, 0), (-1, 0), HEADER_BG),
         ("BACKGROUND", (0, 1), (-1, 1), colors.HexColor("#fef9c3")),  # supervisor destacado
@@ -313,7 +357,7 @@ def build_apr_pdf(apr: dict, project: dict, team: dict | None = None) -> bytes:
         ("TOPPADDING", (0, 0), (-1, -1), 4), ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
         ("LEFTPADDING", (0, 0), (-1, -1), 6), ("RIGHTPADDING", (0, 0), (-1, -1), 6),
     ]))
-    story.append(t)
+    story.append(KeepTogether([Paragraph("<b>ASSINATURAS</b> — cientes dos riscos e das medidas de controle acima", S["cellb"]), Spacer(1, 1.5 * mm), t]))
 
     # ── Rodapé ──────────────────────────────────────────────────────────────
     def _footer(canvas, doc_):
