@@ -1,0 +1,24 @@
+{
+  "summary": "Iteration 35 — Modo Campo (Set/2026) full backend + frontend testing. Backend: 21/21 pytest passed (test_iteration35.py) covering /api/campo/hoje, /api/campo/checkin (upsert + validations + operacional integration), APR viva with checklists, dedupe by client_id, APR PDF (>8KB), PATCH/DELETE, material receipt confirm, admin permissions (is_encarregado/team_ids), teams tipo enum. Frontend: /campo mobile 390x844 sem overflow horizontal — encarregado redireciona corretamente, sidebar SOMENTE nav-campo, card CAMPO-LV-01 com badge LINHA VIVA, botões APR LV / Câmera / Docs / Obra presentes; check-in online (tarde+a_caminho→no_local) atualiza badge e localStorage. Offline: SW cache + prefetch OK → APR viva abre com dados do pacote, apr-offline-badge visível, checklists ferramental/epi/epc, all-c summary '12/12 inspecionados', escada NC input aparece, botão 'Salvar offline' salva na fila; ao voltar online sincroniza automaticamente (badge AGUARDANDO SYNC desaparece, toast '1 registro(s) offline sincronizado(s)', queue zerada). Admin desktop: nav-campo + demais tabs visíveis em /dashboard, /campo (admin) lista obras sem filtro, /admin/usuarios mostra admin-enc-badge/admin-campo/admin-encarregado/admin-perm-campo, chip 'Equipe LV Campo · Linha Viva' — save sem equipe emite toast 'Selecione ao menos uma equipe para o encarregado', com equipe emite 'Permissões atualizadas!'. /equipes: team-tipo-badges corretos ('Linha Viva' para Equipe LV Campo), drawer com team-tipo-linha_morta/linha_viva/mista funciona (criei/deletei TEST_UI_MISTA). /operacional: op-checkin ('Equipe no local · Tarde'), op-apr-viva ('2 emitida(s)'), op-material-stage ('recebido na obra por TEST Encarregado'); op-check-hotline REMOVIDO. /projeto/{id}: pd-apr-viva-row/status/open presente ('Abrir'), pd-check-hotline REMOVIDO. Estado final do encarregado preservado (is_encarregado=true, team_ids=[6aade9e5...], permissions=['campo']).",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_iteration35.py",
+    "/app/test_reports/pytest/iteration_35.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "server.py está com >6000 linhas — considerar dividir domínios em módulos (APR já é candidato: create/list/get/patch/delete/pdf).",
+    "TestCheckin.test_operacional_today_reflects_checkin precisou navegar por by_team.<team>.projects — endpoint /api/operacional/today usa forma agrupada; documentar essa forma para consumidores.",
+    "campo.py enrich_item conta apenas último check-in para turno_label; se houver múltiplas trocas (a_caminho→no_local→concluido) no dia, apenas o último aparece em confirmed_today — comportamento OK, mas confirmar UX.",
+    "APRBody.checklists é dict genérico — ideal validar schema (status ∈ {c,nc,na}) via Pydantic para prevenir dados inconsistentes."
+  ],
+  "updated_files": ["/app/backend/tests/test_iteration35.py"],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "test_credentials": "Admin: lucasc.cuiaba02@gmail.com / Hayah$152610 · Encarregado: encarregado.teste@hayah.com / Campo@2026",
+  "seed_data_creation": "Sem alterações — extras: 1 APR viva síncronizada do offline (client_id apr_1789783160445_k2v2wk) na obra CAMPO-LV-01. TEST_UI_MISTA foi criado e deletado na mesma sessão.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Endpoint /api/operacional/today retorna {date,total_projects,total_value,hot_line_count,by_team:{teamName:[projects]}} — para inspecionar uma obra iterar by_team. Encarregado permanece com estado seed. Preview URL em REACT_APP_BACKEND_URL. Pytest precisa dessa var no ambiente (`REACT_APP_BACKEND_URL=... pytest ...`).",
+  "rca of the issue": "N/A — todos os fluxos testados passaram."
+}
