@@ -131,19 +131,20 @@ const MaterialsControl = ({ projectId, materials, summary, onChanged }) => {
   };
   return (
     <div data-testid="avanco-materials">
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mb-3 text-center">
-        {[['Itens', summary.items, '#fff'], ['% Entregue', `${summary.pct_delivered}%`, '#00F0FF'], ['Pendentes', summary.pending_items, summary.pending_items ? '#FF5E00' : '#39FF14'], ['Valor lista', formatCurrency(summary.total_value), '#E0FF00']].map(([l, v, c]) => (
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-2 mb-3 text-center">
+        {[['Itens', summary.items, '#fff'], ['% Requisitado', `${summary.pct_requisitioned ?? 0}%`, '#E0FF00'], ['% Entregue', `${summary.pct_delivered}%`, '#00F0FF'], ['Pendentes', summary.pending_items, summary.pending_items ? '#FF5E00' : '#39FF14'], ['Valor lista', formatCurrency(summary.total_value), '#E0FF00']].map(([l, v, c]) => (
           <div key={l} className="rounded-lg p-2 bg-white/[0.02] border border-white/5">
             <p className="text-[9px] uppercase tracking-wider text-zinc-500">{l}</p>
             <p className="font-mono text-sm font-bold" style={{ color: c }}>{v}</p>
           </div>
         ))}
       </div>
+      <p data-testid="avanco-materials-source" className="text-[10px] text-zinc-500 mb-2">Requisitado / Entregue vêm das requisições ao almoxarifado (aba Almoxarifado) · Lista = quantidade do projeto.</p>
       {materials.length === 0 ? <p className="text-[11px] text-zinc-500 italic">Sem lista de materiais nesta obra.</p> : (
         <div className="max-h-64 overflow-y-auto">
           <table className="w-full text-[11px]">
             <thead className="text-[9px] uppercase tracking-wider text-zinc-500 bg-white/[0.03] sticky top-0">
-              <tr><th className="text-left px-2 py-1.5">Código</th><th className="text-left px-2 py-1.5">Descrição</th><th className="text-right px-2 py-1.5">Solic.</th><th className="text-right px-2 py-1.5">Entregue</th><th className="text-right px-2 py-1.5">Aplicado</th><th className="text-right px-2 py-1.5">Saldo</th></tr>
+              <tr><th className="text-left px-2 py-1.5">Código</th><th className="text-left px-2 py-1.5">Descrição</th><th className="text-right px-2 py-1.5">Lista</th><th className="text-right px-2 py-1.5">Requisit.</th><th className="text-right px-2 py-1.5">Entregue</th><th className="text-right px-2 py-1.5">Aplicado</th><th className="text-right px-2 py-1.5">Saldo</th></tr>
             </thead>
             <tbody>
               {materials.map((m) => {
@@ -152,7 +153,8 @@ const MaterialsControl = ({ projectId, materials, summary, onChanged }) => {
                   <tr key={m.id} data-testid={`avanco-mat-${m.id}`} className="border-t border-white/5">
                     <td className="px-2 py-1 font-mono text-[#E0FF00]">{m.code || '—'}</td>
                     <td className="px-2 py-1 text-white truncate max-w-[200px]" title={m.item}>{m.item || '—'}</td>
-                    <td className="px-2 py-1 text-right font-mono text-zinc-300">{m.qty_requested}</td>
+                    <td className="px-2 py-1 text-right font-mono text-zinc-500">{m.qty_list ?? m.qty_requested}</td>
+                    <td data-testid={`avanco-mat-req-${m.id}`} className="px-2 py-1 text-right font-mono" style={{ color: (m.qty_requisitioned || 0) > 0 ? '#E0FF00' : '#71717a' }}>{m.qty_requisitioned ?? m.qty_requested}</td>
                     <td className="px-2 py-1 text-right font-mono" style={{ color: m.pct_delivered >= 100 ? '#39FF14' : '#FF5E00' }}>{m.qty_delivered}</td>
                     <td className="px-2 py-1 text-right">
                       <input data-testid={`avanco-mat-applied-${m.id}`} type="number" step="any" defaultValue={m.qty_applied} onBlur={(e) => e.target.value !== String(m.qty_applied) && setApplied(m.id, e.target.value)} className="w-16 bg-zinc-950/90 border border-white/10 rounded px-1.5 py-0.5 text-right text-xs text-white font-mono" />

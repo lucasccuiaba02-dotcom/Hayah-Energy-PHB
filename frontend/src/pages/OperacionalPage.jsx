@@ -165,7 +165,7 @@ export const OperacionalPage = () => {
                                 </div>
                               </div>
                             )}
-                            {p.requires_hot_line && (
+                            {(p.hot_line_today ?? p.requires_hot_line) && (
                               <div data-testid={`op-apr-viva-${p.id}`} className={`flex items-center gap-3 p-2 rounded-lg border ${p.aprs?.viva ? 'bg-[#FF003C]/10 border-[#FF003C]/40' : 'bg-[#FF5E00]/10 border-[#FF5E00]/30'}`}>
                                 <Zap className={`w-4 h-4 flex-shrink-0 ${p.aprs?.viva ? 'text-[#FF003C]' : 'text-[#FF5E00]'}`} />
                                 <div className="flex-1">

@@ -340,6 +340,8 @@ class ProjectCreate(BaseModel):
     desligamentos: int = 0
     # Fev/2026 — datas com desligamento (subconjunto de schedule_entries dates)
     shutdown_dates: Optional[List[str]] = None
+    # Set/2026 — datas com serviço em linha viva (subconjunto de schedule_entries dates)
+    hot_line_dates: Optional[List[str]] = None
     # Fev/2026 — split de produção por equipe: [{team_id, team_name, programmed_value, actual_value}]
     team_splits: Optional[List[dict]] = None
 
@@ -386,6 +388,7 @@ class ProjectUpdate(BaseModel):
     religacoes: Optional[int] = None
     desligamentos: Optional[int] = None
     shutdown_dates: Optional[List[str]] = None
+    hot_line_dates: Optional[List[str]] = None
     team_splits: Optional[List[dict]] = None
 
 class ProjectResponse(BaseModel):
@@ -441,6 +444,7 @@ class ProjectResponse(BaseModel):
     religacoes: int = 0
     desligamentos: int = 0
     shutdown_dates: List[str] = Field(default_factory=list)
+    hot_line_dates: List[str] = Field(default_factory=list)
     team_splits: List[dict] = Field(default_factory=list)
     movement_history: List[dict] = Field(default_factory=list)
     created_at: str
@@ -1420,6 +1424,7 @@ def build_project_response(project: dict) -> ProjectResponse:
         religacoes=project.get("religacoes", 0),
         desligamentos=project.get("desligamentos", 0),
         shutdown_dates=project.get("shutdown_dates", []) or [],
+        hot_line_dates=project.get("hot_line_dates", []) or [],
         team_splits=project.get("team_splits", []) or [],
         movement_history=project.get("movement_history", []) or [],
         created_at=project["created_at"].isoformat() if hasattr(project["created_at"], 'isoformat') else project["created_at"],
@@ -3651,6 +3656,7 @@ async def get_calendar_view(
                 "requires_hot_line": p.get("requires_hot_line", False),
                 "shutdown_info": p.get("shutdown_info", ""),
                 "shutdown_dates": p.get("shutdown_dates", []) or [],
+                "hot_line_dates": p.get("hot_line_dates", []) or [],
                 "location": p.get("location", ""),
             })
     
@@ -3703,6 +3709,7 @@ async def get_today_operations(current_user: dict = Depends(get_current_user)):
         today_projects.append(p)
         item = build_project_response(p).model_dump()
         item["shutdown_today"] = today in (p.get("shutdown_dates") or []) or (not p.get("shutdown_dates") and bool(p.get("shutdown_info")))
+        item["hot_line_today"] = _campo.hot_line_on(p, today)
         item["teams_today"] = sorted(set(teams_today))
         _campo.enrich_item(item, p, _checkins, _apr_counts)
         for name in item["teams_today"]:
@@ -3711,7 +3718,7 @@ async def get_today_operations(current_user: dict = Depends(get_current_user)):
             grouped.setdefault(name, []).append(item)
 
     total_value = sum(p.get("programmed_value", 0) for p in today_projects)
-    hot_line_count = sum(1 for p in today_projects if p.get("requires_hot_line"))
+    hot_line_count = sum(1 for p in today_projects if _campo.hot_line_on(p, today))
 
     return {
         "date": today,
@@ -5915,7 +5922,7 @@ def _today_cuiaba():
         return datetime.now(ZoneInfo("America/Cuiaba")).strftime("%Y-%m-%d")
     except Exception:
         return datetime.now(timezone.utc).strftime("%Y-%m-%d")
-app.include_router(_build_avanco_router(db, get_current_user, require_admin, safe_object_id, _today_cuiaba, storage_get))
+app.include_router(_build_avanco_router(db, get_current_user, require_admin, safe_object_id, _today_cuiaba, storage_get, requisition_balance=_requisition_balance))
 
 from orcamentos import build_router as _build_orcamentos_router
 app.include_router(_build_orcamentos_router(db, get_current_user, safe_object_id, storage_put, storage_get, APP_NAME, _today_cuiaba))
@@ -5923,6 +5930,8 @@ app.include_router(_build_notifications_router(db, get_current_user, os.environ.
 from laudo_trafo import build_router as _build_laudo_router
 app.include_router(_build_laudo_router(db, get_current_user, safe_object_id, storage_put, storage_get, APP_NAME, _apply_photo_watermark))
 app.include_router(_campo.build_router(db, get_current_user, safe_object_id, build_project_response, _photo_public))
+import sucata as _sucata
+app.include_router(_sucata.build_router(db, get_current_user, safe_object_id))
 
 
 async def notifications_tick_job():

@@ -11,6 +11,7 @@ import { AppLayout } from '../components/AppLayout';
 import { MATERIAL_UNITS, formatCurrency } from '../lib/constants';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { openWhatsApp, lowStockText } from '../lib/whatsapp';
+import { SucataPanel } from '../components/SucataPanel';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -510,7 +511,7 @@ export const EstoquePage = () => {
               </button>
             ))}
           </div>
-          <div className="ml-auto flex gap-2">
+          <div className="ml-auto flex flex-wrap gap-2">
             <button data-testid="est-reload" onClick={load} className="text-xs font-bold text-zinc-400 hover:text-white bg-white/5 hover:bg-white/10 px-3 py-2 rounded-full inline-flex items-center gap-1">
               <RefreshCw className="w-3 h-3" /> Atualizar
             </button>
@@ -654,6 +655,9 @@ export const EstoquePage = () => {
           </div>
         )}
       </div>
+
+      {/* Set/2026 · Controle de Sucata (materiais retirados da rede) */}
+      <SucataPanel />
 
       <EditModal
         open={!!editing}

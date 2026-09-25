@@ -24,6 +24,14 @@ def is_encarregado(user: dict) -> bool:
     return bool(user.get("is_encarregado")) and user.get("role") != "admin"
 
 
+def hot_line_on(p: dict, date: str) -> bool:
+    """Set/2026 · Linha viva por data: se a obra tem `hot_line_dates`, só nesses dias; legado → `requires_hot_line`."""
+    dates = p.get("hot_line_dates") or []
+    if dates:
+        return date in dates
+    return bool(p.get("requires_hot_line"))
+
+
 async def allowed_team_names(db, user: dict) -> Optional[set]:
     """None = sem restrição; set(nomes) = encarregado restrito às suas equipes."""
     if not is_encarregado(user):
@@ -167,6 +175,7 @@ def build_router(db, get_current_user, safe_object_id, build_project_response, p
             pid = item["id"]
             item["teams_today"] = teams_today
             item["shutdown_today"] = today in (p.get("shutdown_dates") or []) or (not p.get("shutdown_dates") and bool(p.get("shutdown_info")))
+            item["hot_line_today"] = hot_line_on(p, today)
             item["checklist"] = p.get("checklist") or {}
             item["photos"] = [photo_public(pid, ph) for ph in (p.get("photos") or [])]
             item["attachments"] = [{k: v for k, v in a.items() if k not in ("data", "content")} for a in (p.get("attachments") or []) if not a.get("is_deleted")]

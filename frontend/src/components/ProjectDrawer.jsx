@@ -38,6 +38,7 @@ export const ProjectDrawer = ({ isOpen, onClose, onSave, project, teams, default
     additional_team_name: '',
     schedule_entries: [], // [{ date, team_ids: [], team_names: [] }]
     shutdown_dates: [], // Fev/2026 — subset of schedule_entries dates that have desligamento
+    hot_line_dates: [], // Set/2026 — subset of schedule_entries dates com serviço em linha viva
     team_splits: [], // Fev/2026 — [{ team_id, team_name, programmed_value, actual_value }]
     cancel_reason: '',
     postes_qty: 0,
@@ -108,6 +109,8 @@ export const ProjectDrawer = ({ isOpen, onClose, onSave, project, teams, default
               actual_value: s.actual_value || 0,
             }))
           : [],
+        shutdown_dates: (project.shutdown_dates || []).map((d) => (d || '').slice(0, 10)),
+        hot_line_dates: (project.hot_line_dates || []).map((d) => (d || '').slice(0, 10)),
         cancel_reason: project.cancel_reason || '',
         postes_qty: project.postes_qty || 0,
         transformadores_qty: project.transformadores_qty || 0,
@@ -495,8 +498,15 @@ export const ProjectDrawer = ({ isOpen, onClose, onSave, project, teams, default
                               value={entry.date}
                               onChange={(e) => {
                                 const next = [...formData.schedule_entries];
+                                const oldDate = next[idx]?.date;
                                 next[idx] = { ...next[idx], date: e.target.value };
-                                setFormData({ ...formData, schedule_entries: next });
+                                // Set/2026 · linha viva por data: acompanha a troca de data e inclui datas novas quando a obra é linha viva
+                                let hot = (formData.hot_line_dates || []).filter((d) => d !== oldDate);
+                                if (formData.requires_hot_line && e.target.value && (!oldDate || (formData.hot_line_dates || []).includes(oldDate))) hot = Array.from(new Set([...hot, e.target.value]));
+                                const shut = (formData.shutdown_dates || []).includes(oldDate) && e.target.value
+                                  ? Array.from(new Set([...(formData.shutdown_dates || []).filter((d) => d !== oldDate), e.target.value]))
+                                  : (formData.shutdown_dates || []);
+                                setFormData({ ...formData, schedule_entries: next, hot_line_dates: hot, shutdown_dates: shut });
                               }}
                               className="flex-1 bg-zinc-900 border border-white/10 rounded-md px-2 py-1.5 text-white text-sm font-mono focus:border-[#E0FF00] focus:outline-none"
                             />
@@ -559,6 +569,26 @@ export const ProjectDrawer = ({ isOpen, onClose, onSave, project, teams, default
                               <Zap className="w-3 h-3" /> Com desligamento neste dia
                             </span>
                           </label>
+                          {formData.requires_hot_line && (
+                            <label className="flex items-center gap-2 cursor-pointer">
+                              <input
+                                type="checkbox"
+                                data-testid={`schedule-entry-hotline-${idx}`}
+                                checked={(formData.hot_line_dates || []).includes(entry.date)}
+                                onChange={(e) => {
+                                  const curr = formData.hot_line_dates || [];
+                                  const next = e.target.checked
+                                    ? Array.from(new Set([...curr, entry.date])).filter(Boolean)
+                                    : curr.filter((d) => d !== entry.date);
+                                  setFormData({ ...formData, hot_line_dates: next });
+                                }}
+                                className="rounded border-white/20 accent-[#FF5E00]"
+                              />
+                              <span className="text-[11px] text-[#FF5E00] font-bold inline-flex items-center gap-1">
+                                <Zap className="w-3 h-3" /> Linha viva neste dia
+                              </span>
+                            </label>
+                          )}
                         </div>
                       ))}
                       <p className="text-[10px] text-zinc-600">Ex.: dia 29/07 — equipe A · dia 12/08 — equipes A + B. A obra aparecerá em cada equipe/data na matriz.</p>
@@ -714,8 +744,15 @@ export const ProjectDrawer = ({ isOpen, onClose, onSave, project, teams, default
                           <p className="text-xs text-zinc-500">Trabalho em linha energizada</p>
                         </div>
                       </div>
-                      <input data-testid="project-hotline-toggle" type="checkbox" checked={formData.requires_hot_line} onChange={(e) => setFormData({ ...formData, requires_hot_line: e.target.checked })} className="w-5 h-5 accent-[#FF5E00]" />
+                      <input data-testid="project-hotline-toggle" type="checkbox" checked={formData.requires_hot_line} onChange={(e) => setFormData({ ...formData, requires_hot_line: e.target.checked, hot_line_dates: e.target.checked ? Array.from(new Set((formData.schedule_entries || []).map((en) => en.date).filter(Boolean))) : [] })} className="w-5 h-5 accent-[#FF5E00]" />
                     </label>
+                    {formData.requires_hot_line && (
+                      <p data-testid="project-hotline-dates-hint" className="text-[10px] text-[#FF5E00] -mt-3">
+                        {(formData.hot_line_dates || []).length
+                          ? `Linha viva em ${(formData.hot_line_dates || []).length} data(s): ${[...(formData.hot_line_dates || [])].sort().map((d) => d.split('-').reverse().slice(0, 2).join('/')).join(', ')} — ajuste dia a dia nas datas programadas acima.`
+                          : 'Nenhuma data marcada — marque "Linha viva neste dia" nas datas programadas (sem datas, vale para todos os dias).'}
+                      </p>
+                    )}
 
                     <div>
                       <label className="text-xs tracking-[0.2em] uppercase font-bold text-zinc-500 block mb-2">Prioridade</label>

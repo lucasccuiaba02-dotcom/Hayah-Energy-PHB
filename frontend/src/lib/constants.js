@@ -141,6 +141,8 @@ export const PERMISSION_TABS = [
 ];
 
 export const formatCurrency = (v) => `R$ ${(v || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+// Set/2026 · linha viva por data: se a obra tem hot_line_dates, só nesses dias; legado → flag requires_hot_line
+export const hotLineOn = (p, date) => ((p?.hot_line_dates || []).length ? p.hot_line_dates.includes(date) : !!p?.requires_hot_line);
 export const todayISO = () => new Date().toISOString().slice(0, 10);
 
 // Fev/2026 · Heurística "swap-on-read" para materiais legados importados com o

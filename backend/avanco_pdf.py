@@ -209,22 +209,25 @@ def build_avanco_pdf(project: dict, detail: dict, photos: list | None = None) ->
 
     mats = detail.get("materials") or []
     ms = s.get("materials") or {}
-    story.append(_section(f"CONTROLE DE MATERIAIS · {ms.get('items', 0)} item(ns) · {_pct(ms.get('pct_delivered'))} entregue · {ms.get('pending_items', 0)} pendente(s) · lista {_brl(ms.get('total_value'))}", S))
+    story.append(_section(f"CONTROLE DE MATERIAIS (REQUISIÇÕES AO ALMOXARIFADO) · {ms.get('items', 0)} item(ns) · {_pct(ms.get('pct_requisitioned'))} requisitado · {_pct(ms.get('pct_delivered'))} entregue · {ms.get('pending_items', 0)} pendente(s) · lista {_brl(ms.get('total_value'))}", S))
     if not mats:
         story.append(Paragraph("Sem lista de materiais cadastrada nesta obra.", S["small"]))
     else:
-        rows = [[Paragraph("Código", S["th"]), Paragraph("Descrição", S["th"]), Paragraph("Un.", S["th"]), Paragraph("Solicitado", S["thr"]), Paragraph("Entregue", S["thr"]), Paragraph("Aplicado", S["thr"]), Paragraph("Saldo campo", S["thr"]), Paragraph("% Entr.", S["thr"])]]
+        rows = [[Paragraph("Código", S["th"]), Paragraph("Descrição", S["th"]), Paragraph("Un.", S["th"]), Paragraph("Lista", S["thr"]), Paragraph("Requisitado", S["thr"]), Paragraph("Entregue", S["thr"]), Paragraph("Aplicado", S["thr"]), Paragraph("Saldo campo", S["thr"]), Paragraph("% Entr.", S["thr"])]]
         style_extra = []
         for idx, m in enumerate(mats, start=1):
             saldo = float(m.get("qty_delivered") or 0) - float(m.get("qty_applied") or 0)
             rows.append([Paragraph(m.get("code") or "—", S["cell"]), Paragraph(m.get("item") or "—", S["cell"]), Paragraph(m.get("unit") or "", S["cell"]),
-                         Paragraph(f"{float(m.get('qty_requested') or 0):g}", S["cellr"]), Paragraph(f"{float(m.get('qty_delivered') or 0):g}", S["cellr"]),
+                         Paragraph(f"{float(m.get('qty_list') or 0):g}", S["cellr"]), Paragraph(f"{float(m.get('qty_requisitioned') or 0):g}", S["cellr"]),
+                         Paragraph(f"{float(m.get('qty_delivered') or 0):g}", S["cellr"]),
                          Paragraph(f"{float(m.get('qty_applied') or 0):g}", S["cellr"]), Paragraph(f"{saldo:g}", S["cellr"]), Paragraph(_pct(m.get("pct_delivered")), S["cellr"])])
-            if float(m.get("pct_delivered") or 0) < 100:
-                style_extra.append(("TEXTCOLOR", (4, idx), (4, idx), RED))
+            if float(m.get("qty_requisitioned") or 0) <= 0:
+                style_extra.append(("TEXTCOLOR", (4, idx), (4, idx), MUTED))
+            elif float(m.get("pct_delivered") or 0) < 100:
+                style_extra.append(("TEXTCOLOR", (5, idx), (5, idx), RED))
             if saldo < 0:
-                style_extra.append(("BACKGROUND", (6, idx), (6, idx), RED_HL))
-        mt = Table(rows, colWidths=[18 * mm, 68 * mm, 10 * mm, 18 * mm, 18 * mm, 18 * mm, 20 * mm, 16 * mm], repeatRows=1)
+                style_extra.append(("BACKGROUND", (7, idx), (7, idx), RED_HL))
+        mt = Table(rows, colWidths=[17 * mm, 59 * mm, 9 * mm, 16 * mm, 20 * mm, 17 * mm, 17 * mm, 18 * mm, 13 * mm], repeatRows=1)
         mt.setStyle(TableStyle([("BACKGROUND", (0, 0), (-1, 0), HEADER_BG), ("BOX", (0, 0), (-1, -1), 0.7, BLACK), ("INNERGRID", (0, 0), (-1, -1), 0.3, BORDER),
                                 ("VALIGN", (0, 0), (-1, -1), "MIDDLE"), ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, LIGHT]),
                                 ("TOPPADDING", (0, 0), (-1, -1), 2.5), ("BOTTOMPADDING", (0, 0), (-1, -1), 2.5)] + style_extra))

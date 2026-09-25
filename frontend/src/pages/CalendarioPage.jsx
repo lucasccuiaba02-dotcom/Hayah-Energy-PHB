@@ -12,16 +12,23 @@ const WEEKDAY_ABBR = ['dom', 'seg', 'ter', 'qua', 'qui', 'sex', 'sáb'];
 const MONTH_ABBR = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'];
 
 const getStatusColor = (status) => {
-  // Verde = concluído, Amarelo = programado, Ciano = em execução, Cinza = aguardando, Vermelho = cancelado
+  // Verde = concluído, Amarelo = programado, Ciano = em execução, Cinza = aguardando, Vermelho = cancelado, Laranja = a reprogramar, Roxo = suspenso
   const map = {
     concluido: { bg: '#39FF14', text: '#050505' },
+    executada: { bg: '#39FF14', text: '#050505' },
     em_execucao: { bg: '#00F0FF', text: '#050505' },
     programado: { bg: '#E0FF00', text: '#050505' },
+    aguardando_programacao: { bg: '#94A3B8', text: '#050505' },
     aguardando_inicio: { bg: '#94A3B8', text: '#050505' },
+    a_reprogramar: { bg: '#FF5E00', text: '#050505' },
+    suspenso: { bg: '#A855F7', text: '#fff' },
     cancelado: { bg: '#FF003C', text: '#fff' },
   };
   return map[status] || map.programado;
 };
+
+// Set/2026 · linha viva por data (fallback legado: flag da obra)
+const hotLineOn = (p, d) => ((p.hot_line_dates || []).length ? p.hot_line_dates.includes(d) : !!p.requires_hot_line);
 
 const formatCellDate = (isoDate) => {
   const d = new Date(isoDate + 'T00:00:00');
@@ -103,13 +110,16 @@ export const CalendarioPage = () => {
         </div>
       }
     >
-      <div className="glass-panel rounded-xl p-3 mb-4 flex items-center gap-4 flex-wrap text-xs">
+      <div data-testid="cal-legend" className="glass-panel rounded-xl p-3 mb-4 flex items-center gap-4 flex-wrap text-xs">
         <p className="text-zinc-500 tracking-[0.2em] uppercase font-bold">Legenda:</p>
         <span className="flex items-center gap-1"><span className="w-3 h-3 rounded" style={{ background: '#39FF14' }}></span> Concluído</span>
         <span className="flex items-center gap-1"><span className="w-3 h-3 rounded" style={{ background: '#00F0FF' }}></span> Em Execução</span>
         <span className="flex items-center gap-1"><span className="w-3 h-3 rounded" style={{ background: '#E0FF00' }}></span> Programado</span>
+        <span className="flex items-center gap-1"><span className="w-3 h-3 rounded" style={{ background: '#FF5E00' }}></span> A Reprogramar</span>
         <span className="flex items-center gap-1"><span className="w-3 h-3 rounded" style={{ background: '#94A3B8' }}></span> Aguardando</span>
-        <span className="flex items-center gap-1"><Zap className="w-3 h-3 text-[#FF5E00]" /> Linha Viva</span>
+        <span className="flex items-center gap-1"><span className="w-3 h-3 rounded" style={{ background: '#A855F7' }}></span> Suspenso</span>
+        <span data-testid="cal-legend-cancelado" className="flex items-center gap-1 font-bold" style={{ color: '#FF003C' }}><span className="w-3 h-3 rounded" style={{ background: '#FF003C' }}></span> Cancelado</span>
+        <span className="flex items-center gap-1"><Zap className="w-3 h-3 text-[#FF5E00]" /> Linha Viva (no dia)</span>
         <span className="flex items-center gap-1"><AlertTriangle className="w-3 h-3 text-[#E0FF00]" /> Desligamento</span>
       </div>
 
@@ -164,19 +174,20 @@ export const CalendarioPage = () => {
                             <div className="flex flex-col gap-1">
                               {cell.map((p) => {
                                 const c = getStatusColor(p.execution_status);
-                                const hasShutdownToday = Array.isArray(p.shutdown_dates)
+                                const hasShutdownToday = Array.isArray(p.shutdown_dates) && p.shutdown_dates.length
                                   ? p.shutdown_dates.includes(d)
                                   : !!p.shutdown_info; // legacy fallback
+                                const hotToday = hotLineOn(p, d);
                                 return (
                                   <div
                                     key={p.id}
                                     data-testid={`cal-cell-${teamKey}-${d}-${p.id}`}
-                                    title={`${p.name}${p.location ? ' — ' + p.location : ''}${hasShutdownToday ? ' · com desligamento neste dia' : ''}`}
+                                    title={`${p.name}${p.location ? ' — ' + p.location : ''}${p.execution_status === 'cancelado' ? ' · CANCELADA' : ''}${hotToday ? ' · linha viva neste dia' : ''}${hasShutdownToday ? ' · com desligamento neste dia' : ''}`}
                                     className="px-2 py-1 rounded font-mono text-xs font-bold flex items-center gap-1 leading-tight"
-                                    style={{ backgroundColor: c.bg, color: c.text }}
+                                    style={{ backgroundColor: c.bg, color: c.text, textDecoration: p.execution_status === 'cancelado' ? 'line-through' : 'none' }}
                                   >
                                     <span className="flex-1 truncate">{p.code}</span>
-                                    {p.requires_hot_line && <Zap className="w-3 h-3 flex-shrink-0" style={{ color: '#8B0000' }} />}
+                                    {hotToday && <Zap data-testid={`cal-hotline-${teamKey}-${d}-${p.id}`} className="w-3 h-3 flex-shrink-0" style={{ color: '#8B0000' }} />}
                                     {hasShutdownToday && <AlertTriangle data-testid={`cal-shutdown-${teamKey}-${d}-${p.id}`} className="w-3 h-3 flex-shrink-0" style={{ color: '#7F5A00' }} />}
                                   </div>
                                 );

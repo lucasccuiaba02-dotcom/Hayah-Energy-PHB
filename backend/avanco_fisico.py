@@ -9,6 +9,7 @@ from typing import List
 from uuid import uuid4
 import asyncio
 import base64
+import logging
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import Response
@@ -117,23 +118,42 @@ def _pct_fisico(items):
     return round(sum(i["weight"] * min(1.0, i["executed_qty"] / i["planned_qty"] if i["planned_qty"] > 0 else 0) for i in items) / tw * 100, 1)
 
 
-def _materials_summary(p):
+def _materials_summary(p, balance=None):
     mats = p.get("materials_list") or []
-    req = sum(float(m.get("qty_requested") or m.get("quantity") or 0) for m in mats)
+    bal = {b["id"]: b for b in ((balance or {}).get("items") or [])}
+    lst = sum(float(m.get("qty_requested") or m.get("quantity") or 0) for m in mats)
+    req = sum(float(bal.get(m.get("id"), {}).get("net_requisitioned") or 0) for m in mats) if bal else lst
     dlv = sum(float(m.get("qty_delivered") or 0) for m in mats)
     app = sum(float(m.get("qty_applied") or 0) for m in mats)
-    pending = sum(1 for m in mats if float(m.get("qty_delivered") or 0) < float(m.get("qty_requested") or m.get("quantity") or 0))
+    pending = sum(1 for m in mats if float(m.get("qty_delivered") or 0) < float(bal.get(m.get("id"), {}).get("net_requisitioned") if bal else (m.get("qty_requested") or m.get("quantity") or 0)))
     return {
         "items": len(mats),
+        "qty_list": round(lst, 2), "qty_requisitioned": round(req, 2),
         "qty_requested": round(req, 2), "qty_delivered": round(dlv, 2), "qty_applied": round(app, 2),
+        "pct_requisitioned": round(100 * req / lst, 1) if lst > 0 else 0.0,
         "pct_delivered": round(100 * dlv / req, 1) if req > 0 else 0.0,
         "pct_applied": round(100 * app / dlv, 1) if dlv > 0 else 0.0,
         "pending_items": pending,
         "total_value": round(sum(float(m.get("total_cost") or 0) for m in mats), 2),
+        "source": "requisicoes" if bal else "lista",
     }
 
 
-def _summary(p, today, team_target):
+def _shrink_photo(data: bytes, max_px: int = 1000, quality: int = 78) -> bytes:
+    """Set/2026 · reduz a foto antes de embutir no PDF (fotos de celular de 3-8 MB estouravam tempo/tamanho)."""
+    from PIL import Image as PILImage, ImageOps
+    import io
+    img = PILImage.open(io.BytesIO(data))
+    img = ImageOps.exif_transpose(img)
+    if img.mode not in ("RGB", "L"):
+        img = img.convert("RGB")
+    img.thumbnail((max_px, max_px))
+    out = io.BytesIO()
+    img.save(out, format="JPEG", quality=quality, optimize=True)
+    return out.getvalue()
+
+
+def _summary(p, today, team_target, balance=None):
     items = _build_items(p)
     entries = p.get("progress_entries") or []
     prog = float(p.get("programmed_value") or 0)
@@ -165,7 +185,7 @@ def _summary(p, today, team_target):
         "aderencia_diaria": round(100 * por_dia / team_target, 1) if team_target else 0.0,
         "items_count": len(items), "entries_count": len(entries),
         "last_entry": max((e.get("date", "") for e in entries), default=""),
-        "materials": _materials_summary(p),
+        "materials": _materials_summary(p, balance),
     }
 
 
@@ -198,8 +218,9 @@ def _curve(p, items, today):
     return out
 
 
-def build_router(db, get_current_user, require_admin, safe_object_id, today_fn, storage_get=None):
+def build_router(db, get_current_user, require_admin, safe_object_id, today_fn, storage_get=None, requisition_balance=None):
     router = APIRouter(prefix="/api")
+    _bal = requisition_balance or (lambda p: {"items": []})
 
     async def _threshold(user_id):
         doc = await db.app_settings.find_one({"user_id": user_id, "key": "avanco_threshold"})
@@ -291,20 +312,30 @@ def build_router(db, get_current_user, require_admin, safe_object_id, today_fn, 
         today = today_fn()
         items = _build_items(p)
         entries = sorted((p.get("progress_entries") or []), key=lambda e: (e.get("date", ""), e.get("created_at", "")), reverse=True)
+        # Set/2026 · materiais puxados do histórico de requisições ao almoxarifado (mesma fonte da aba Almoxarifado)
+        balance = _bal(p)
+        bal_by_id = {b["id"]: b for b in (balance.get("items") or [])}
         mats = []
         for m in (p.get("materials_list") or []):
-            req = float(m.get("qty_requested") or m.get("quantity") or 0)
+            lst = float(m.get("qty_requested") or m.get("quantity") or 0)
+            b = bal_by_id.get(m.get("id")) or {}
+            req = float(b.get("net_requisitioned") if b else lst)
+            sep = float(m.get("qty_separated") or 0)
             dlv = float(m.get("qty_delivered") or 0)
+            app = float(m.get("qty_applied") or 0)
             mats.append({
                 "id": m.get("id"), "code": m.get("code", ""), "item": m.get("item") or m.get("description", ""),
-                "unit": m.get("unit", ""), "qty_requested": req, "qty_delivered": dlv,
-                "qty_applied": float(m.get("qty_applied") or 0), "total_cost": float(m.get("total_cost") or 0),
+                "unit": m.get("unit", ""), "qty_list": lst, "qty_requisitioned": req, "qty_returned": float(b.get("qty_returned") or 0),
+                "qty_requested": req, "qty_separated": sep, "qty_delivered": dlv, "qty_applied": app,
+                "saldo_requisitar": float(b.get("saldo") if b else 0), "saldo_campo": round(dlv - app, 3),
+                "total_cost": float(m.get("total_cost") or 0), "source": m.get("source", ""),
+                "pct_requisitioned": round(100 * req / lst, 1) if lst > 0 else 0.0,
                 "pct_delivered": round(100 * dlv / req, 1) if req > 0 else 0.0,
             })
         th = await _threshold(current_user["_id"])
         status = _status(p)
         return {
-            "summary": _summary(p, today, await _team_target(current_user["_id"], p)),
+            "summary": _summary(p, today, await _team_target(current_user["_id"], p), balance),
             "eligible": float(p.get("programmed_value") or 0) >= th and status not in EXCLUDED_STATUS,
             "threshold": th,
             "items": items,
@@ -313,6 +344,9 @@ def build_router(db, get_current_user, require_admin, safe_object_id, today_fn, 
             "entries": entries,
             "curve": _curve(p, items, today),
             "materials": mats,
+            "requisitions": {"count": len([r for r in (p.get("material_requisitions") or []) if not r.get("is_resend")]),
+                             "partial_count": balance.get("partial_count", 0), "return_count": balance.get("return_count", 0),
+                             "fully_requisitioned": balance.get("fully_requisitioned", False)},
         }
 
     @router.get("/projects/{project_id}/avanco")
@@ -356,23 +390,34 @@ def build_router(db, get_current_user, require_admin, safe_object_id, today_fn, 
         else:
             chosen = catalog[:max_photos]
         photos = []
-        for c in chosen:
-            try:
-                if c["source"] == "photo":
-                    if c.get("storage_path"):
-                        data, _ = await storage_get(c["storage_path"])
+        sem = asyncio.Semaphore(6)
+
+        async def _fetch(c):
+            async with sem:
+                try:
+                    if c["source"] == "photo":
+                        if c.get("storage_path"):
+                            data, _ = await storage_get(c["storage_path"])
+                        else:
+                            data = base64.b64decode(c["thumb"].split(",", 1)[1])
                     else:
-                        data = base64.b64decode(c["thumb"].split(",", 1)[1])
-                else:
-                    att = next(a for a in (p.get("attachments") or []) if a.get("id") == c["id"])
-                    data, _ = await storage_get(att["storage_path"])
-                photos.append({"bytes": data, "caption": c["caption"]})
-            except Exception:
-                continue
+                        att = next(a for a in (p.get("attachments") or []) if a.get("id") == c["id"])
+                        data, _ = await storage_get(att["storage_path"])
+                    small = await asyncio.to_thread(_shrink_photo, data)
+                    return {"bytes": small, "caption": c["caption"], "order": c.get("_order", 0)}
+                except Exception as e:  # foto corrompida/inacessível não derruba o relatório
+                    logging.getLogger(__name__).warning(f"avanco pdf: foto {c.get('id')} ignorada: {e}")
+                    return None
+
+        for i, c in enumerate(chosen):
+            c["_order"] = i
+        results = await asyncio.gather(*[_fetch(c) for c in chosen])
+        photos = sorted([r for r in results if r], key=lambda r: r["order"])
         pdf = await asyncio.to_thread(build_avanco_pdf, p, detail, photos=photos)
         code = "".join(ch if ch.isalnum() else "_" for ch in (p.get("project_code") or project_id))[:24]
         filename = f"avanco_fisico_{code}_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M')}.pdf"
-        return Response(content=pdf, media_type="application/pdf", headers={"Content-Disposition": f'attachment; filename="{filename}"'})
+        return Response(content=pdf, media_type="application/pdf",
+                        headers={"Content-Disposition": f'attachment; filename="{filename}"', "X-Photos-Included": str(len(photos)), "X-Photos-Skipped": str(len(chosen) - len(photos))})
 
     @router.post("/projects/{project_id}/avanco/entries")
     async def add_entry(project_id: str, body: EntryBody, current_user: dict = Depends(get_current_user)):

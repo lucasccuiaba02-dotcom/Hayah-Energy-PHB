@@ -101,3 +101,34 @@
 #====================================================================================================
 # Testing Data - Main Agent and testing sub agent both should log testing data below this section
 #====================================================================================================
+## Iteração 36 (Set/2026) — Sucata + Linha Viva por data + Legenda canceladas + PDF Avanço
+backend:
+  - task: "Sucata CRUD (/api/sucata, /kpis, /{id}/movements, /export)"
+    implemented: true
+    working: "NA"
+    file: "backend/sucata.py"
+    needs_retesting: true
+  - task: "Linha Viva por data (hot_line_dates em projects; hot_line_today em /operacional/today e /campo/hoje)"
+    implemented: true
+    working: "NA"
+    file: "backend/server.py, backend/campo.py"
+    needs_retesting: true
+  - task: "PDF Avanço Físico com muitas fotos (to_thread + shrink)"
+    implemented: true
+    working: "NA"
+    file: "backend/avanco_fisico.py, backend/avanco_pdf.py"
+    needs_retesting: true
+frontend:
+  - task: "Painel Sucata na aba Estoque"
+    implemented: true
+    working: "NA"
+    file: "frontend/src/components/SucataPanel.jsx, frontend/src/pages/EstoquePage.jsx"
+    needs_retesting: true
+  - task: "Linha Viva por data no ProjectDrawer + ícone só nas datas (Calendário/Programação/Operacional/Campo) + legenda Cancelado"
+    implemented: true
+    working: "NA"
+    file: "frontend/src/components/ProjectDrawer.jsx, CalendarioPage.jsx, ProgramacaoPage.jsx, OperacionalPage.jsx, CampoPage.jsx"
+    needs_retesting: true
+agent_communication:
+  - agent: "main"
+    message: "Iter36: backend Sucata validado via curl (create/entrada/saída/guard 400/CSV). Frontend SucataPanel criado e renderizando. PDF Avanço com 22 fotos → 200 em ~2.5s. Pedir teste E2E de tudo."

@@ -7,7 +7,7 @@ import { AppLayout } from '../components/AppLayout';
 import { ProjectDrawer } from '../components/ProjectDrawer';
 import { ProjectFilters } from '../components/ProjectFilters';
 import { RetornoProgramacaoModal } from '../components/RetornoProgramacaoModal';
-import { PROJECT_TYPE_LABEL, EXECUTION_STATUS_LABEL, formatCurrency, todayISO } from '../lib/constants';
+import { PROJECT_TYPE_LABEL, EXECUTION_STATUS_LABEL, formatCurrency, todayISO, hotLineOn } from '../lib/constants';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -356,7 +356,8 @@ export const ProgramacaoPage = () => {
                                 <span className="text-[10px] text-zinc-700">—</span>
                               ) : cellProjects.map((p) => {
                                 const execStatus = EXECUTION_STATUS_LABEL[p.execution_status || 'aguardando_programacao'];
-                                const bgColor = p.requires_hot_line ? '#FF5E00' : execStatus?.color || '#94A3B8';
+                                const hotDay = hotLineOn(p, date);
+                                const bgColor = hotDay ? '#FF5E00' : execStatus?.color || '#94A3B8';
                                 const hasShutdown = (p.shutdown_dates || []).includes(date) || (!(p.shutdown_dates || []).length && !!p.shutdown_info);
                                 return (
                                   <div
@@ -371,8 +372,8 @@ export const ProgramacaoPage = () => {
                                       {p._isAdditional && (
                                         <span title="Equipe adicional" className="px-1.5 py-0 rounded-full text-[9px] font-bold bg-[#00F0FF]/20 border border-[#00F0FF]/50 text-[#00F0FF]">2ª</span>
                                       )}
-                                      {p.requires_hot_line && (
-                                        <span title="Linha Viva" className="inline-flex items-center gap-0.5 px-1.5 py-0 rounded-full text-[9px] font-bold bg-[#FF5E00]/20 border border-[#FF5E00] text-[#FF5E00]"><Zap className="w-2.5 h-2.5" />LV</span>
+                                      {hotDay && (
+                                        <span title="Linha Viva neste dia" data-testid={`matrix-lv-${p.id}-${date}`} className="inline-flex items-center gap-0.5 px-1.5 py-0 rounded-full text-[9px] font-bold bg-[#FF5E00]/20 border border-[#FF5E00] text-[#FF5E00]"><Zap className="w-2.5 h-2.5" />LV</span>
                                       )}
                                       {hasShutdown && (
                                         <span title={p.shutdown_info || 'Desligamento programado'} className="px-1.5 py-0 rounded-full text-[9px] font-bold bg-[#E0FF00]/20 border border-[#E0FF00] text-[#E0FF00]">DESL.</span>

@@ -28,7 +28,8 @@ const CampoCard = ({ p, user, online, onCheckin, onReceipt, navigate }) => {
   const [shift, setShift] = useState(mine?.shift || 'integral');
   const req = p.last_requisition;
   const stage = req ? STAGE[req.stage] || STAGE.enviada : null;
-  const aprHref = p.requires_hot_line && (user?.hot_line_team ?? true) ? 'viva' : '1';
+  const hotToday = p.hot_line_today ?? p.requires_hot_line;
+  const aprHref = hotToday && (user?.hot_line_team ?? true) ? 'viva' : '1';
   return (
     <div data-testid={`campo-project-${p.id}`} className="glass-panel rounded-2xl overflow-hidden border border-white/10">
       <div className="p-4 space-y-1">
@@ -42,7 +43,7 @@ const CampoCard = ({ p, user, online, onCheckin, onReceipt, navigate }) => {
         </div>
         {p.location && <p className="text-xs text-zinc-300 flex items-start gap-1"><MapPin className="w-3 h-3 mt-0.5 text-zinc-500" /> {p.location}</p>}
         <div className="flex gap-1 flex-wrap pt-1">
-          {p.requires_hot_line && <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-[#FF003C]/15 text-[#FF003C] border border-[#FF003C]/40 inline-flex items-center gap-1"><Zap className="w-3 h-3" /> LINHA VIVA</span>}
+          {hotToday && <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-[#FF003C]/15 text-[#FF003C] border border-[#FF003C]/40 inline-flex items-center gap-1"><Zap className="w-3 h-3" /> LINHA VIVA HOJE</span>}
           {(p.shutdown_today || p.shutdown_info) && <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-[#E0FF00]/15 text-[#E0FF00] border border-[#E0FF00]/40 inline-flex items-center gap-1"><AlertTriangle className="w-3 h-3" /> DESLIGAMENTO{p.shutdown_today ? ' HOJE' : ''}</span>}
           {p.aprs?.total > 0 && <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-white/5 text-zinc-300 border border-white/10">{p.aprs.total} APR{p.aprs.total > 1 ? 's' : ''}</span>}
           {(p.photos || []).length > 0 && <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-white/5 text-zinc-300 border border-white/10">{p.photos.length} fotos</span>}
