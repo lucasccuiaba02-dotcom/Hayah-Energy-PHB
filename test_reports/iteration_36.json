@@ -1,0 +1,29 @@
+{
+  "summary": "Iteration 36 (Set/2026) — Sucata + Linha Viva por data + Avanço PDF/materiais. Backend: 28/28 pytest passed (test_iteration36.py) — Sucata CRUD/movements/saldo/KPIs/CSV BOM;;/filters/reason/only_balance; validações (descrição obrig., saída>saldo qtd e kg, motivo/destino inválido, tipo inválido, 0 qtd+kg); cálculo 120un/36kg×18.5=666, saída 50un/15kg venda 250 → 70un/21kg/388.5/250. Linha Viva por data: PUT /api/projects persiste hot_line_dates, /api/operacional/today hot_line_today reflete a data corretamente (false quando data ≠ hoje, true quando hoje ∈ hot_line_dates); /api/campo/hoje idem. Avanço: catálogo com 22 fotos, PDF com todos os 22 ids retorna X-Photos-Included=22/Skipped=0 e >1MB em ~5s; ?photo_ids=none retorna 0 fotos; materials source='requisicoes' com 2 itens (qty_list/qty_requisitioned/qty_delivered/qty_applied/saldo_requisitar presentes). Frontend: /estoque painel Sucata todos os data-testid presentes; criar item abre auto o modal de entrada; toast erro em saída>saldo; histórico expande/recolhe; edit/delete OK; export dispara download 'sucata-<date>.csv'; filtros só-com-saldo/motivo/busca funcionam; est-new/est-export intactos. Mobile 390x844 sem overflow horizontal. Calendário: legenda cal-legend-cancelado em rgb(255,0,60)=#FF003C; cal-hotline icons renderizados por data conforme hot_line_dates. Programação: 4 badges matrix-lv-{pid}-{date} presentes na view atual. ProjectDrawer: project-hotline-toggle presente, checked correto, 2 per-date hot line checkboxes renderizados junto às datas de schedule_entries (aumenta com mais datas). /avanco: avanco-download-pdf abre modal avanco-pdf-modal com select-all e generate.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration36.py",
+    "/app/test_reports/pytest/iter36.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "backend/server.py já >6000 linhas — Sucata está bem isolado em backend/sucata.py; considerar mover /operacional/today e outros domínios grandes para arquivos separados.",
+    "SucataPanel.jsx tem 351 linhas com múltiplos sub-componentes inline (ItemModal, MovModal, MovHistory) — considerar splitting em arquivos separados para facilitar manutenção.",
+    "backend/sucata.py: quando 'reason' ou 'destination' vem string vazia, é aceito silenciosamente; ok, mas UX poderia validar cliente-side (Frontend já faz default 'retirado_rede'/'venda').",
+    "backend/avanco_fisico.py: fetch de foto individual usa asyncio.Semaphore(6) — bom, mas cold-start de storage pode fazer primeira chamada de PDF levar ~30s conforme main agent. Se latência crescer, avaliar cache/prefetch de storage_paths.",
+    "ProjectDrawer.jsx linha 747: onChange do toggle marca TODAS as datas quando ligado — bom UX (usuário desmarca manualmente as que não são LV). Já implementado corretamente."
+  ],
+  "updated_files": ["/app/backend/tests/test_iteration36.py", "/app/test_reports/iteration_36.json"],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "test_credentials": "Admin: lucasc.cuiaba02@gmail.com / Hayah$152610 (cookie httpOnly access_token; sem token no JSON).",
+  "seed_data_creation": "Nenhum dado permanente criado. Itens de sucata TEST_UI_iter36 e TEST_iter36 foram criados e removidos ao final. Projeto TEST_iter36 LV também removido. Item existente 90588 preservado.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Estrutura de /api/operacional/today é {date,total_projects,total_value,hot_line_count,by_team:{teamName:[items]}} — cada item tem hot_line_today (calculado por hot_line_on em campo.py). Login usa cookie httpOnly. Base URL em REACT_APP_BACKEND_URL. Fuso horário do backend é America/Cuiaba. ProjectDrawer é aberto via 'edit-carteira-{i}' na CarteiraPage; CAMPO-LV-01 (id 6aade9e554f9f5aa51348a8d) tem 22 fotos + hot_line_dates=['2026-09-18']. Sucata backend router: prefix /api/sucata; _serialize calcula qty/kg/estimated_value; add_movement bloqueia saida>saldo por qtd E por kg.",
+  "rca of the issue": "N/A — todos os fluxos testados passaram (28/28 backend + fluxos frontend críticos)."
+}
