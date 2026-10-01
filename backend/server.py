@@ -3219,12 +3219,12 @@ async def daily_log_pdf(project_id: str, notes: str = "", current_user: dict = D
 
 
 class DailyLogJobBody(BaseModel):
-    notes: str = ""
-    date_from: str = ""
-    date_to: str = ""
-    point: str = ""
+    notes: Optional[str] = ""
+    date_from: Optional[str] = ""
+    date_to: Optional[str] = ""
+    point: Optional[str] = ""
     photo_ids: Optional[List[str]] = None
-    max_photos: int = 500
+    max_photos: Optional[int] = 500
 
 
 @api_router.get("/operacional/daily-log/{project_id}/photos")

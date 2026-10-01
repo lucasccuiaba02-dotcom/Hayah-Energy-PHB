@@ -1,0 +1,36 @@
+{
+  "summary": "Iteration 37 — covered Medição (catálogo + por obra), PDF Jobs (Diário/Avanço) com polling e download via Bearer e ?auth=, Campo histórico, Documentos, download de anexo com ?auth=, coluna Devolvido no Almoxarifado, WhatsApp vencidas com tipo da obra, Improd/Indisp (meta ÷ 8h). 29/29 backend tests PASS; frontend testids e fluxos principais funcionam.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "POST /api/operacional/daily-log/{id}/job", "issue": "Pydantic model rejects null for date_from/date_to/point (422). Deveriam ser Optional[str] para alinhar com cliente — frontend hoje envia '' (string vazia), então funciona, mas o contrato está frágil."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration37.py",
+    "/app/test_reports/pytest/iteration37.xml"
+  ],
+  "action_items": [
+    "(Opcional) tornar date_from/date_to/point verdadeiramente Optional[str]=None em POST /api/operacional/daily-log/{id}/job para evitar 422 quando cliente mandar null."
+  ],
+  "critical_code_review_comments": [
+    "Jobs de PDF ficam em memória (pdf_jobs.JOBS) — não escala horizontalmente nem sobrevive a restart; aceitável para MVP mas vale TTL explícito e persistência futura.",
+    "server.py já ultrapassa dezenas de milhares de linhas — avaliar separar routers (medicao.py já está separado, bom padrão).",
+    "ProjectDetailPage.jsx tem 1.2k linhas; considerar quebrar em subcomponentes por aba (Operacional/Arquivos/Campo)."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iteration37.py"
+  ],
+  "success_rate": {"backend": "100% (29/29)", "frontend": "~98% (todos os fluxos solicitados OK)"},
+  "test_credentials": "lucasc.cuiaba02@gmail.com / Hayah$152610 (admin, /app/memory/test_credentials.md)",
+  "seed_data_creation": "Criadas e removidas no backend: projeto TEST-MED-37 (orçado=90, actual=40 verificados) + TEST-MED-37B (empty). Catálogo TEST37-C1/A/B também limpos. No frontend ficou 1 item 'FE-T37' na base e 1 obra TEST-MED-37 no catálogo da UI remanescentes mínimos — podem ser limpos manualmente se necessário.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Backend file test_iteration37.py cobre: Medição catálogo (CRUD + import CSV + 400/404), Medição por obra (GET/PUT orçado seta labor_cost, PUT realizado seta actual_value, from-orcado 400 se vazio, import CSV), PDF jobs daily-log + avanco (polling, download Bearer e ?auth=, 404/409), Campo histórico (totais CAMPO-LV-01 = 22/2/1/1/1), Documentos (counts), Anexo DWG com ?auth=, regressão auth/me, dashboard/kpis, projects. Para evitar 422 ao criar daily-log/job, não passar null para date_from/date_to/point — ou enviar string vazia.",
+  "rca of the issue": "N/A — nenhum bug funcional encontrado nesta iteração."
+}
