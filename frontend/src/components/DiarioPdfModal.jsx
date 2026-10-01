@@ -55,7 +55,7 @@ export const DiarioPdfModal = ({ open, projectId, initialNotes = '', onClose }) 
             <h3 className="font-heading font-black text-lg text-white leading-tight">Fotos e observações</h3>
             <p className="text-[11px] text-zinc-400">{loading ? 'Carregando…' : `${catalog.photos.length} foto(s) na obra · até 500 por PDF`}</p>
           </div>
-          <button data-testid="diario-pdf-close" disabled={running} onClick={onClose} className="p-2 rounded-lg hover:bg-white/10 text-zinc-400 hover:text-white disabled:opacity-40"><X className="w-5 h-5" /></button>
+          <button data-testid="diario-pdf-close" onClick={onClose} className="p-2 rounded-lg hover:bg-white/10 text-zinc-400 hover:text-white"><X className="w-5 h-5" /></button>
         </div>
 
         <div className="p-5 space-y-3">
@@ -100,9 +100,11 @@ export const DiarioPdfModal = ({ open, projectId, initialNotes = '', onClose }) 
               <div className="flex items-center gap-2 text-xs text-white mb-2">
                 {job?.status === 'done' ? <CheckCircle2 className="w-4 h-4 text-[#39FF14]" /> : <Loader2 className="w-4 h-4 animate-spin text-[#00F0FF]" />}
                 <span className="flex-1">{job?.message || 'Iniciando…'}</span>
+                {job?.elapsed != null && job?.status !== 'done' && <span className="font-mono text-zinc-500 text-[10px]">{job.elapsed}s</span>}
                 <span className="font-mono text-[#00F0FF]">{job?.pct ?? 0}%</span>
               </div>
               <div className="h-2 rounded-full bg-white/10 overflow-hidden"><div className="h-full bg-[#00F0FF] transition-all" style={{ width: `${job?.pct ?? 0}%` }} /></div>
+              {running && <p className="text-[10px] text-zinc-500 mt-2">Pode fechar esta janela — o download começa sozinho quando terminar.</p>}
             </div>
           )}
         </div>

@@ -10,6 +10,8 @@ from motor.motor_asyncio import AsyncIOMotorClient
 from pydantic import BaseModel, Field, ConfigDict, EmailStr
 from bson import ObjectId
 from typing import List, Optional, Tuple
+import shutil
+import tempfile
 from datetime import datetime, timezone, timedelta
 import os
 import json
@@ -78,36 +80,47 @@ async def init_storage() -> Optional[str]:
         logging.getLogger(__name__).error(f"Storage init failed: {e}")
         return None
 
+_storage_client: Optional[httpx.AsyncClient] = None
+
+
+def _storage_http() -> httpx.AsyncClient:
+    """Out/2026 · cliente httpx compartilhado (keep-alive + 1 contexto SSL) — um AsyncClient por chamada custava ~1 MB e fragmentava a RAM em jobs com centenas de fotos."""
+    global _storage_client
+    if _storage_client is None or _storage_client.is_closed:
+        _storage_client = httpx.AsyncClient(timeout=60, limits=httpx.Limits(max_connections=12, max_keepalive_connections=6))
+    return _storage_client
+
+
 async def storage_put(path: str, data: bytes, content_type: str) -> dict:
     global _storage_key
     key = await init_storage()
     if not key:
         raise HTTPException(status_code=503, detail="Armazenamento indisponível — verifique EMERGENT_LLM_KEY")
-    async with httpx.AsyncClient(timeout=120) as client_http:
-        resp = await client_http.put(
-            f"{STORAGE_URL}/objects/{path}",
-            headers={"X-Storage-Key": key, "Content-Type": content_type},
-            content=data,
-        )
-        if resp.status_code == 403:
-            _storage_key = None
-            raise HTTPException(status_code=503, detail="Sessão de armazenamento expirada — tente de novo")
-        resp.raise_for_status()
-        return resp.json()
+    resp = await _storage_http().put(
+        f"{STORAGE_URL}/objects/{path}",
+        headers={"X-Storage-Key": key, "Content-Type": content_type},
+        content=data,
+        timeout=120,
+    )
+    if resp.status_code == 403:
+        _storage_key = None
+        raise HTTPException(status_code=503, detail="Sessão de armazenamento expirada — tente de novo")
+    resp.raise_for_status()
+    return resp.json()
 
-async def storage_get(path: str) -> Tuple[bytes, str]:
+async def storage_get(path: str, timeout: float = 60) -> Tuple[bytes, str]:
     key = await init_storage()
     if not key:
         raise HTTPException(status_code=503, detail="Armazenamento indisponível")
-    async with httpx.AsyncClient(timeout=60) as client_http:
-        resp = await client_http.get(
-            f"{STORAGE_URL}/objects/{path}",
-            headers={"X-Storage-Key": key},
-        )
-        if resp.status_code == 404:
-            raise HTTPException(status_code=404, detail="Arquivo não encontrado")
-        resp.raise_for_status()
-        return resp.content, resp.headers.get("Content-Type", "application/octet-stream")
+    resp = await _storage_http().get(
+        f"{STORAGE_URL}/objects/{path}",
+        headers={"X-Storage-Key": key},
+        timeout=timeout,
+    )
+    if resp.status_code == 404:
+        raise HTTPException(status_code=404, detail="Arquivo não encontrado")
+    resp.raise_for_status()
+    return resp.content, resp.headers.get("Content-Type", "application/octet-stream")
 
 # Project type labels (Hayah Energy specific) - Iteração 8
 PROJECT_TYPE_LABELS = {
@@ -3075,6 +3088,13 @@ async def get_photo_file(project_id: str, photo_id: str, w: int = 0, current_use
     photo = next((p for p in (project.get("photos") or []) if p.get("id") == photo_id), None)
     if not photo:
         raise HTTPException(status_code=404, detail="Foto não encontrada")
+    if w and 0 < w <= 900:
+        try:
+            small = await photo_small_bytes(project_id, photo)
+            return Response(content=await asyncio.to_thread(_shrink_photo, small, w, 70) if w < 900 else small, media_type="image/jpeg",
+                            headers={"Cache-Control": "private, max-age=86400"})
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"thumb {photo_id}: {e}")
     if photo.get("data_url"):
         header, b64 = photo["data_url"].split(",", 1)
         ct = header[5:].split(";")[0] or "image/jpeg"
@@ -3082,12 +3102,44 @@ async def get_photo_file(project_id: str, photo_id: str, w: int = 0, current_use
     else:
         data, ct = await storage_get(photo["storage_path"])
         ct = photo.get("content_type") or ct
-    if w and 0 < w <= 1200:
-        try:
-            data, ct = await asyncio.to_thread(_shrink_photo, data, w, 70), "image/jpeg"
-        except Exception as e:  # noqa: BLE001
-            logger.warning(f"thumb {photo_id}: {e}")
     return Response(content=data, media_type=ct, headers={"Cache-Control": "private, max-age=86400"})
+
+
+_DECODE_SEM = asyncio.Semaphore(2)
+
+
+async def photo_small_bytes(project_id: str, ph: dict, max_px: int = 900, quality: int = 72) -> bytes:
+    """Out/2026 · Versão reduzida da foto (p/ PDFs e miniaturas) com cache no Object Storage (`photos[].small_path`).
+    1ª vez: baixa o original (timeout curto + 1 retry), reduz e guarda; depois serve só o arquivo pequeno (~5x menor)."""
+    if ph.get("small_path"):
+        try:
+            return (await storage_get(ph["small_path"], timeout=20))[0]
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"photo small cache miss {ph.get('id')}: {e}")
+    if ph.get("storage_path"):
+        data = None
+        async with _DECODE_SEM:  # no máx. 2 originais decodificados por vez (pod de 512 Mi)
+            for attempt in (1, 2):
+                try:
+                    data = (await storage_get(ph["storage_path"], timeout=25))[0]
+                    break
+                except Exception:
+                    if attempt == 2:
+                        raise
+                    await asyncio.sleep(0.8)
+            small = await asyncio.to_thread(_shrink_photo, data, max_px, quality)
+            del data
+    else:
+        async with _DECODE_SEM:
+            small = await asyncio.to_thread(_shrink_photo, base64.b64decode((ph.get("data_url") or "").split(",", 1)[1]), max_px, quality)
+    if ph.get("id") and _storage_key:
+        path = f"{APP_NAME}/photos-small/{project_id}/{ph['id']}.jpg"
+        try:
+            await storage_put(path, small, "image/jpeg")
+            await db.projects.update_one({"_id": safe_object_id(project_id), "photos.id": ph["id"]}, {"$set": {"photos.$.small_path": path}})
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"photo small cache store {ph.get('id')}: {e}")
+    return small
 
 @api_router.delete("/operacional/photos/{project_id}/{photo_id}")
 async def delete_photo(project_id: str, photo_id: str, current_user: dict = Depends(get_current_user)):
@@ -3281,18 +3333,18 @@ async def daily_log_pdf_job(project_id: str, body: DailyLogJobBody, current_user
 
     async def runner(progress):
         progress(0, total, f"Preparando {total} foto(s)…")
-        sem = asyncio.Semaphore(4)
+        sem = asyncio.Semaphore(6)
         done = {"n": 0}
+        tmpdir = tempfile.mkdtemp(prefix="diario_")
 
-        async def _one(ph):
+        async def _one(i, ph):
             async with sem:
                 try:
-                    if ph.get("storage_path"):
-                        data, _ct = await storage_get(ph["storage_path"])
-                    else:
-                        data = base64.b64decode(ph["data_url"].split(",", 1)[1])
-                    small = await asyncio.to_thread(_shrink_photo, data, 900, 72)
-                    return {**ph, "data_url": "", "bytes": small}
+                    small = await photo_small_bytes(project_id, ph)
+                    path = os.path.join(tmpdir, f"{i:04d}.jpg")
+                    with open(path, "wb") as fh:
+                        fh.write(small)
+                    return {k: v for k, v in ph.items() if k != "data_url"} | {"path": path}
                 except Exception as e:  # noqa: BLE001
                     logger.warning(f"daily-log job photo {ph.get('id')} ignorada: {e}")
                     return None
@@ -3300,10 +3352,13 @@ async def daily_log_pdf_job(project_id: str, body: DailyLogJobBody, current_user
                     done["n"] += 1
                     progress(done["n"], total, f"Processando fotos {done['n']}/{total}…")
 
-        results = await asyncio.gather(*[_one(ph) for ph in chosen])
-        photos = [r for r in results if r]
-        progress(total, total, "Montando o PDF…")
-        return await asyncio.to_thread(build_daily_log_pdf, project, checklist, photos, notes)
+        try:
+            results = await asyncio.gather(*[_one(i, ph) for i, ph in enumerate(chosen)])
+            photos = [r for r in results if r]
+            progress(total, total, "Montando o PDF…")
+            return await asyncio.to_thread(build_daily_log_pdf, project, checklist, photos, notes)
+        finally:
+            shutil.rmtree(tmpdir, ignore_errors=True)
 
     filename = f"diario_obra_{''.join(ch if ch.isalnum() else '_' for ch in (project.get('project_code') or project_id))[:24]}_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M')}.pdf"
     return await _pdf_jobs.start_job(current_user["_id"], "diario", filename, runner)
@@ -6081,7 +6136,7 @@ def _today_cuiaba():
         return datetime.now(ZoneInfo("America/Cuiaba")).strftime("%Y-%m-%d")
     except Exception:
         return datetime.now(timezone.utc).strftime("%Y-%m-%d")
-app.include_router(_build_avanco_router(db, get_current_user, require_admin, safe_object_id, _today_cuiaba, storage_get, requisition_balance=_requisition_balance))
+app.include_router(_build_avanco_router(db, get_current_user, require_admin, safe_object_id, _today_cuiaba, storage_get, requisition_balance=_requisition_balance, photo_small=photo_small_bytes))
 
 from orcamentos import build_router as _build_orcamentos_router
 app.include_router(_build_orcamentos_router(db, get_current_user, safe_object_id, storage_put, storage_get, APP_NAME, _today_cuiaba))
@@ -6134,6 +6189,7 @@ async def startup_db():
     # Object storage init
     await init_storage()
     await _pdf_jobs.ensure_indexes()
+    await _pdf_jobs.recover_orphans()
     # TTL index for live tracking positions — auto-expire after 10 minutes
     try:
         await db.tracking_positions.create_index("updated_at", expireAfterSeconds=600)

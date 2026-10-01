@@ -238,7 +238,7 @@ def build_avanco_pdf(project: dict, detail: dict, photos: list | None = None) ->
     photo_cells = []
     for ph in (photos or []):
         try:
-            img = Image(io.BytesIO(ph["bytes"]))
+            img = Image(ph["path"]) if ph.get("path") else Image(io.BytesIO(ph["bytes"]))
             img._restrictSize(58 * mm, 44 * mm)
             cap = Paragraph(ph.get("caption") or "Foto", ParagraphStyle("pc", parent=S["small"], alignment=TA_CENTER, fontSize=6.8, leading=8))
             inner = Table([[img], [cap]], colWidths=[60 * mm])

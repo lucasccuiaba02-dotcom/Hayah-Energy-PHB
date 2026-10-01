@@ -174,11 +174,15 @@ def build_daily_log_pdf(project: dict, checklist: dict, photos: list, notes: str
 
         def _photo_cell(ph):
             data_url = ph.get("data_url") or ""
-            if not ph.get("bytes") and not data_url.startswith("data:image"):
+            if not ph.get("path") and not ph.get("bytes") and not data_url.startswith("data:image"):
                 return None
             try:
-                img_bytes = ph["bytes"] if ph.get("bytes") else base64.b64decode(data_url.split(",", 1)[1])
-                img = Image(io.BytesIO(img_bytes))
+                # Out/2026 · caminho em disco (JPEG) → reportlab embute o DCT direto, sem decodificar para RGB (183 fotos em BytesIO = ~850 MB → OOM)
+                if ph.get("path"):
+                    img = Image(ph["path"])
+                else:
+                    img_bytes = ph["bytes"] if ph.get("bytes") else base64.b64decode(data_url.split(",", 1)[1])
+                    img = Image(io.BytesIO(img_bytes))
                 img._restrictSize(88 * mm, 70 * mm)
                 point = (ph.get("point") or "").strip()
                 label = (ph.get("label") or "").upper()

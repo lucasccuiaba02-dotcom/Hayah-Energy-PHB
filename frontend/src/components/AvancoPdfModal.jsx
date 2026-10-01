@@ -96,7 +96,7 @@ export const AvancoPdfModal = ({ open, projectId, projectCode, onClose }) => {
         <div className="flex items-center justify-end gap-2 px-5 py-3 border-t border-white/10">
           {generating && job && (
             <div data-testid="avanco-pdf-progress" className="flex-1 min-w-0">
-              <p className="text-[10px] text-zinc-400 truncate">{job.message} · <span className="font-mono text-[#E0FF00]">{job.pct ?? 0}%</span></p>
+              <p className="text-[10px] text-zinc-400 truncate">{job.message} · <span className="font-mono text-[#E0FF00]">{job.pct ?? 0}%</span>{job.elapsed != null ? <span className="font-mono text-zinc-500"> · {job.elapsed}s</span> : null}</p>
               <div className="h-1.5 rounded-full bg-white/10 overflow-hidden mt-1"><div className="h-full bg-[#E0FF00] transition-all" style={{ width: `${job.pct ?? 0}%` }} /></div>
             </div>
           )}

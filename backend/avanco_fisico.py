@@ -140,16 +140,20 @@ def _materials_summary(p, balance=None):
 
 
 def _shrink_photo(data: bytes, max_px: int = 1000, quality: int = 78) -> bytes:  # noqa: D401
-    """Set/2026 · reduz a foto antes de embutir no PDF (fotos de celular de 3-8 MB estouravam tempo/tamanho)."""
+    """Set/2026 · reduz a foto antes de embutir no PDF (fotos de celular de 3-8 MB estouravam tempo/tamanho).
+    Out/2026 · `draft` decodifica o JPEG já em escala reduzida (até 8x menos memória por foto)."""
     from PIL import Image as PILImage, ImageOps
     import io
     img = PILImage.open(io.BytesIO(data))
+    if img.format == "JPEG":
+        img.draft("RGB", (max_px, max_px))
     img = ImageOps.exif_transpose(img)
     if img.mode not in ("RGB", "L"):
         img = img.convert("RGB")
     img.thumbnail((max_px, max_px))
     out = io.BytesIO()
     img.save(out, format="JPEG", quality=quality, optimize=True)
+    img.close()
     return out.getvalue()
 
 
@@ -218,7 +222,7 @@ def _curve(p, items, today):
     return out
 
 
-def build_router(db, get_current_user, require_admin, safe_object_id, today_fn, storage_get=None, requisition_balance=None):
+def build_router(db, get_current_user, require_admin, safe_object_id, today_fn, storage_get=None, requisition_balance=None, photo_small=None):
     router = APIRouter(prefix="/api")
     _bal = requisition_balance or (lambda p: {"items": []})
 
@@ -434,19 +438,31 @@ def build_router(db, get_current_user, require_admin, safe_object_id, today_fn, 
         total = len(chosen)
 
         async def runner(progress):
+            import os
+            import shutil
+            import tempfile
             progress(0, total, f"Preparando {total} foto(s)…")
-            sem = asyncio.Semaphore(4)
+            sem = asyncio.Semaphore(6)
             done = {"n": 0}
+            tmpdir = tempfile.mkdtemp(prefix="avanco_")
+            photos_by_id = {ph.get("id"): ph for ph in (p.get("photos") or [])}
 
             async def _fetch(i, c):
                 async with sem:
                     try:
-                        if c["source"] == "photo":
-                            data = (await storage_get(c["storage_path"]))[0] if c.get("storage_path") else base64.b64decode(c["thumb"].split(",", 1)[1])
+                        if c["source"] == "photo" and photo_small and photos_by_id.get(c["id"]):
+                            small = await photo_small(project_id, photos_by_id[c["id"]])
                         else:
-                            att = next(a for a in (p.get("attachments") or []) if a.get("id") == c["id"])
-                            data, _ = await storage_get(att["storage_path"])
-                        return {"bytes": await asyncio.to_thread(_shrink_photo, data, 900, 72), "caption": c["caption"], "order": i}
+                            if c["source"] == "photo":
+                                data = (await storage_get(c["storage_path"], timeout=25))[0] if c.get("storage_path") else base64.b64decode(c["thumb"].split(",", 1)[1])
+                            else:
+                                att = next(a for a in (p.get("attachments") or []) if a.get("id") == c["id"])
+                                data, _ = await storage_get(att["storage_path"], timeout=25)
+                            small = await asyncio.to_thread(_shrink_photo, data, 900, 72)
+                        path = os.path.join(tmpdir, f"{i:04d}.jpg")
+                        with open(path, "wb") as fh:
+                            fh.write(small)
+                        return {"path": path, "caption": c["caption"], "order": i}
                     except Exception as e:  # noqa: BLE001
                         logging.getLogger(__name__).warning(f"avanco pdf job: foto {c.get('id')} ignorada: {e}")
                         return None
@@ -454,10 +470,13 @@ def build_router(db, get_current_user, require_admin, safe_object_id, today_fn, 
                         done["n"] += 1
                         progress(done["n"], total, f"Processando fotos {done['n']}/{total}…")
 
-            results = await asyncio.gather(*[_fetch(i, c) for i, c in enumerate(chosen)])
-            photos = sorted([r for r in results if r], key=lambda r: r["order"])
-            progress(total, total, "Montando o PDF…")
-            return await asyncio.to_thread(build_avanco_pdf, p, detail, photos=photos)
+            try:
+                results = await asyncio.gather(*[_fetch(i, c) for i, c in enumerate(chosen)])
+                photos = sorted([r for r in results if r], key=lambda r: r["order"])
+                progress(total, total, "Montando o PDF…")
+                return await asyncio.to_thread(build_avanco_pdf, p, detail, photos=photos)
+            finally:
+                shutil.rmtree(tmpdir, ignore_errors=True)
 
         code = "".join(ch if ch.isalnum() else "_" for ch in (p.get("project_code") or project_id))[:24]
         return await _pdf_jobs.start_job(current_user["_id"], "avanco", f"avanco_fisico_{code}_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M')}.pdf", runner)

@@ -3,7 +3,7 @@
 // Hayah Energy - Service Worker (Full offline app shell)
 // Fev/2026 - v3: precache + stale-while-revalidate + navigation fallback
 
-const SW_VERSION = 'hayah-v5-2026-09-campo';
+const SW_VERSION = 'hayah-v6-2026-10-pdfjobs';
 const APP_SHELL_CACHE = `${SW_VERSION}-shell`;
 const STATIC_CACHE = `${SW_VERSION}-static`;
 const IMAGE_CACHE = `${SW_VERSION}-images`;
@@ -105,8 +105,12 @@ async function handleNavigate(req) {
   try {
     const net = await fetch(req);
     if (net && net.ok) {
-      const cache = await caches.open(APP_SHELL_CACHE);
-      cache.put('/index.html', net.clone()).catch(() => {});
+      // Out/2026 · só HTML vira app shell — downloads via <a download> (PDF/DWG) também chegam como "navigate"
+      const ct = (net.headers.get('Content-Type') || '').toLowerCase();
+      if (ct.includes('text/html')) {
+        const cache = await caches.open(APP_SHELL_CACHE);
+        cache.put('/index.html', net.clone()).catch(() => {});
+      }
       return net;
     }
     throw new Error('network not ok');

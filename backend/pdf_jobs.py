@@ -3,6 +3,8 @@ O cliente dispara o job, consulta o progresso e baixa o arquivo quando pronto (e
 Out/2026 · estado persistido em `pdf_jobs` (Mongo) + PDF no Object Storage → sobrevive a restart/múltiplas réplicas;
 heartbeat detecta geração interrompida em vez de "sumir" o job."""
 import asyncio
+import ctypes
+import gc
 import logging
 import time
 import uuid
@@ -16,6 +18,8 @@ TTL_SECONDS = 1800
 RESULT_MEMORY_SECONDS = 300
 STALE_SECONDS = 150
 MAX_ACTIVE_PER_USER = 2
+JOB_TIMEOUT_SECONDS = 900
+_HEAVY_SLOT = asyncio.Semaphore(1)
 STORAGE_PREFIX = "hayah-energy/pdf-jobs"
 PUBLIC_KEYS = ("id", "kind", "status", "done", "total", "message", "filename", "error", "size", "created_at", "finished_at")
 PERSIST_KEYS = ("status", "done", "total", "message", "error", "size", "storage_path", "finished_at", "heartbeat")
@@ -95,27 +99,66 @@ async def start_job(user_id: str, kind: str, filename: str, runner) -> dict:
             asyncio.get_running_loop().create_task(_persist(job["id"], {"done": job["done"], "total": job["total"], "message": job["message"], "heartbeat": job["heartbeat"]}))
 
     async def _run():
+        # Um PDF pesado por vez neste processo (pod de 512 Mi): os demais esperam na fila mantendo o heartbeat vivo
+        while True:
+            try:
+                await asyncio.wait_for(_HEAVY_SLOT.acquire(), timeout=10)
+                break
+            except asyncio.TimeoutError:
+                job["heartbeat"] = time.time()
+                job["message"] = "Aguardando outra geração terminar…"
+                await _persist(job["id"], {"heartbeat": job["heartbeat"], "message": job["message"]})
         job["status"] = "running"
-        await _persist(job["id"], {"status": "running", "heartbeat": time.time()})
+        await _persist(job["id"], {"status": "running", "heartbeat": time.time(), "message": "Iniciando…"})
         try:
-            pdf = await runner(progress)
-            job["result"], job["size"] = pdf, len(pdf or b"")
+            pdf = await asyncio.wait_for(runner(progress), timeout=JOB_TIMEOUT_SECONDS)
+            job["size"] = len(pdf or b"")
             job["heartbeat"] = time.time()
             path = f"{STORAGE_PREFIX}/{job['id']}.pdf"
             try:
                 await _storage_put(path, pdf, "application/pdf")
-                job["storage_path"] = path
+                job["storage_path"] = path  # download sai do storage → não segura o PDF na RAM do pod
             except Exception as e:  # noqa: BLE001
                 logger.warning(f"pdf job {job['id']}: falha ao guardar no storage, mantendo só em memória: {e}")
+                job["result"] = pdf
+            del pdf
             job["status"], job["message"] = "done", "PDF pronto"
+        except asyncio.TimeoutError:
+            job["status"], job["error"], job["message"] = "error", f"Tempo limite de {JOB_TIMEOUT_SECONDS // 60} min excedido. Gere com menos fotos (filtre por período/ponto).", "Falha ao gerar o PDF"
         except Exception as e:  # noqa: BLE001
             logger.exception(f"pdf job {job['id']} falhou")
             job["status"], job["error"], job["message"] = "error", str(e)[:300] or e.__class__.__name__, "Falha ao gerar o PDF"
+        finally:
+            _HEAVY_SLOT.release()
         job["finished_at"] = job["heartbeat"] = time.time()
         await _persist(job["id"], {k: job.get(k) for k in PERSIST_KEYS} | {"done": job["done"], "total": job["total"]})
+        _release_memory()
 
     asyncio.create_task(_run())
     return public(job)
+
+
+def _release_memory():
+    """Devolve ao SO a memória liberada pela geração (glibc segura blocos grandes → RSS não cai sozinho)."""
+    gc.collect()
+    try:
+        ctypes.CDLL("libc.so.6").malloc_trim(0)
+    except Exception:  # noqa: BLE001
+        pass
+
+
+async def recover_orphans():
+    """Startup: jobs 'queued/running' de um processo que morreu (OOM/restart) viram erro explícito em vez de polling eterno."""
+    try:
+        cutoff = time.time() - STALE_SECONDS
+        r = await _db.pdf_jobs.update_many(
+            {"status": {"$in": ["queued", "running"]}, "heartbeat": {"$lt": cutoff}},
+            {"$set": {"status": "error", "message": "Falha ao gerar o PDF", "finished_at": time.time(),
+                      "error": "Geração interrompida (o servidor reiniciou durante o processamento). Gere o PDF novamente."}})
+        if r.modified_count:
+            logger.warning(f"pdf_jobs: {r.modified_count} geração(ões) órfã(s) marcadas como erro")
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"pdf_jobs recover: {e}")
 
 
 def build_router(get_current_user):
