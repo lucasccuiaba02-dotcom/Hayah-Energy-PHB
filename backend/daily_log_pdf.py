@@ -174,11 +174,10 @@ def build_daily_log_pdf(project: dict, checklist: dict, photos: list, notes: str
 
         def _photo_cell(ph):
             data_url = ph.get("data_url") or ""
-            if not data_url.startswith("data:image"):
+            if not ph.get("bytes") and not data_url.startswith("data:image"):
                 return None
             try:
-                b64 = data_url.split(",", 1)[1]
-                img_bytes = base64.b64decode(b64)
+                img_bytes = ph["bytes"] if ph.get("bytes") else base64.b64decode(data_url.split(",", 1)[1])
                 img = Image(io.BytesIO(img_bytes))
                 img._restrictSize(88 * mm, 70 * mm)
                 point = (ph.get("point") or "").strip()

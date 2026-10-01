@@ -30,6 +30,7 @@ import {
   Gauge,
   FileSignature,
   Smartphone,
+  Ruler,
 } from 'lucide-react';
 
 const navItems = [
@@ -43,6 +44,7 @@ const navItems = [
   { to: '/faturamento', icon: DollarSign, label: 'Faturamento', testid: 'nav-faturamento', perm: 'analise' },
   { to: '/avanco', icon: Gauge, label: 'Avanço Físico', testid: 'nav-avanco', perm: 'avanco' },
   { to: '/orcamentos', icon: FileSignature, label: 'Orçamentos', testid: 'nav-orcamentos', perm: 'orcamentos' },
+  { to: '/medicao', icon: Ruler, label: 'Medição M.O.', testid: 'nav-medicao', perm: 'medicao' },
   { to: '/geolocalizacao', icon: Map, label: 'Geolocalização', testid: 'nav-geolocalizacao', perm: 'geolocalizacao' },
   { to: '/materiais', icon: Package, label: 'Materiais', testid: 'nav-materiais', perm: 'materiais' },
   { to: '/analise', icon: BarChart3, label: 'Análise', testid: 'nav-analise', perm: 'analise' },

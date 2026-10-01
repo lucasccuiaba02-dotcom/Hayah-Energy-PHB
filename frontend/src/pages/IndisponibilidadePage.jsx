@@ -10,25 +10,13 @@ import {
   PieChart, Pie, LineChart, Line, Legend,
 } from 'recharts';
 import { AppLayout } from '../components/AppLayout';
-import { UNAVAILABILITY_REASONS, todayISO } from '../lib/constants';
+import { UNAVAILABILITY_REASONS, todayISO, UNAV_REASON_COLOR, OP_COLOR_LEGEND, teamDayCost } from '../lib/constants';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
 
-// Custo/dia por equipe indisponível (8h × R$ 100/h + veículo). Ajustável.
-const COST_PER_DAY_UNAVAILABLE = 800;
-
-const REASON_COLOR = {
-  frota: '#FF5E00',
-  chuva: '#00F0FF',
-  temporal: '#B4009E',
-  seguranca: '#FF003C',
-  acesso: '#E0FF00',
-  ferias: '#39FF14',
-  treinamento: '#00A050',
-  manutencao_veiculo: '#FFB800',
-  outro: '#94A3B8',
-};
+// Set/2026 · cores operacionais + custo/dia = meta diária da equipe (8h comerciais)
+const REASON_COLOR = UNAV_REASON_COLOR;
 
 const REASON_LABEL = UNAVAILABILITY_REASONS.reduce((acc, r) => { acc[r.value] = r.label; return acc; }, {});
 
@@ -123,6 +111,9 @@ export const IndisponibilidadePage = () => {
     if (filterReason && it.reason !== filterReason) return false;
     return true;
   }), [items, filterStart, filterEnd, filterReason]);
+  const teamById = useMemo(() => Object.fromEntries(teams.map((t) => [t.id, t])), [teams]);
+  const costOf = (it) => teamDayCost(teamById[it.team_id] || teams.find((t) => t.name === it.team_name));
+  const avgDayCost = useMemo(() => (teams.length ? teams.reduce((s, t) => s + teamDayCost(t), 0) / teams.length : teamDayCost(null)), [teams]);
 
   // KPIs
   const kpis = useMemo(() => {
@@ -140,9 +131,10 @@ export const IndisponibilidadePage = () => {
       total_days,
       top_reason: topReason ? { key: topReason, label: REASON_LABEL[topReason] || topReason, count: byReason[topReason] } : null,
       top_team: topTeam ? { name: topTeam, count: byTeam[topTeam] } : null,
-      cost_estimate: total_days * COST_PER_DAY_UNAVAILABLE,
+      cost_estimate: filtered.reduce((s, it) => s + costOf(it), 0),
     };
-  }, [filtered]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filtered, teamById]);
 
   // Chart data: barras por motivo
   const byReasonData = useMemo(() => {
@@ -162,7 +154,7 @@ export const IndisponibilidadePage = () => {
       const t = it.team_name || '—';
       g[t] = (g[t] || 0) + 1;
     });
-    const colors = ['#00F0FF', '#39FF14', '#E0FF00', '#FF5E00', '#FF003C', '#B4009E', '#FFB800', '#00A050'];
+    const colors = ['#3B82F6', '#39FF14', '#FF5E00', '#FF003C', '#A855F7', '#00F0FF', '#E0FF00', '#94A3B8'];
     return Object.keys(g).map((k, i) => ({ name: k, value: g[k], color: colors[i % colors.length] }));
   }, [filtered]);
 
@@ -179,8 +171,12 @@ export const IndisponibilidadePage = () => {
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
         <KpiCard testid="indisp-kpi-total" icon={CalendarX} label="Total dias parados" value={fmtBR(kpis.total_days)} hint="período filtrado" color="#FF5E00" />
         <KpiCard testid="indisp-kpi-motivo" icon={AlertCircle} label="Top motivo" value={kpis.top_reason ? kpis.top_reason.label : '—'} hint={kpis.top_reason ? `${kpis.top_reason.count} dias` : 'sem dados'} color="#FF003C" />
-        <KpiCard testid="indisp-kpi-equipe" icon={Users} label="Top equipe afetada" value={kpis.top_team ? kpis.top_team.name : '—'} hint={kpis.top_team ? `${kpis.top_team.count} dias` : 'sem dados'} color="#00F0FF" />
-        <KpiCard testid="indisp-kpi-custo" icon={DollarSign} label="Custo estimado" value={fmtCurrency(kpis.cost_estimate)} hint={`${fmtCurrency(COST_PER_DAY_UNAVAILABLE)}/dia`} color="#E0FF00" />
+        <KpiCard testid="indisp-kpi-equipe" icon={Users} label="Top equipe afetada" value={kpis.top_team ? kpis.top_team.name : '—'} hint={kpis.top_team ? `${kpis.top_team.count} dias` : 'sem dados'} color="#3B82F6" />
+        <KpiCard testid="indisp-kpi-custo" icon={DollarSign} label="Custo estimado" value={fmtCurrency(kpis.cost_estimate)} hint={`meta diária da equipe (média ${fmtCurrency(avgDayCost)}/dia)`} color="#E0FF00" />
+      </div>
+      <div data-testid="indisp-color-legend" className="flex flex-wrap items-center gap-3 mb-4 text-[10px] text-zinc-400">
+        <span className="tracking-[0.2em] uppercase font-bold text-zinc-500">Cores:</span>
+        {OP_COLOR_LEGEND.map((l) => <span key={l.label} className="inline-flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm" style={{ background: l.color }} /> {l.label}</span>)}
       </div>
 
       {/* Form de registro */}
@@ -278,7 +274,7 @@ export const IndisponibilidadePage = () => {
                 <XAxis dataKey="data" stroke="#71717a" style={{ fontSize: '11px' }} />
                 <YAxis stroke="#71717a" style={{ fontSize: '11px' }} />
                 <Tooltip content={<CustomTooltip />} />
-                <Line type="monotone" dataKey="dias" name="Ocorrências" stroke="#FF5E00" strokeWidth={2} dot={{ fill: '#FF5E00', r: 3 }} />
+                <Line type="monotone" dataKey="dias" name="Ocorrências" stroke="#FF003C" strokeWidth={2} dot={{ fill: '#FF003C', r: 3 }} />
               </LineChart>
             </ResponsiveContainer>
           )}
@@ -304,6 +300,7 @@ export const IndisponibilidadePage = () => {
                   {REASON_LABEL[it.reason] || it.reason}
                 </span>
                 {it.notes && <span className="text-[11px] text-zinc-500 italic">{it.notes}</span>}
+                <span className="font-mono text-[11px] text-[#E0FF00]" data-testid={`unav-cost-${it.id}`}>{fmtCurrency(costOf(it))}</span>
                 <button data-testid={`unav-del-${it.id}`} onClick={() => remove(it.id)} className="ml-auto w-8 h-8 rounded-full bg-white/5 border border-white/10 text-zinc-400 hover:text-[#FF003C] flex items-center justify-center">
                   <X className="w-3 h-3" />
                 </button>

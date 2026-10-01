@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
 import { toast } from 'sonner';
 import { FileText, Package, Upload, Download, Trash2 } from 'lucide-react';
+import { openAttachment } from '../lib/files';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -71,18 +72,7 @@ export const ProjectAttachmentsSection = ({ project }) => {
     } catch { toast.error('Erro ao remover'); }
   };
 
-  const openAtt = async (att) => {
-    try {
-      const token = localStorage.getItem('token');
-      const res = await axios.get(`${API}/projects/${project.id}/attachments/${att.id}`, {
-        responseType: 'blob',
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      const url = URL.createObjectURL(res.data);
-      window.open(url, '_blank');
-      setTimeout(() => URL.revokeObjectURL(url), 30000);
-    } catch { toast.error('Erro ao abrir arquivo'); }
-  };
+  const openAtt = (att) => openAttachment(project.id, att);
 
   const importCsv = async (file) => {
     if (!file) return;

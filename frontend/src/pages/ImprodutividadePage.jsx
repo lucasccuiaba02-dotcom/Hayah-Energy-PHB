@@ -10,25 +10,13 @@ import {
   PieChart, Pie, LineChart, Line, Legend,
 } from 'recharts';
 import { AppLayout } from '../components/AppLayout';
-import { IMPRODUTIVIDADE_REASONS, IMPRODUTIVIDADE_REASON_LABEL, todayISO } from '../lib/constants';
+import { IMPRODUTIVIDADE_REASONS, IMPRODUTIVIDADE_REASON_LABEL, todayISO, IMPROD_REASON_COLOR, OP_COLOR_LEGEND, teamHourCost } from '../lib/constants';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
 
-// R$ 100/hora (equipe + veículo) — ajustável quando integrar RH
-const COST_PER_HOUR_LOST = 100;
-
-const REASON_COLOR = {
-  chuva: '#00F0FF',
-  falta_material: '#FF5E00',
-  falta_equipe: '#FF003C',
-  quebra_equipamento: '#B4009E',
-  espera_desligamento: '#E0FF00',
-  acesso_bloqueado: '#FFB800',
-  acidente: '#FF003C',
-  retrabalho: '#94A3B8',
-  outro: '#94A3B8',
-};
+// Set/2026 · cores operacionais + custo/hora = meta diária da equipe ÷ 8h (jornada comercial)
+const REASON_COLOR = IMPROD_REASON_COLOR;
 
 const fmtBR = (n) => Number(n || 0).toLocaleString('pt-BR', { maximumFractionDigits: 1 });
 const fmtCurrency = (n) => `R$ ${Number(n || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -121,6 +109,9 @@ export const ImprodutividadePage = () => {
 
   const filtered = useMemo(() => items.filter((it) => !filterReason || it.reason === filterReason), [items, filterReason]);
   const totalHours = useMemo(() => filtered.reduce((s, i) => s + (i.hours_lost || 0), 0), [filtered]);
+  const teamById = useMemo(() => Object.fromEntries(teams.map((t) => [t.id, t])), [teams]);
+  const costOf = (it) => (it.hours_lost || 0) * teamHourCost(teamById[it.team_id] || teams.find((t) => t.name === it.team_name));
+  const avgHourCost = useMemo(() => (teams.length ? teams.reduce((s, t) => s + teamHourCost(t), 0) / teams.length : teamHourCost(null)), [teams]);
 
   // KPIs
   const kpis = useMemo(() => {
@@ -138,9 +129,10 @@ export const ImprodutividadePage = () => {
       total_hours,
       top_reason: topReason ? { key: topReason, label: IMPRODUTIVIDADE_REASON_LABEL[topReason] || topReason, hours: byReason[topReason] } : null,
       top_team: topTeam ? { name: topTeam, hours: byTeam[topTeam] } : null,
-      cost_estimate: total_hours * COST_PER_HOUR_LOST,
+      cost_estimate: filtered.reduce((s, it) => s + costOf(it), 0),
     };
-  }, [filtered, totalHours]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filtered, totalHours, teamById]);
 
   const byReasonData = useMemo(() => {
     const g = {};
@@ -158,7 +150,7 @@ export const ImprodutividadePage = () => {
       const t = it.team_name || '—';
       g[t] = (g[t] || 0) + (it.hours_lost || 0);
     });
-    const colors = ['#00F0FF', '#39FF14', '#E0FF00', '#FF5E00', '#FF003C', '#B4009E', '#FFB800', '#00A050'];
+    const colors = ['#3B82F6', '#39FF14', '#FF5E00', '#FF003C', '#A855F7', '#00F0FF', '#E0FF00', '#94A3B8'];
     return Object.keys(g).map((k, i) => ({ name: k, value: parseFloat(g[k].toFixed(1)), color: colors[i % colors.length] }));
   }, [filtered]);
 
@@ -174,8 +166,12 @@ export const ImprodutividadePage = () => {
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
         <KpiCard testid="improd-kpi-total" icon={Clock} label="Total horas perdidas" value={`${fmtBR(kpis.total_hours)}h`} hint={`${filtered.length} ocorrências`} color="#FF5E00" />
         <KpiCard testid="improd-kpi-motivo" icon={AlertCircle} label="Top motivo" value={kpis.top_reason ? kpis.top_reason.label : '—'} hint={kpis.top_reason ? `${fmtBR(kpis.top_reason.hours)}h` : 'sem dados'} color="#FF003C" />
-        <KpiCard testid="improd-kpi-equipe" icon={Users} label="Top equipe afetada" value={kpis.top_team ? kpis.top_team.name : '—'} hint={kpis.top_team ? `${fmtBR(kpis.top_team.hours)}h` : 'sem dados'} color="#00F0FF" />
-        <KpiCard testid="improd-kpi-custo" icon={DollarSign} label="Custo estimado" value={fmtCurrency(kpis.cost_estimate)} hint={`${fmtCurrency(COST_PER_HOUR_LOST)}/h`} color="#E0FF00" />
+        <KpiCard testid="improd-kpi-equipe" icon={Users} label="Top equipe afetada" value={kpis.top_team ? kpis.top_team.name : '—'} hint={kpis.top_team ? `${fmtBR(kpis.top_team.hours)}h` : 'sem dados'} color="#3B82F6" />
+        <KpiCard testid="improd-kpi-custo" icon={DollarSign} label="Custo estimado" value={fmtCurrency(kpis.cost_estimate)} hint={`meta diária da equipe ÷ 8h (média ${fmtCurrency(avgHourCost)}/h)`} color="#E0FF00" />
+      </div>
+      <div data-testid="improd-color-legend" className="flex flex-wrap items-center gap-3 mb-4 text-[10px] text-zinc-400">
+        <span className="tracking-[0.2em] uppercase font-bold text-zinc-500">Cores:</span>
+        {OP_COLOR_LEGEND.map((l) => <span key={l.label} className="inline-flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm" style={{ background: l.color }} /> {l.label}</span>)}
       </div>
 
       {/* Form */}
@@ -272,7 +268,7 @@ export const ImprodutividadePage = () => {
                 <XAxis dataKey="data" stroke="#71717a" style={{ fontSize: '11px' }} />
                 <YAxis stroke="#71717a" style={{ fontSize: '11px' }} />
                 <Tooltip content={<CustomTooltip />} />
-                <Line type="monotone" dataKey="horas" name="Horas perdidas" stroke="#FF5E00" strokeWidth={2} dot={{ fill: '#FF5E00', r: 3 }} />
+                <Line type="monotone" dataKey="horas" name="Horas perdidas" stroke="#FF003C" strokeWidth={2} dot={{ fill: '#FF003C', r: 3 }} />
               </LineChart>
             </ResponsiveContainer>
           )}
@@ -308,7 +304,7 @@ export const ImprodutividadePage = () => {
                     </span>
                   </td>
                   <td className="px-4 py-2 text-right font-mono text-sm text-white">{(it.hours_lost || 0).toFixed(1)}h</td>
-                  <td className="px-4 py-2 text-right font-mono text-[11px] text-[#E0FF00]">{fmtCurrency((it.hours_lost || 0) * COST_PER_HOUR_LOST)}</td>
+                  <td className="px-4 py-2 text-right font-mono text-[11px] text-[#E0FF00]" data-testid={`improd-cost-${it.id}`}>{fmtCurrency(costOf(it))}</td>
                   <td className="px-4 py-2 text-zinc-400 text-xs">{it.notes || '—'}</td>
                   <td className="px-4 py-2 text-right">
                     <button data-testid={`improd-delete-${it.id}`} onClick={() => remove(it.id)} className="w-7 h-7 rounded-md bg-white/5 hover:bg-[#FF003C]/20 flex items-center justify-center text-zinc-500 hover:text-[#FF003C]">

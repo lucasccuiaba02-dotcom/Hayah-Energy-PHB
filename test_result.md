@@ -132,3 +132,42 @@ frontend:
 agent_communication:
   - agent: "main"
     message: "Iter36: backend Sucata validado via curl (create/entrada/saída/guard 400/CSV). Frontend SucataPanel criado e renderizando. PDF Avanço com 22 fotos → 200 em ~2.5s. Pedir teste E2E de tudo."
+
+## Iteração 37 (Set/2026) — 11 melhorias (WhatsApp tipo, cores/custos Improd/Indisp, coluna Devolvido, PDF jobs 500 fotos, Documentos gerados, aba Campo, download mobile/DWG, Medição M.O.)
+backend:
+  - task: "pdf_jobs.py: POST /operacional/daily-log/{id}/job, GET /operacional/daily-log/{id}/photos, POST /projects/{id}/avanco/pdf/job, GET /pdf-jobs/{id}, GET /pdf-jobs/{id}/download"
+    implemented: true
+    working: "NA"
+    needs_retesting: true
+  - task: "GET /projects/{id}/documentos (anexos + APRs + requisições + fotos) e GET /projects/{id}/campo/historico"
+    implemented: true
+    working: "NA"
+    needs_retesting: true
+  - task: "Download anexos: ?download=1, DWG attachment com nome original, ?auth=token"
+    implemented: true
+    working: "NA"
+    needs_retesting: true
+  - task: "medicao.py: catálogo CRUD+import, /medicao/projects, /projects/{id}/medicao (orcado → labor_cost, realizado → actual_value)"
+    implemented: true
+    working: "NA"
+    needs_retesting: true
+  - task: "manager-kpis losses por meta da equipe (÷8h)"
+    implemented: true
+    working: "NA"
+    needs_retesting: true
+frontend:
+  - task: "MedicaoPage (/medicao) + LaborCatalogModal + LaborLinesEditor; nav-medicao"
+    implemented: true
+    working: "NA"
+    needs_retesting: true
+  - task: "ProjectDetailPage: aba Campo (CampoHistoryTab), DiarioPdfModal (job), AvancoPdfModal (job), download anexos via lib/files"
+    implemented: true
+    working: "NA"
+    needs_retesting: true
+  - task: "DocumentosPage: APRs/requisições geradas + fotos operacionais + ErrorBoundary; Improd/Indisp cores operacionais + custos por equipe; coluna Devolvido; WhatsApp vencidas com tipo; rota /obras/:id; Carteira link campo"
+    implemented: true
+    working: "NA"
+    needs_retesting: true
+agent_communication:
+  - agent: "main"
+    message: "Iter37: smoke screenshots OK em /medicao, /obras/:id?tab=campo, /documentos, /improdutividade. Job de diário com 22 fotos testado via curl (done em ~4s, 1.8MB). DWG upload/download: bytes idênticos + Content-Disposition attachment."

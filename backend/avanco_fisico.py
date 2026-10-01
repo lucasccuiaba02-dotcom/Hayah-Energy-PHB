@@ -139,7 +139,7 @@ def _materials_summary(p, balance=None):
     }
 
 
-def _shrink_photo(data: bytes, max_px: int = 1000, quality: int = 78) -> bytes:
+def _shrink_photo(data: bytes, max_px: int = 1000, quality: int = 78) -> bytes:  # noqa: D401
     """Set/2026 · reduz a foto antes de embutir no PDF (fotos de celular de 3-8 MB estouravam tempo/tamanho)."""
     from PIL import Image as PILImage, ImageOps
     import io
@@ -418,6 +418,49 @@ def build_router(db, get_current_user, require_admin, safe_object_id, today_fn, 
         filename = f"avanco_fisico_{code}_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M')}.pdf"
         return Response(content=pdf, media_type="application/pdf",
                         headers={"Content-Disposition": f'attachment; filename="{filename}"', "X-Photos-Included": str(len(photos)), "X-Photos-Skipped": str(len(chosen) - len(photos))})
+
+    class PdfJobBody(BaseModel):
+        photo_ids: List[str] | None = None  # None → padrão (6 recentes); [] → sem fotos
+
+    @router.post("/projects/{project_id}/avanco/pdf/job")
+    async def project_pdf_job(project_id: str, body: PdfJobBody, current_user: dict = Depends(get_current_user)):
+        """Set/2026 · Mesmo PDF do GET, porém em segundo plano com progresso (obras grandes com centenas de fotos)."""
+        import pdf_jobs as _pdf_jobs
+        p = await _get_project(project_id, current_user)
+        detail = await _detail_payload(p, current_user)
+        catalog = _photo_catalog(p)
+        chosen = catalog[:6] if body.photo_ids is None else [c for c in catalog if c["id"] in set(body.photo_ids)]
+        chosen = chosen[:500]
+        total = len(chosen)
+
+        async def runner(progress):
+            progress(0, total, f"Preparando {total} foto(s)…")
+            sem = asyncio.Semaphore(8)
+            done = {"n": 0}
+
+            async def _fetch(i, c):
+                async with sem:
+                    try:
+                        if c["source"] == "photo":
+                            data = (await storage_get(c["storage_path"]))[0] if c.get("storage_path") else base64.b64decode(c["thumb"].split(",", 1)[1])
+                        else:
+                            att = next(a for a in (p.get("attachments") or []) if a.get("id") == c["id"])
+                            data, _ = await storage_get(att["storage_path"])
+                        return {"bytes": await asyncio.to_thread(_shrink_photo, data, 900, 72), "caption": c["caption"], "order": i}
+                    except Exception as e:  # noqa: BLE001
+                        logging.getLogger(__name__).warning(f"avanco pdf job: foto {c.get('id')} ignorada: {e}")
+                        return None
+                    finally:
+                        done["n"] += 1
+                        progress(done["n"], total, f"Processando fotos {done['n']}/{total}…")
+
+            results = await asyncio.gather(*[_fetch(i, c) for i, c in enumerate(chosen)])
+            photos = sorted([r for r in results if r], key=lambda r: r["order"])
+            progress(total, total, "Montando o PDF…")
+            return await asyncio.to_thread(build_avanco_pdf, p, detail, photos=photos)
+
+        code = "".join(ch if ch.isalnum() else "_" for ch in (p.get("project_code") or project_id))[:24]
+        return _pdf_jobs.start_job(current_user["_id"], "avanco", f"avanco_fisico_{code}_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M')}.pdf", runner)
 
     @router.post("/projects/{project_id}/avanco/entries")
     async def add_entry(project_id: str, body: EntryBody, current_user: dict = Depends(get_current_user)):

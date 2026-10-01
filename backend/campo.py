@@ -148,6 +148,63 @@ class CheckinBody(BaseModel):
 def build_router(db, get_current_user, safe_object_id, build_project_response, photo_public):
     router = APIRouter(prefix="/api")
 
+    @router.get("/projects/{project_id}/campo/historico")
+    async def campo_historico(project_id: str, current_user: dict = Depends(get_current_user)):
+        """Set/2026 · Tudo que as equipes de campo registraram na obra, agrupado por DATA (sem depender da programação):
+        check-ins, fotos, APRs, requisições/recebimento de material, devoluções, lançamentos de avanço e retornos de programação."""
+        p = await db.projects.find_one({"_id": safe_object_id(project_id), "user_id": current_user["_id"]})
+        if not p:
+            raise HTTPException(status_code=404, detail="Obra não encontrada")
+        pid = str(p["_id"])
+        days: Dict[str, dict] = {}
+
+        def day(d: str) -> dict:
+            d = (d or "")[:10] or "sem-data"
+            if d not in days:
+                days[d] = {"date": d, "checkins": [], "photos": [], "aprs": [], "requisitions": [], "receipts": [], "returns": [], "progress": [], "daily_returns": [], "count": 0}
+            days[d]["count"] += 1
+            return days[d]
+
+        async for c in db.checkins.find({"user_id": current_user["_id"], "project_id": pid}).sort("at", 1):
+            day(c.get("date") or c.get("at")).get("checkins").append({"by_name": c.get("by_name", ""), "by_email": c.get("by_email", ""), "shift": c.get("shift", ""),
+                                                                       "status": c.get("status", ""), "at": c.get("at", ""), "note": c.get("note", ""), "lat": c.get("lat"), "lng": c.get("lng")})
+        for ph in (p.get("photos") or []):
+            pub = photo_public(pid, ph)
+            if (pub.get("data_url") or "").startswith("data:image") and len(pub["data_url"]) > 300000:
+                pub["data_url"] = f"/api/operacional/photos/{pid}/{ph.get('id')}/file"
+            day(ph.get("uploaded_at")).get("photos").append({"id": ph.get("id"), "point": ph.get("point", ""), "label": ph.get("label", ""), "uploaded_at": ph.get("uploaded_at", ""),
+                                                             "uploaded_by": ph.get("uploaded_by", ""), "url": pub.get("data_url", "")})
+        async for a in db.aprs.find({"project_id": pid, "user_id": current_user["_id"]}).sort("created_at", 1):
+            sup = a.get("supervisor") or {}
+            day(a.get("date") or a.get("created_at")).get("aprs").append({"id": str(a["_id"]), "line_type": a.get("line_type", "morta"), "os_number": a.get("os_number", ""),
+                                                                           "supervisor": sup.get("nome") or sup.get("name", ""), "signed": bool(sup.get("assinatura")),
+                                                                           "created_at": a.get("created_at", ""), "pdf_url": f"/api/aprs/{str(a['_id'])}/pdf"})
+        for r in (p.get("material_requisitions") or []):
+            if r.get("is_resend"):
+                continue
+            day(r.get("created_at")).get("requisitions").append({"id": r.get("id"), "created_by": r.get("created_by", ""), "requisition_type": r.get("requisition_type", "total"),
+                                                                  "seq": r.get("seq"), "items_count": len(r.get("items") or r.get("materials_snapshot") or []),
+                                                                  "warehouse_status": (r.get("warehouse_response") or {}).get("status", ""), "pdf_url": f"/api/projects/{pid}/requisitions/{r.get('id')}/pdf"})
+            rc = r.get("receipt") or {}
+            if rc.get("received_at"):
+                day(rc["received_at"]).get("receipts").append({"requisition_id": r.get("id"), "received_by": rc.get("received_by", ""), "received_at": rc.get("received_at", ""),
+                                                               "notes": rc.get("notes", ""), "photo_url": f"/api/projects/{pid}/requisitions/{r.get('id')}/receipt-photo" if rc.get("photo_path") else ""})
+        for ret in (p.get("material_returns") or []):
+            day(ret.get("date") or ret.get("created_at")).get("returns").append({"id": ret.get("id"), "returned_by": ret.get("returned_by", ""), "reason": ret.get("reason", ""),
+                                                                                 "total_qty": ret.get("total_qty", 0), "items": [{"item": i.get("item"), "qty": i.get("qty"), "unit": i.get("unit")} for i in (ret.get("items") or [])]})
+        for e in (p.get("progress_entries") or []):
+            day(e.get("date")).get("progress").append({"item_key": e.get("item_key", ""), "qty": e.get("qty", 0), "notes": e.get("notes", ""), "registered_by": e.get("registered_by", "")})
+        for dr in (p.get("daily_returns") or []):
+            day(dr.get("date")).get("daily_returns").append({"executed": bool(dr.get("executed")), "reason": dr.get("reason", ""), "notes": dr.get("notes", ""), "by": dr.get("registered_by") or dr.get("by", "")})
+        ordered = sorted(days.values(), key=lambda d: d["date"], reverse=True)
+        cl = p.get("checklist") or {}
+        totals = {k: sum(len(d[k]) for d in ordered) for k in ("checkins", "photos", "aprs", "requisitions", "receipts", "returns", "progress", "daily_returns")}
+        return {"project_id": pid, "project_code": p.get("project_code", ""), "name": p.get("name", ""), "days": ordered, "totals": totals,
+                "checklist": {"team_confirmed": bool(cl.get("team_confirmed")), "team": cl.get("team", ""), "turno": cl.get("turno", ""), "team_confirmed_by": cl.get("team_confirmed_by", ""),
+                              "team_confirmed_at": cl.get("team_confirmed_at", ""), "material_confirmed": bool(cl.get("material_confirmed")), "shutdown_confirmed": bool(cl.get("shutdown_confirmed")),
+                              "hotline_confirmed": bool(cl.get("hotline_confirmed")), "notes": cl.get("notes", "")},
+                "scheduled_dates": sorted({(e.get("date") or "")[:10] for e in (p.get("schedule_entries") or []) if e.get("date")})}
+
     @router.get("/campo/hoje")
     async def campo_hoje(date: str = "", current_user: dict = Depends(get_current_user)):
         today = (date or today_str())[:10]

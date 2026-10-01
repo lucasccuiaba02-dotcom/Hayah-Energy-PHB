@@ -1,3 +1,5 @@
+import { PROJECT_TYPE_LABEL } from './constants';
+
 const digits = (p) => String(p || '').replace(/\D/g, '');
 
 export const WAREHOUSE_PHONE_KEY = 'hayah_warehouse_phone';
@@ -16,7 +18,10 @@ const appUrl = () => window.location.origin;
 export function vencidasText(items) {
   const total = items.reduce((s, p) => s + (p.programmed_value || 0), 0);
   const lines = [`*HAYAH ENERGY · ⚠️ ${items.length} obra(s) vencida(s)*`, ''];
-  items.slice(0, 15).forEach((p) => lines.push(`• *${p.project_code || '—'}* ${(p.name || '').slice(0, 40)} — venceu ${brDate(p.expiry_date)}${p.dias_vencida ? ` (há ${p.dias_vencida}d)` : ''} · ${brl(p.programmed_value)}`));
+  items.slice(0, 15).forEach((p) => {
+    const tipo = PROJECT_TYPE_LABEL[p.project_type] || p.project_type || '';
+    lines.push(`• *${p.project_code || '—'}* ${(p.name || '').slice(0, 40)}${tipo ? ` [${tipo}]` : ''} — venceu ${brDate(p.expiry_date)}${p.dias_vencida ? ` (há ${p.dias_vencida}d)` : ''} · ${brl(p.programmed_value)}`);
+  });
   if (items.length > 15) lines.push(`… e mais ${items.length - 15} obra(s)`);
   lines.push('', `Total: *${brl(total)}*`, '', `Abrir: ${appUrl()}/carteira?filter=vencidas`);
   return lines.join('\n');

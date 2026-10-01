@@ -131,14 +131,41 @@ export const PERMISSION_TABS = [
   { value: 'operacional', label: 'Operacional' },
   { value: 'geolocalizacao', label: 'Geolocalização' },
   { value: 'materiais', label: 'Materiais' },
-  { value: 'analise', label: 'Análise' },
+  { value: 'analise', label: 'Análise / Faturamento' },
   { value: 'relatorios', label: 'Relatórios' },
   { value: 'equipes', label: 'Equipes' },
   { value: 'improdutividade', label: 'Improdutividade' },
   { value: 'avanco', label: 'Avanço Físico' },
   { value: 'orcamentos', label: 'Orçamentos' },
+  { value: 'medicao', label: 'Medição M.O.' },
+  { value: 'estoque', label: 'Estoque / Equipamentos' },
+  { value: 'documentos', label: 'Documentos' },
+  { value: 'settings', label: 'Configurações' },
   { value: 'admin', label: 'Admin' },
 ];
+
+// Set/2026 · Cores operacionais (Improdutividade / Indisponibilidade): vermelho = segurança/pessoas, laranja = frota/material/acesso,
+// azul = clima, verde = planejado, cinza = outros
+export const OP_COLORS = { red: '#FF003C', orange: '#FF5E00', blue: '#3B82F6', green: '#39FF14', gray: '#94A3B8' };
+export const IMPROD_REASON_COLOR = {
+  chuva: OP_COLORS.blue, falta_material: OP_COLORS.orange, falta_equipe: OP_COLORS.red, quebra_equipamento: OP_COLORS.orange,
+  espera_desligamento: OP_COLORS.orange, acesso_bloqueado: OP_COLORS.orange, acidente: OP_COLORS.red, retrabalho: OP_COLORS.gray, outro: OP_COLORS.gray,
+};
+export const UNAV_REASON_COLOR = {
+  frota: OP_COLORS.orange, chuva: OP_COLORS.blue, temporal: OP_COLORS.blue, seguranca: OP_COLORS.red, acesso: OP_COLORS.orange,
+  ferias: OP_COLORS.green, treinamento: OP_COLORS.green, manutencao_veiculo: OP_COLORS.orange, outro: OP_COLORS.gray,
+};
+export const OP_COLOR_LEGEND = [
+  { color: OP_COLORS.red, label: 'Segurança / equipe' },
+  { color: OP_COLORS.orange, label: 'Frota / material / acesso / desligamento' },
+  { color: OP_COLORS.blue, label: 'Clima' },
+  { color: OP_COLORS.green, label: 'Planejado (férias / treinamento)' },
+  { color: OP_COLORS.gray, label: 'Outros' },
+];
+// Jornada comercial de 8h: R$/hora = meta diária da equipe ÷ 8 (default R$ 4.000/dia → R$ 500/h)
+export const TEAM_DAILY_DEFAULT = 4000;
+export const teamDayCost = (team) => Number(team?.daily_target || TEAM_DAILY_DEFAULT);
+export const teamHourCost = (team) => teamDayCost(team) / 8;
 
 export const formatCurrency = (v) => `R$ ${(v || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 // Set/2026 · linha viva por data: se a obra tem hot_line_dates, só nesses dias; legado → flag requires_hot_line

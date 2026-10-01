@@ -32,6 +32,8 @@ from notifications import (resend_credentials as _resend_credentials, notificati
                            notifications_tick as _notifications_tick, build_router as _build_notifications_router)
 import campo as _campo
 from daily_log_pdf import build_daily_log_pdf
+import pdf_jobs as _pdf_jobs
+from avanco_fisico import _shrink_photo
 from route_pdf import build_route_pdf
 from material_requisition_pdf import build_requisition_pdf
 from material_ledger import build_material_ledger, build_material_ledger_pdf, build_material_ledger_xlsx, build_consolidated_xlsx
@@ -189,6 +191,8 @@ async def get_current_user(request: Request) -> dict:
         if auth_header.startswith("Bearer "):
             token = auth_header[7:]
     if not token:
+        token = request.query_params.get("auth") or None  # Set/2026 · links diretos de download (celular / DWG)
+    if not token:
         raise HTTPException(status_code=401, detail="Not authenticated")
     try:
         payload = jwt.decode(token, get_jwt_secret(), algorithms=[JWT_ALGORITHM])
@@ -273,7 +277,7 @@ class UserResponse(BaseModel):
 ALL_PERMISSIONS = [
     "dashboard", "carteira", "programacao", "calendario",
     "operacional", "geolocalizacao", "materiais", "analise",
-    "relatorios", "equipes", "estoque", "faturamento", "documentos", "settings", "admin", "avanco", "orcamentos", "campo",
+    "relatorios", "equipes", "estoque", "faturamento", "documentos", "settings", "admin", "avanco", "orcamentos", "campo", "medicao",
 ]
 
 class TeamCreate(BaseModel):
@@ -2354,12 +2358,14 @@ async def manager_kpis(
     unprod_hours = round(sum(float(d.get("hours_lost") or 0) for d in unprod_docs), 1)
     unavail_days = len(unavail_docs)
 
-    # Custo estimado das perdas — ajustado à meta operacional real
-    # Meta diária por equipe: R$ 4.000/dia (~ R$ 500/h com jornada de 8h)
-    HOUR_COST = 500.0
-    DAY_COST = 4000.0
-    unprod_cost = round(unprod_hours * HOUR_COST, 2)
-    unavail_cost = round(unavail_days * DAY_COST, 2)
+    # Custo estimado das perdas — Set/2026: meta diária DA EQUIPE do registro (jornada comercial de 8h → R$/h = meta ÷ 8)
+    _teams_cost = await db.teams.find({"user_id": current_user["_id"]}, {"daily_target": 1}).to_list(1000)
+    _target_by_team = {str(t["_id"]): float(t.get("daily_target") or 4000.0) for t in _teams_cost}
+    _avg_target = (sum(_target_by_team.values()) / len(_target_by_team)) if _target_by_team else 4000.0
+    HOUR_COST = round(_avg_target / 8.0, 2)
+    DAY_COST = round(_avg_target, 2)
+    unprod_cost = round(sum(float(d.get("hours_lost") or 0) * _target_by_team.get(str(d.get("team_id")), _avg_target) / 8.0 for d in unprod_docs), 2)
+    unavail_cost = round(sum(_target_by_team.get(str(d.get("team_id")), _avg_target) for d in unavail_docs), 2)
 
     # Fev/2026 · Retorno de Programação NÃO executada
     # Obras marcadas como a_reprogramar / cancelado / suspenso no período (start_date dentro do filtro)
@@ -3203,13 +3209,96 @@ async def daily_log_pdf(project_id: str, notes: str = "", current_user: dict = D
                 logger.warning(f"daily-log photo load failed: {e}")
                 continue
         photos.append(ph)
-    pdf_bytes = build_daily_log_pdf(project, checklist, photos, notes)
+    pdf_bytes = await asyncio.to_thread(build_daily_log_pdf, project, checklist, photos, notes)
     filename = f"diario_obra_{(project.get('project_code') or project_id)[:24]}_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M')}.pdf"
     return Response(
         content=pdf_bytes,
         media_type="application/pdf",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
+
+
+class DailyLogJobBody(BaseModel):
+    notes: str = ""
+    date_from: str = ""
+    date_to: str = ""
+    point: str = ""
+    photo_ids: Optional[List[str]] = None
+    max_photos: int = 500
+
+
+@api_router.get("/operacional/daily-log/{project_id}/photos")
+async def daily_log_photo_catalog(project_id: str, current_user: dict = Depends(get_current_user)):
+    """Catálogo leve de fotos da obra (sem binário) para o modal do Diário: datas e pontos disponíveis."""
+    project = await db.projects.find_one({"_id": safe_object_id(project_id), "user_id": current_user["_id"]}, {"photos": 1, "project_code": 1})
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    out = []
+    for ph in (project.get("photos") or []):
+        if not (ph.get("storage_path") or (ph.get("data_url") or "").startswith("data:image")):
+            continue
+        out.append({"id": ph.get("id"), "point": (ph.get("point") or "").strip(), "label": (ph.get("label") or "").upper(), "uploaded_at": ph.get("uploaded_at") or "",
+                    "date": (ph.get("uploaded_at") or "")[:10], "thumb": f"/api/operacional/photos/{project_id}/{ph.get('id')}/file"})
+    out.sort(key=lambda x: x["uploaded_at"], reverse=True)
+    dates = sorted({x["date"] for x in out if x["date"]})
+    points = sorted({x["point"] for x in out if x["point"]}, key=lambda s: (len(s), s))
+    return {"photos": out, "count": len(out), "dates": dates, "points": points}
+
+
+@api_router.post("/operacional/daily-log/{project_id}/job")
+async def daily_log_pdf_job(project_id: str, body: DailyLogJobBody, current_user: dict = Depends(get_current_user)):
+    """Set/2026 · Diário de Obra pesado (até 500 fotos) gerado em segundo plano com progresso."""
+    project = await db.projects.find_one({"_id": safe_object_id(project_id), "user_id": current_user["_id"]})
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    checklist = project.get("checklist", {}) or {}
+    chosen = []
+    wanted = set(body.photo_ids or [])
+    for ph in (project.get("photos") or []):
+        if not (ph.get("storage_path") or (ph.get("data_url") or "").startswith("data:image")):
+            continue
+        d = (ph.get("uploaded_at") or "")[:10]
+        if wanted and ph.get("id") not in wanted:
+            continue
+        if body.date_from and d and d < body.date_from[:10]:
+            continue
+        if body.date_to and d and d > body.date_to[:10]:
+            continue
+        if body.point and (ph.get("point") or "").strip().upper() != body.point.strip().upper():
+            continue
+        chosen.append(ph)
+    chosen = chosen[: max(1, min(int(body.max_photos or 500), 500))]
+    total = len(chosen)
+    notes = body.notes or ""
+
+    async def runner(progress):
+        progress(0, total, f"Preparando {total} foto(s)…")
+        sem = asyncio.Semaphore(8)
+        done = {"n": 0}
+
+        async def _one(ph):
+            async with sem:
+                try:
+                    if ph.get("storage_path"):
+                        data, _ct = await storage_get(ph["storage_path"])
+                    else:
+                        data = base64.b64decode(ph["data_url"].split(",", 1)[1])
+                    small = await asyncio.to_thread(_shrink_photo, data, 900, 72)
+                    return {**ph, "data_url": "", "bytes": small}
+                except Exception as e:  # noqa: BLE001
+                    logger.warning(f"daily-log job photo {ph.get('id')} ignorada: {e}")
+                    return None
+                finally:
+                    done["n"] += 1
+                    progress(done["n"], total, f"Processando fotos {done['n']}/{total}…")
+
+        results = await asyncio.gather(*[_one(ph) for ph in chosen])
+        photos = [r for r in results if r]
+        progress(total, total, "Montando o PDF…")
+        return await asyncio.to_thread(build_daily_log_pdf, project, checklist, photos, notes)
+
+    filename = f"diario_obra_{''.join(ch if ch.isalnum() else '_' for ch in (project.get('project_code') or project_id))[:24]}_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M')}.pdf"
+    return _pdf_jobs.start_job(current_user["_id"], "diario", filename, runner)
 
 # --- Web Push Notifications ---
 class PushSubscribeBody(BaseModel):
@@ -3984,6 +4073,7 @@ async def download_project_attachment(
     project_id: str,
     att_id: str,
     auth: Optional[str] = None,
+    download: int = 0,
     current_user: dict = Depends(get_current_user),
 ):
     project = await db.projects.find_one({"_id": safe_object_id(project_id), "user_id": current_user["_id"]})
@@ -3994,11 +4084,72 @@ async def download_project_attachment(
     if not att:
         raise HTTPException(status_code=404, detail="Anexo não encontrado")
     data, ct = await storage_get(att["storage_path"])
+    fname = att.get("filename") or "arquivo"
+    ext = fname.rsplit(".", 1)[-1].lower() if "." in fname else ""
+    # Set/2026 · DWG/DXF saem sempre como download binário com o nome original (abrir "inline" corrompia a extensão/versão no AutoCAD)
+    binary_ext = {"dwg", "dxf", "ifc", "dwf", "zip", "rar", "xlsx", "xls", "docx", "doc", "kmz", "kml"}
+    media = att.get("content_type") or ct or "application/octet-stream"
+    if ext in binary_ext:
+        media = {"dwg": "application/acad", "dxf": "application/dxf"}.get(ext, media if media != "application/octet-stream" else "application/octet-stream")
+    disposition = "attachment" if (download or ext in binary_ext) else "inline"
+    safe_name = "".join(ch if ch.isalnum() or ch in "._- ()" else "_" for ch in fname)
     return Response(
         content=data,
-        media_type=att.get("content_type") or ct,
-        headers={"Content-Disposition": f'inline; filename="{att.get("filename","arquivo.pdf")}"'},
+        media_type=media,
+        headers={"Content-Disposition": f'{disposition}; filename="{safe_name}"', "Content-Length": str(len(data)), "Cache-Control": "private, max-age=0"},
     )
+
+
+@api_router.get("/projects/{project_id}/documentos")
+async def project_documentos(project_id: str, current_user: dict = Depends(get_current_user)):
+    """Set/2026 · Central de documentos da obra: anexos + documentos GERADOS pelo sistema (APRs das equipes, fotos operacionais,
+    requisições de almoxarifado em PDF, recebimentos) — tudo com URL para abrir/baixar."""
+    project = await db.projects.find_one({"_id": safe_object_id(project_id), "user_id": current_user["_id"]})
+    if not project:
+        raise HTTPException(status_code=404, detail="Obra não encontrada")
+    pid = str(project["_id"])
+    aprs = []
+    async for a in db.aprs.find({"project_id": pid, "user_id": current_user["_id"]}).sort("created_at", -1):
+        sup = a.get("supervisor") or {}
+        execs = a.get("executores") or a.get("executors") or []
+        aprs.append({"id": str(a["_id"]), "date": a.get("date") or (a.get("created_at") or "")[:10], "line_type": a.get("line_type", "morta"),
+                     "os_number": a.get("os_number", ""), "task": a.get("task") or a.get("tarefa", ""), "supervisor": sup.get("nome") or sup.get("name", ""),
+                     "signed": bool(sup.get("assinatura")), "executors": len(execs), "created_at": a.get("created_at", ""),
+                     "pdf_url": f"/api/aprs/{str(a['_id'])}/pdf"})
+    reqs = []
+    for r in (project.get("material_requisitions") or []):
+        if r.get("is_resend"):
+            continue
+        rc = r.get("receipt") or {}
+        reqs.append({"id": r.get("id"), "created_at": r.get("created_at", ""), "created_by": r.get("created_by", ""), "requisition_type": r.get("requisition_type", "total"),
+                     "seq": r.get("seq"), "items_count": len(r.get("items") or r.get("materials_snapshot") or []), "email_status": r.get("email_status", ""),
+                     "warehouse_status": (r.get("warehouse_response") or {}).get("status", ""), "received_at": rc.get("received_at", ""), "received_by": rc.get("received_by", ""),
+                     "receipt_photo_url": f"/api/projects/{pid}/requisitions/{r.get('id')}/receipt-photo" if rc.get("photo_path") else "",
+                     "pdf_url": f"/api/projects/{pid}/requisitions/{r.get('id')}/pdf"})
+    photos = [_photo_public(pid, ph) for ph in sorted((project.get("photos") or []), key=lambda x: x.get("uploaded_at", ""), reverse=True)]
+    for ph in photos:
+        ph.pop("data_url_full", None)
+        if (ph.get("data_url") or "").startswith("data:image") and len(ph["data_url"]) > 300000:
+            ph["data_url"] = f"/api/operacional/photos/{pid}/{ph.get('id')}/file"
+    atts = [a for a in (project.get("attachments") or []) if not a.get("is_deleted")]
+    for a in atts:
+        a["url"] = f"/api/projects/{pid}/attachments/{a.get('id')}"
+    return {"project_id": pid, "attachments": atts, "aprs": aprs, "requisitions": reqs, "photos": photos,
+            "materials_count": len(project.get("materials_list") or []), "returns_count": len(project.get("material_returns") or []),
+            "counts": {"attachments": len(atts), "aprs": len(aprs), "requisitions": len(reqs), "photos": len(photos)}}
+
+
+@api_router.get("/projects/{project_id}/requisitions/{req_id}/receipt-photo")
+async def requisition_receipt_photo(project_id: str, req_id: str, current_user: dict = Depends(get_current_user)):
+    project = await db.projects.find_one({"_id": safe_object_id(project_id), "user_id": current_user["_id"]}, {"material_requisitions": 1})
+    if not project:
+        raise HTTPException(status_code=404, detail="Obra não encontrada")
+    req = next((r for r in (project.get("material_requisitions") or []) if r.get("id") == req_id), None)
+    path = ((req or {}).get("receipt") or {}).get("photo_path")
+    if not path:
+        raise HTTPException(status_code=404, detail="Sem foto de recebimento")
+    data, ct = await storage_get(path)
+    return Response(content=data, media_type=ct or "image/jpeg", headers={"Cache-Control": "private, max-age=3600"})
 
 
 @api_router.delete("/projects/{project_id}/attachments/{att_id}")
@@ -5932,6 +6083,9 @@ app.include_router(_build_laudo_router(db, get_current_user, safe_object_id, sto
 app.include_router(_campo.build_router(db, get_current_user, safe_object_id, build_project_response, _photo_public))
 import sucata as _sucata
 app.include_router(_sucata.build_router(db, get_current_user, safe_object_id))
+app.include_router(_pdf_jobs.build_router(get_current_user))
+import medicao as _medicao
+app.include_router(_medicao.build_router(db, get_current_user, safe_object_id, build_project_response))
 
 
 async def notifications_tick_job():

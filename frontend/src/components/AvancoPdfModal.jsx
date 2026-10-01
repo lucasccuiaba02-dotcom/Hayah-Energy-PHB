@@ -3,6 +3,7 @@ import axios from 'axios';
 import { toast } from 'sonner';
 import { motion } from 'framer-motion';
 import { X, FileDown, Image as ImageIcon, CheckSquare, Square, Paperclip } from 'lucide-react';
+import { runPdfJob, downloadPdfJob } from '../lib/pdfJobs';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -12,6 +13,7 @@ export const AvancoPdfModal = ({ open, projectId, projectCode, onClose }) => {
   const [selected, setSelected] = useState([]);
   const [loading, setLoading] = useState(false);
   const [generating, setGenerating] = useState(false);
+  const [job, setJob] = useState(null);
 
   useEffect(() => {
     if (!open || !projectId) return;
@@ -26,19 +28,13 @@ export const AvancoPdfModal = ({ open, projectId, projectCode, onClose }) => {
   const toggle = (id) => setSelected((s) => (s.includes(id) ? s.filter((x) => x !== id) : [...s, id]));
 
   const generate = async () => {
-    setGenerating(true);
+    setGenerating(true); setJob(null);
     try {
-      const params = { photo_ids: selected.length ? selected.join(',') : 'none' };
-      const { data } = await axios.get(`${API}/projects/${projectId}/avanco/pdf`, { params, responseType: 'blob' });
-      const url = window.URL.createObjectURL(new Blob([data], { type: 'application/pdf' }));
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `avanco_fisico_${(projectCode || projectId).replace(/[^A-Za-z0-9]/g, '_')}.pdf`;
-      document.body.appendChild(a); a.click(); a.remove();
-      window.URL.revokeObjectURL(url);
-      toast.success(`Relatório gerado com ${selected.length} foto(s)`);
+      const done = await runPdfJob(`${API}/projects/${projectId}/avanco/pdf/job`, { photo_ids: selected }, setJob);
+      downloadPdfJob(done);
+      toast.success(`Relatório gerado com ${selected.length} foto(s) · ${(done.size / 1024 / 1024).toFixed(1)} MB`);
       onClose();
-    } catch { toast.error('Erro ao gerar o PDF'); } finally { setGenerating(false); }
+    } catch (err) { toast.error(err?.response?.data?.detail || err.message || 'Erro ao gerar o PDF'); } finally { setGenerating(false); setJob(null); }
   };
 
   return (
@@ -89,6 +85,12 @@ export const AvancoPdfModal = ({ open, projectId, projectCode, onClose }) => {
         </div>
 
         <div className="flex items-center justify-end gap-2 px-5 py-3 border-t border-white/10">
+          {generating && job && (
+            <div data-testid="avanco-pdf-progress" className="flex-1 min-w-0">
+              <p className="text-[10px] text-zinc-400 truncate">{job.message} · <span className="font-mono text-[#E0FF00]">{job.pct ?? 0}%</span></p>
+              <div className="h-1.5 rounded-full bg-white/10 overflow-hidden mt-1"><div className="h-full bg-[#E0FF00] transition-all" style={{ width: `${job.pct ?? 0}%` }} /></div>
+            </div>
+          )}
           <button onClick={onClose} className="text-xs font-bold px-4 py-2 rounded-full border border-white/15 text-zinc-300 hover:bg-white/10">Cancelar</button>
           <button data-testid="avanco-pdf-generate" disabled={generating || loading} onClick={generate} className="inline-flex items-center gap-1 text-xs font-bold px-4 py-2 rounded-full bg-[#E0FF00] text-black hover:bg-[#C8E600] disabled:opacity-50">
             <FileDown className="w-4 h-4" /> {generating ? 'Gerando…' : `Gerar PDF (${selected.length} foto${selected.length !== 1 ? 's' : ''})`}

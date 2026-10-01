@@ -9,9 +9,69 @@ import {
 } from 'lucide-react';
 import { AppLayout } from '../components/AppLayout';
 import { formatCurrency, PROJECT_TYPE_LABEL } from '../lib/constants';
+import { openAttachment, openUrl } from '../lib/files';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
+const dateBR = (d) => (d ? d.slice(0, 10).split('-').reverse().join('/') : '—');
+
+// Set/2026 · documentos GERADOS pelo sistema (preenchidos pelas equipes de campo) listados junto aos anexos
+const GeneratedAprs = ({ aprs, loading }) => (
+  <div data-testid="doc-generated-aprs" className="px-4 py-2 border-b border-white/5 bg-[#FF003C]/[0.03]">
+    <p className="text-[9px] tracking-[0.2em] uppercase font-bold text-zinc-500 mb-1">APRs preenchidas pelas equipes · {aprs.length}</p>
+    {loading ? <p className="text-[11px] text-zinc-500 italic">Carregando…</p> : aprs.length === 0 ? <p className="text-[11px] text-zinc-500 italic">Nenhuma APR digital nesta obra.</p> : (
+      <div className="divide-y divide-white/5">
+        {aprs.map((a) => (
+          <div key={a.id} data-testid={`doc-apr-${a.id}`} className="flex items-center gap-2 py-1.5 text-xs text-zinc-200 flex-wrap">
+            <span className="text-[9px] font-black px-1.5 py-0.5 rounded text-white" style={{ background: a.line_type === 'viva' ? '#FF003C' : '#16a34a' }}>LV{a.line_type === 'viva' ? '' : 'M'}</span>
+            <span className="font-mono text-zinc-400">{dateBR(a.date)}</span>
+            {a.os_number && <span className="font-mono text-zinc-400">OS {a.os_number}</span>}
+            <span className="truncate">{a.supervisor || 'sem supervisor'}</span>
+            <span className={`text-[10px] ${a.signed ? 'text-[#39FF14]' : 'text-zinc-500'}`}>{a.signed ? 'assinada' : 'sem assinatura'}</span>
+            <button data-testid={`doc-apr-pdf-${a.id}`} onClick={() => openUrl(a.pdf_url)} className="ml-auto w-7 h-7 rounded-full bg-white/5 hover:bg-white/10 text-[#FF003C] flex items-center justify-center" title="Abrir PDF da APR"><Download className="w-3.5 h-3.5" /></button>
+          </div>
+        ))}
+      </div>
+    )}
+  </div>
+);
+
+const GeneratedRequisitions = ({ reqs, loading }) => (
+  <div data-testid="doc-generated-reqs" className="px-4 py-2 border-b border-white/5 bg-[#00F0FF]/[0.03]">
+    <p className="text-[9px] tracking-[0.2em] uppercase font-bold text-zinc-500 mb-1">Requisições de almoxarifado (PDF gerado) · {reqs.length}</p>
+    {loading ? <p className="text-[11px] text-zinc-500 italic">Carregando…</p> : reqs.length === 0 ? <p className="text-[11px] text-zinc-500 italic">Nenhuma requisição enviada. Anexe abaixo a lista escaneada, se houver.</p> : (
+      <div className="divide-y divide-white/5">
+        {reqs.map((r) => (
+          <div key={r.id} data-testid={`doc-req-${r.id}`} className="flex items-center gap-2 py-1.5 text-xs text-zinc-200 flex-wrap">
+            <span className="font-mono text-zinc-400">{dateBR(r.created_at)}</span>
+            <span className="font-bold">{r.requisition_type === 'parcial' ? `PARCIAL nº ${r.seq}` : 'Requisição total'}</span>
+            <span className="text-zinc-400">{r.items_count} item(ns) · {r.created_by || '—'}</span>
+            {r.received_at && <span className="text-[10px] text-[#39FF14]">recebido {dateBR(r.received_at)}</span>}
+            {r.receipt_photo_url && <button onClick={() => openUrl(r.receipt_photo_url)} className="text-[10px] text-[#39FF14] underline">canhoto</button>}
+            <button data-testid={`doc-req-pdf-${r.id}`} onClick={() => openUrl(r.pdf_url)} className="ml-auto w-7 h-7 rounded-full bg-white/5 hover:bg-white/10 text-[#00F0FF] flex items-center justify-center" title="Abrir PDF da requisição"><Download className="w-3.5 h-3.5" /></button>
+          </div>
+        ))}
+      </div>
+    )}
+  </div>
+);
+
+class DocsErrorBoundary extends React.Component {
+  constructor(props) { super(props); this.state = { error: null }; }
+  static getDerivedStateFromError(error) { return { error }; }
+  render() {
+    if (this.state.error) {
+      return (
+        <div data-testid="doc-error-boundary" className="glass-panel rounded-2xl p-8 text-center">
+          <p className="text-[#FF003C] font-bold">A aba Documentos encontrou um erro ao renderizar.</p>
+          <p className="text-[11px] text-zinc-500 mt-1 break-words">{String(this.state.error?.message || this.state.error)}</p>
+          <button onClick={() => window.location.reload()} className="mt-3 text-[10px] font-bold uppercase text-black bg-[#E0FF00] px-4 py-2 rounded-full">Recarregar página</button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 
 // Categorias de documento — chave = kind salvo no backend
 export const DOC_KINDS = [
@@ -36,7 +96,7 @@ const kindOf = (att) => {
   return alias[k] || k || 'projeto';
 };
 
-const KindCard = ({ kindDef, attachments, onUpload, onOpen, onRemove, uploading, projectId }) => {
+const KindCard = ({ kindDef, attachments, onUpload, onOpen, onRemove, uploading, projectId, generated = null }) => {
   const Icon = kindDef.icon;
   const inputRef = useRef(null);
   return (
@@ -75,8 +135,9 @@ const KindCard = ({ kindDef, attachments, onUpload, onOpen, onRemove, uploading,
           onChange={(e) => onUpload(e.target.files?.[0], kindDef.key, () => { if (inputRef.current) inputRef.current.value = ''; })}
         />
       </div>
+      {generated}
       {attachments.length === 0 ? (
-        <p className="px-4 py-4 text-[11px] italic text-zinc-500 text-center">Nenhum arquivo anexado nessa categoria.</p>
+        <p className="px-4 py-4 text-[11px] italic text-zinc-500 text-center">{generated ? 'Nenhum arquivo escaneado/anexado manualmente.' : 'Nenhum arquivo anexado nessa categoria.'}</p>
       ) : (
         <div className="divide-y divide-white/5">
           {attachments.map((a) => (
@@ -104,7 +165,8 @@ const KindCard = ({ kindDef, attachments, onUpload, onOpen, onRemove, uploading,
   );
 };
 
-const PhotosPanel = ({ photos, projectId }) => {
+const PhotosPanel = ({ photos, projectId, loading = false }) => {
+  const imgSrc = (u) => (u?.startsWith('data:') || u?.startsWith('http') ? u : `${BACKEND_URL}${u}`);
   const grouped = photos.reduce((acc, ph) => {
     const key = (ph.point || 'Sem ponto').toUpperCase();
     if (!acc[key]) acc[key] = [];
@@ -132,7 +194,9 @@ const PhotosPanel = ({ photos, projectId }) => {
           {photos.length}
         </span>
       </div>
-      {photos.length === 0 ? (
+      {loading ? (
+        <p className="px-4 py-4 text-[11px] italic text-zinc-500 text-center">Carregando fotos…</p>
+      ) : photos.length === 0 ? (
         <p className="px-4 py-4 text-[11px] italic text-zinc-500 text-center">Nenhuma foto operacional. Envie na aba Operacional do projeto (P1, P2, ...).</p>
       ) : (
         <div className="p-3 space-y-4">
@@ -144,10 +208,10 @@ const PhotosPanel = ({ photos, projectId }) => {
               </div>
               <div className="grid grid-cols-6 md:grid-cols-8 gap-2">
                 {grouped[pk].map((ph) => (
-                  <a key={ph.id} href={ph.data_url} target="_blank" rel="noreferrer" data-testid={`doc-photo-${ph.id}`} className="relative rounded-lg overflow-hidden border border-white/10 group">
-                    <img src={ph.data_url} alt={ph.label} className="w-full h-20 object-cover group-hover:opacity-90" />
+                  <button key={ph.id} type="button" onClick={() => openUrl(ph.data_url)} data-testid={`doc-photo-${ph.id}`} className="relative rounded-lg overflow-hidden border border-white/10 group">
+                    <img src={imgSrc(ph.data_url)} alt={ph.label} loading="lazy" className="w-full h-20 object-cover group-hover:opacity-90" />
                     <p className="absolute bottom-0.5 left-0.5 text-[9px] text-white font-bold uppercase px-1 py-0.5 rounded bg-black/60">{ph.label}</p>
-                  </a>
+                  </button>
                 ))}
               </div>
             </div>
@@ -211,18 +275,32 @@ export const DocumentosPage = () => {
   const [selected, setSelected] = useState(null);
   const [q, setQ] = useState('');
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
   const [uploadingKind, setUploadingKind] = useState(null);
+  const [docs, setDocs] = useState(null); // Set/2026 · documentos gerados pelo sistema (APR, fotos, requisições)
+  const [docsLoading, setDocsLoading] = useState(false);
 
   const load = async () => {
-    setLoading(true);
+    setLoading(true); setLoadError('');
     try {
       const { data } = await axios.get(`${API}/projects`);
       setProjects(Array.isArray(data) ? data : []);
       if (!selected && data?.[0]) setSelected(data[0].id);
-    } catch (err) { toast.error('Erro ao carregar obras'); }
+    } catch (err) { setLoadError(err?.response?.data?.detail || err?.message || 'Erro ao carregar obras'); toast.error('Erro ao carregar obras'); }
     finally { setLoading(false); }
   };
   useEffect(() => { load(); /* eslint-disable-next-line */ }, []);
+
+  useEffect(() => {
+    if (!selected) { setDocs(null); return; }
+    let alive = true;
+    setDocsLoading(true);
+    axios.get(`${API}/projects/${selected}/documentos`)
+      .then(({ data }) => { if (alive) setDocs(data); })
+      .catch(() => { if (alive) setDocs(null); })
+      .finally(() => { if (alive) setDocsLoading(false); });
+    return () => { alive = false; };
+  }, [selected]);
 
   const filtered = useMemo(() => {
     const term = (q || '').toLowerCase().trim();
@@ -251,7 +329,7 @@ export const DocumentosPage = () => {
     return acc;
   }, [attachments]);
 
-  const totalDocs = attachments.length + (selectedProject?.photos?.length || 0);
+  const totalDocs = attachments.length + (docs?.counts?.photos || 0) + (docs?.counts?.aprs || 0) + (docs?.counts?.requisitions || 0);
 
   const upload = async (file, kind, done) => {
     if (!file || !selectedProject) return;
@@ -269,18 +347,7 @@ export const DocumentosPage = () => {
     finally { setUploadingKind(null); if (done) done(); }
   };
 
-  const open = async (att) => {
-    try {
-      const token = localStorage.getItem('access_token') || localStorage.getItem('token') || '';
-      const res = await axios.get(`${API}/projects/${selectedProject.id}/attachments/${att.id}`, {
-        responseType: 'blob',
-        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
-      });
-      const url = URL.createObjectURL(res.data);
-      window.open(url, '_blank');
-      setTimeout(() => URL.revokeObjectURL(url), 30000);
-    } catch { toast.error('Erro ao abrir arquivo'); }
-  };
+  const open = (att) => openAttachment(selectedProject.id, att);
 
   const remove = async (att) => {
     if (!window.confirm(`Remover ${att.filename}?`)) return;
@@ -293,6 +360,7 @@ export const DocumentosPage = () => {
 
   return (
     <AppLayout title="Documentos" subtitle="Central de arquivos por obra — projeto executivo, materiais, APR, croqui, DWG e fotos">
+      <DocsErrorBoundary>
       <div className="grid lg:grid-cols-[320px_1fr] gap-4">
         {/* Sidebar Projetos */}
         <div className="glass-panel rounded-2xl overflow-hidden">
@@ -319,6 +387,12 @@ export const DocumentosPage = () => {
           <div className="max-h-[70vh] overflow-y-auto divide-y divide-white/5" data-testid="doc-project-list">
             {loading ? (
               <p className="p-6 text-center text-xs text-zinc-500">Carregando…</p>
+            ) : loadError ? (
+              <div className="p-6 text-center" data-testid="doc-load-error">
+                <p className="text-xs text-[#FF003C] font-bold">Não foi possível carregar as obras</p>
+                <p className="text-[10px] text-zinc-500 mt-1 break-words">{loadError}</p>
+                <button onClick={load} className="mt-3 text-[10px] font-bold uppercase text-black bg-[#E0FF00] px-3 py-1.5 rounded-full">Tentar novamente</button>
+              </div>
             ) : filtered.length === 0 ? (
               <p className="p-6 text-center text-xs text-zinc-500 italic">Nenhuma obra encontrada</p>
             ) : filtered.map((p) => {
@@ -374,7 +448,7 @@ export const DocumentosPage = () => {
                     <div className="flex items-center gap-3 flex-wrap mt-1 text-[11px] text-zinc-500">
                       {selectedProject.team_name && (<span className="inline-flex items-center gap-1"><Users className="w-3 h-3" /> {selectedProject.team_name}</span>)}
                       {selectedProject.scheduled_date && (<span className="inline-flex items-center gap-1"><Calendar className="w-3 h-3" /> {selectedProject.scheduled_date}</span>)}
-                      {selectedProject.programmed_value && (<span className="inline-flex items-center gap-1 font-mono text-white"><DollarSign className="w-3 h-3" /> {formatCurrency(selectedProject.programmed_value)}</span>)}
+                      {selectedProject.programmed_value ? (<span className="inline-flex items-center gap-1 font-mono text-white"><DollarSign className="w-3 h-3" /> {formatCurrency(selectedProject.programmed_value)}</span>) : null}
                       {selectedProject.project_type && (<span className="inline-flex items-center gap-1">{PROJECT_TYPE_LABEL[selectedProject.project_type] || selectedProject.project_type}</span>)}
                     </div>
                   </div>
@@ -397,17 +471,19 @@ export const DocumentosPage = () => {
                     onRemove={remove}
                     uploading={uploadingKind === kd.key}
                     projectId={selectedProject.id}
+                    generated={kd.key === 'apr' ? <GeneratedAprs aprs={docs?.aprs || []} loading={docsLoading} /> : kd.key === 'materiais' ? <GeneratedRequisitions reqs={docs?.requisitions || []} loading={docsLoading} /> : null}
                   />
                 ))}
               </div>
 
               {/* Fotos operacionais + Materiais (dados do sistema) */}
-              <PhotosPanel photos={selectedProject.photos || []} projectId={selectedProject.id} />
+              <PhotosPanel photos={docs?.photos || []} projectId={selectedProject.id} loading={docsLoading} />
               <MaterialsPanel materials={selectedProject.materials_list || []} projectId={selectedProject.id} />
             </>
           )}
         </div>
       </div>
+      </DocsErrorBoundary>
     </AppLayout>
   );
 };

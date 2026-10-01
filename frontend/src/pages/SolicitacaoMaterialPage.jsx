@@ -496,6 +496,7 @@ export const SolicitacaoMaterialPage = () => {
                     <span className="text-[#39FF14]">Separado <b className="font-mono">{totals.separado}</b></span>
                     <span className="text-[#FF5E00]">Baixado <b className="font-mono">{totals.baixado}</b></span>
                     <span className="text-[#00F0FF]">Entregue <b className="font-mono">{totals.entregue}</b></span>
+                    <span className="text-[#A855F7]">Devolvido <b className="font-mono" data-testid="materials-total-returned">{balance?.returned_qty ?? 0}</b></span>
                   </div>
                 )}
                 <a
@@ -584,6 +585,7 @@ export const SolicitacaoMaterialPage = () => {
                       <th className="px-2 py-2 text-right text-[#39FF14]">Separado</th>
                       <th className="px-2 py-2 text-right text-[#FF5E00]">Baixado</th>
                       <th className="px-2 py-2 text-right text-[#00F0FF]">Entregue</th>
+                      <th className="px-2 py-2 text-right text-[#A855F7] whitespace-nowrap" title="Sobras devolvidas do campo (volta ao saldo a requisitar)">Devolvido</th>
                       <th className="px-2 py-2 text-center">Almoxarifado</th>
                       <th className="px-2 py-2 text-right">Status</th>
                     </tr>
@@ -681,6 +683,9 @@ export const SolicitacaoMaterialPage = () => {
                           <td className="px-2 py-2"><QtyInput testid={`qty-separated-${m.id}`} value={Number(m.qty_separated ?? 0)} saving={savingRow === m.id + ':qty_separated'} onCommit={(v) => patchItem(m, 'qty_separated', v)} color="#39FF14" /></td>
                           <td className="px-2 py-2"><QtyInput testid={`qty-baixado-${m.id}`} value={Number(m.qty_written_off ?? 0)} saving={savingRow === m.id + ':qty_written_off'} onCommit={(v) => patchItem(m, 'qty_written_off', v)} color="#FF5E00" /></td>
                           <td className="px-2 py-2"><QtyInput testid={`qty-delivered-${m.id}`} value={qent} saving={savingRow === m.id + ':qty_delivered'} onCommit={(v) => patchItem(m, 'qty_delivered', v)} color="#00F0FF" /></td>
+                          <td className="px-2 py-2 text-right font-mono text-[11px]" data-testid={`qty-returned-${m.id}`}>
+                            {bal && bal.qty_returned > 0 ? <span className="text-[#A855F7] font-bold">{bal.qty_returned}</span> : <span className="text-zinc-600">0</span>}
+                          </td>
                           <td className="px-2 py-2 text-center">
                             <select
                               data-testid={`mat-warehouse-status-${m.id}`}

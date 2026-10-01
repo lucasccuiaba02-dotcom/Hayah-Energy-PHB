@@ -21,6 +21,7 @@ import { BuscarObrasPage } from './pages/BuscarObrasPage';
 import { FaturamentoPage } from './pages/FaturamentoPage';
 import { EstoquePage } from './pages/EstoquePage';
 import { DocumentosPage } from './pages/DocumentosPage';
+import { MedicaoPage } from './pages/MedicaoPage';
 import { SettingsPage } from './pages/SettingsPage';
 import { ImprodutividadePage } from './pages/ImprodutividadePage';
 import { EquipamentosPage } from './pages/EquipamentosPage';
@@ -62,6 +63,8 @@ function AppRoutes() {
       <Route path="/relatorios" element={<ProtectedRoute><RelatoriosPage /></ProtectedRoute>} />
       <Route path="/equipes" element={<ProtectedRoute><EquipesPage /></ProtectedRoute>} />
       <Route path="/projeto/:id" element={<ProtectedRoute><ProjectDetailPage /></ProtectedRoute>} />
+      <Route path="/obras/:id" element={<ProtectedRoute><ProjectDetailPage /></ProtectedRoute>} />
+      <Route path="/medicao" element={<ProtectedRoute><MedicaoPage /></ProtectedRoute>} />
       <Route path="/geolocalizacao" element={<ProtectedRoute><GeolocalizacaoPage /></ProtectedRoute>} />
       <Route path="/admin/usuarios" element={<ProtectedRoute><AdminUsuariosPage /></ProtectedRoute>} />
       <Route path="/indisponibilidade" element={<ProtectedRoute><IndisponibilidadePage /></ProtectedRoute>} />

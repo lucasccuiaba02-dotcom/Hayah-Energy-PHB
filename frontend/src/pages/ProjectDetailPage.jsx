@@ -10,6 +10,9 @@ import { APREditor } from '../components/APREditor';
 import { PinchZoomImage } from '../components/PinchZoomImage';
 import { AvancoQuickEntry, AvancoItemsTable, ProgressBar, effColor } from '../components/AvancoWidgets';
 import { AvancoPdfModal } from '../components/AvancoPdfModal';
+import { DiarioPdfModal } from '../components/DiarioPdfModal';
+import { CampoHistoryTab } from '../components/CampoHistoryTab';
+import { openAttachment as openProjectAttachment } from '../lib/files';
 import { enqueue, syncQueue, getQueue } from '../lib/offline';
 import { enqueuePhoto, syncPhotoQueue, getQueuedPhotoCount } from '../lib/photoQueue';
 import { findProjectInPacote, updateProjectInPacote, loadPacote } from '../lib/campoStore';
@@ -40,7 +43,8 @@ export const ProjectDetailPage = () => {
   const [dailyNotes, setDailyNotes] = useState('');
   const [downloadingPdf, setDownloadingPdf] = useState(false);
   // Fev/2026 · Se veio de /carteira com ?camera=1, abre já na aba Arquivos (Set/2026: ?tab=arquivos idem)
-  const [tab, setTab] = useState(searchParams.get('camera') === '1' || searchParams.get('tab') === 'arquivos' ? 'arquivos' : 'operacional');
+  const [tab, setTab] = useState(searchParams.get('camera') === '1' || searchParams.get('tab') === 'arquivos' ? 'arquivos' : searchParams.get('tab') === 'campo' ? 'campo' : 'operacional');
+  const [diarioOpen, setDiarioOpen] = useState(false);
   const [uploadingPdf, setUploadingPdf] = useState(false);
   // Fev/2026 · Preview modal pós-captura
   const [previewSrc, setPreviewSrc] = useState(null);
@@ -369,18 +373,7 @@ export const ProjectDetailPage = () => {
   };
   const [uploadKind, setUploadKind] = useState('projeto');
 
-  const openAttachment = async (att) => {
-    try {
-      const token = localStorage.getItem('token');
-      const res = await axios.get(`${API}/projects/${id}/attachments/${att.id}`, {
-        responseType: 'blob',
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      const url = URL.createObjectURL(res.data);
-      window.open(url, '_blank');
-      setTimeout(() => URL.revokeObjectURL(url), 30000);
-    } catch { toast.error('Erro ao abrir arquivo'); }
-  };
+  const openAttachment = (att) => openProjectAttachment(id, att);
 
   const removeAttachment = async (attId) => {
     if (!window.confirm('Remover este anexo?')) return;
@@ -391,28 +384,7 @@ export const ProjectDetailPage = () => {
     } catch { toast.error('Erro ao remover'); }
   };
 
-  const handleDownloadDailyLog = async () => {
-    setDownloadingPdf(true);
-    try {
-      const { data } = await axios.get(`${API}/operacional/daily-log/${id}`, {
-        params: { notes: dailyNotes },
-        responseType: 'blob',
-      });
-      const url = window.URL.createObjectURL(new Blob([data], { type: 'application/pdf' }));
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `diario_${(project?.project_code || id).replace(/[^A-Za-z0-9]/g, '_')}.pdf`;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      window.URL.revokeObjectURL(url);
-      toast.success('Diário de Obra gerado!');
-    } catch (err) {
-      toast.error('Erro ao gerar o Diário de Obra');
-    } finally {
-      setDownloadingPdf(false);
-    }
-  };
+  const handleDownloadDailyLog = () => setDiarioOpen(true);
 
   if (!project) return null;
   const execStatus = EXECUTION_STATUS_LABEL[project.execution_status];
@@ -490,8 +462,21 @@ export const ProjectDetailPage = () => {
               {attachments.length + photos.length + materials.length}
             </span>
           </button>
+          <button
+            data-testid="pd-tab-campo"
+            onClick={() => setTab('campo')}
+            className={`flex-1 inline-flex items-center justify-center gap-1.5 text-[11px] font-bold uppercase tracking-wider px-3 py-2 rounded-full border transition ${
+              tab === 'campo'
+                ? 'bg-[#00F0FF] border-[#00F0FF] text-black'
+                : 'bg-white/5 border-white/10 text-zinc-400 hover:text-white'
+            }`}
+          >
+            <MapPin className="w-3.5 h-3.5" /> Campo
+          </button>
         </div>
       </div>
+
+      {tab === 'campo' && <CampoHistoryTab projectId={id} />}
 
       {tab === 'operacional' && (
       <div className="p-4 space-y-4 max-w-2xl mx-auto">
@@ -545,6 +530,7 @@ export const ProjectDetailPage = () => {
             <AvancoPdfModal open={avancoPdfOpen} projectId={id} projectCode={project?.project_code} onClose={() => setAvancoPdfOpen(false)} />
           </div>
         )}
+        <DiarioPdfModal open={diarioOpen} projectId={id} initialNotes={dailyNotes} onClose={() => setDiarioOpen(false)} />
 
         {/* Fev/2026 · APR (Análise Preliminar de Risco) */}
         <div className="glass-panel rounded-2xl p-4 border border-[#FF003C]/30">
