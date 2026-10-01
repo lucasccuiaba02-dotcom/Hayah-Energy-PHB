@@ -3,7 +3,8 @@ import axios from 'axios';
 import { toast } from 'sonner';
 import { motion } from 'framer-motion';
 import { X, FileDown, Image as ImageIcon, CheckSquare, Square, Paperclip } from 'lucide-react';
-import { runPdfJob, downloadPdfJob } from '../lib/pdfJobs';
+import { runPdfJob, downloadPdfJob, jobErrorMessage } from '../lib/pdfJobs';
+import { thumbSrc } from '../lib/files';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -14,10 +15,11 @@ export const AvancoPdfModal = ({ open, projectId, projectCode, onClose }) => {
   const [loading, setLoading] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [job, setJob] = useState(null);
+  const [error, setError] = useState('');
 
   useEffect(() => {
     if (!open || !projectId) return;
-    setLoading(true);
+    setLoading(true); setError(''); setJob(null);
     axios.get(`${API}/projects/${projectId}/avanco/photos`)
       .then(({ data }) => { setPhotos(data.photos || []); setSelected(data.default_ids || []); })
       .catch(() => toast.error('Erro ao carregar fotos da obra'))
@@ -28,17 +30,17 @@ export const AvancoPdfModal = ({ open, projectId, projectCode, onClose }) => {
   const toggle = (id) => setSelected((s) => (s.includes(id) ? s.filter((x) => x !== id) : [...s, id]));
 
   const generate = async () => {
-    setGenerating(true); setJob(null);
+    setGenerating(true); setJob(null); setError('');
     try {
       const done = await runPdfJob(`${API}/projects/${projectId}/avanco/pdf/job`, { photo_ids: selected }, setJob);
       downloadPdfJob(done);
       toast.success(`Relatório gerado com ${selected.length} foto(s) · ${(done.size / 1024 / 1024).toFixed(1)} MB`);
       onClose();
-    } catch (err) { toast.error(err?.response?.data?.detail || err.message || 'Erro ao gerar o PDF'); } finally { setGenerating(false); setJob(null); }
+    } catch (err) { const msg = jobErrorMessage(err); setError(msg); toast.error(msg); } finally { setGenerating(false); setJob(null); }
   };
 
   return (
-    <div data-testid="avanco-pdf-modal" className="fixed inset-0 z-[90] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm" onClick={onClose}>
+    <div data-testid="avanco-pdf-modal" className="fixed inset-0 z-[90] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm" onClick={generating ? undefined : onClose}>
       <motion.div initial={{ opacity: 0, scale: 0.96 }} animate={{ opacity: 1, scale: 1 }} onClick={(e) => e.stopPropagation()}
         className="glass-panel w-full max-w-2xl max-h-[85vh] flex flex-col rounded-2xl border border-[#E0FF00]/40 overflow-hidden" style={{ backgroundColor: '#0b0b0d' }}>
         <div className="flex items-center gap-3 px-5 py-4 border-b border-white/10">
@@ -46,7 +48,7 @@ export const AvancoPdfModal = ({ open, projectId, projectCode, onClose }) => {
           <div className="flex-1 min-w-0">
             <p className="text-[10px] tracking-[0.25em] uppercase font-bold text-[#E0FF00]">Relatório de Avanço Físico</p>
             <h3 className="font-heading font-black text-lg text-white leading-tight">Escolha as fotos do PDF</h3>
-            <p className="text-[11px] text-zinc-400">{photos.length} foto(s) disponíveis · {selected.length} selecionada(s)</p>
+            <p className="text-[11px] text-zinc-400">{photos.length} foto(s) disponíveis · {selected.length} selecionada(s){photos.length > 60 ? ' · obras grandes levam 1–3 min' : ''}</p>
           </div>
           <button data-testid="avanco-pdf-modal-close" onClick={onClose} className="p-2 rounded-lg hover:bg-white/10 text-zinc-400 hover:text-white"><X className="w-5 h-5" /></button>
         </div>
@@ -56,6 +58,13 @@ export const AvancoPdfModal = ({ open, projectId, projectCode, onClose }) => {
           <button data-testid="avanco-pdf-select-none" onClick={() => setSelected([])} className="inline-flex items-center gap-1 text-zinc-400 font-bold"><Square className="w-3.5 h-3.5" /> Nenhuma</button>
           <span className="ml-auto text-zinc-500">Sem fotos marcadas, o PDF sai sem galeria.</span>
         </div>
+
+        {error && !generating && (
+          <div data-testid="avanco-pdf-error" className="mx-5 mt-3 rounded-xl border border-[#FF003C]/40 bg-[#FF003C]/10 p-3 text-xs text-[#FF6B8A]">
+            <p className="font-bold text-[#FF003C]">Não foi possível gerar o PDF</p>
+            <p className="mt-0.5 break-words">{error}</p>
+          </div>
+        )}
 
         <div className="overflow-y-auto p-4">
           {loading ? <p className="text-sm text-zinc-500 text-center py-8">Carregando fotos…</p> : photos.length === 0 ? (
@@ -68,7 +77,7 @@ export const AvancoPdfModal = ({ open, projectId, projectCode, onClose }) => {
                   <button key={ph.id} type="button" data-testid={`avanco-pdf-photo-${ph.id}`} data-selected={on ? 'true' : 'false'} onClick={() => toggle(ph.id)}
                     className={`relative rounded-xl overflow-hidden border-2 text-left transition ${on ? 'border-[#E0FF00]' : 'border-white/10 opacity-70 hover:opacity-100'}`}>
                     <div className="aspect-[4/3] bg-zinc-900 flex items-center justify-center">
-                      {ph.thumb ? <img src={ph.thumb} alt={ph.caption} className="w-full h-full object-cover" /> : <Paperclip className="w-8 h-8 text-zinc-600" />}
+                      {ph.thumb ? <img src={thumbSrc(ph.thumb)} alt={ph.caption} loading="lazy" className="w-full h-full object-cover" /> : <Paperclip className="w-8 h-8 text-zinc-600" />}
                     </div>
                     <div className={`absolute top-2 left-2 w-6 h-6 rounded-md flex items-center justify-center ${on ? 'bg-[#E0FF00] text-black' : 'bg-black/60 text-zinc-400 border border-white/20'}`}>
                       {on ? <CheckSquare className="w-4 h-4" /> : <Square className="w-4 h-4" />}

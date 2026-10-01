@@ -3,7 +3,7 @@ import axios from 'axios';
 import { toast } from 'sonner';
 import { motion } from 'framer-motion';
 import { X, FileDown, Camera, Loader2, CheckCircle2 } from 'lucide-react';
-import { runPdfJob, downloadPdfJob } from '../lib/pdfJobs';
+import { runPdfJob, downloadPdfJob, jobErrorMessage } from '../lib/pdfJobs';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -18,10 +18,11 @@ export const DiarioPdfModal = ({ open, projectId, initialNotes = '', onClose }) 
   const [notes, setNotes] = useState(initialNotes);
   const [job, setJob] = useState(null);
   const [running, setRunning] = useState(false);
+  const [error, setError] = useState('');
 
   useEffect(() => {
     if (!open || !projectId) return;
-    setJob(null); setFrom(''); setTo(''); setPoint(''); setNotes(initialNotes);
+    setJob(null); setError(''); setFrom(''); setTo(''); setPoint(''); setNotes(initialNotes);
     setLoading(true);
     axios.get(`${API}/operacional/daily-log/${projectId}/photos`)
       .then(({ data }) => setCatalog(data))
@@ -34,13 +35,13 @@ export const DiarioPdfModal = ({ open, projectId, initialNotes = '', onClose }) 
   if (!open) return null;
 
   const generate = async () => {
-    setRunning(true); setJob(null);
+    setRunning(true); setJob(null); setError('');
     try {
       const done = await runPdfJob(`${API}/operacional/daily-log/${projectId}/job`, { notes, date_from: from, date_to: to, point, max_photos: 500 }, setJob);
       setJob(done);
       downloadPdfJob(done);
       toast.success(`Diário de Obra gerado (${(done.size / 1024 / 1024).toFixed(1)} MB)`);
-    } catch (err) { toast.error(err?.response?.data?.detail || err.message || 'Erro ao gerar o Diário'); } finally { setRunning(false); }
+    } catch (err) { const msg = jobErrorMessage(err); setError(msg); toast.error(msg); } finally { setRunning(false); }
   };
 
   return (
@@ -85,9 +86,16 @@ export const DiarioPdfModal = ({ open, projectId, initialNotes = '', onClose }) 
             <label className="text-[10px] tracking-widest uppercase text-zinc-500 font-bold">Observações do dia</label>
             <textarea data-testid="diario-pdf-notes" rows={2} value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Opcional — entra no PDF" className="w-full mt-1 bg-zinc-950 border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:border-[#00F0FF] focus:outline-none" />
           </div>
-          <p data-testid="diario-pdf-count" className="text-xs text-zinc-300"><b className="font-mono text-[#00F0FF]">{capped}</b> foto(s) entram no PDF{selectedCount > 500 ? ` (limite de 500 — filtre por período)` : ''}</p>
+          <p data-testid="diario-pdf-count" className="text-xs text-zinc-300"><b className="font-mono text-[#00F0FF]">{capped}</b> foto(s) entram no PDF{selectedCount > 500 ? ` (limite de 500 — filtre por período)` : ''}{capped > 60 ? ' · obras grandes levam 1–3 min, acompanhe a barra' : ''}</p>
 
-          {(running || job) && (
+          {error && !running && (
+            <div data-testid="diario-pdf-error" className="rounded-xl border border-[#FF003C]/40 bg-[#FF003C]/10 p-3 text-xs text-[#FF6B8A]">
+              <p className="font-bold text-[#FF003C]">Não foi possível gerar o PDF</p>
+              <p className="mt-0.5 break-words">{error}</p>
+            </div>
+          )}
+
+          {(running || (job && job.status !== 'error')) && (
             <div data-testid="diario-pdf-progress" className="rounded-xl border border-white/10 bg-black/40 p-3">
               <div className="flex items-center gap-2 text-xs text-white mb-2">
                 {job?.status === 'done' ? <CheckCircle2 className="w-4 h-4 text-[#39FF14]" /> : <Loader2 className="w-4 h-4 animate-spin text-[#00F0FF]" />}

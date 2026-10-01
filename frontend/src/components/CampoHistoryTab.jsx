@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { toast } from 'sonner';
 import { MapPin, Camera, ShieldCheck, Package, PackageCheck, Undo2, Gauge, CalendarCheck, FileDown, Users, RefreshCw } from 'lucide-react';
-import { openUrl } from '../lib/files';
+import { openUrl, thumbSrc } from '../lib/files';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -64,7 +64,7 @@ const DayCard = ({ d, pid }) => (
         <div className="grid grid-cols-4 sm:grid-cols-6 md:grid-cols-8 gap-1.5">
           {d.photos.map((ph) => (
             <button key={ph.id} data-testid={`campo-hist-photo-${ph.id}`} onClick={() => window.open(imgSrc(ph.url), '_blank', 'noopener')} className="relative rounded-lg overflow-hidden border border-white/10 aspect-square bg-zinc-900">
-              <img src={imgSrc(ph.url)} alt={ph.label} loading="lazy" className="w-full h-full object-cover" />
+              <img src={thumbSrc(ph.url)} alt={ph.label} loading="lazy" className="w-full h-full object-cover" />
               <span className="absolute bottom-0 left-0 right-0 text-[8px] font-bold text-white bg-black/60 px-1 truncate">{ph.point || '—'} · {(ph.label || '').toUpperCase()}</span>
             </button>
           ))}

@@ -2,6 +2,12 @@
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 
 export const apiUrl = (path) => (path?.startsWith('http') ? path : `${BACKEND_URL}${path}`);
+/** Miniatura das fotos operacionais (`/api/operacional/photos/.../file?w=320`); data URLs e outras rotas passam direto. */
+export const thumbSrc = (u, w = 320) => {
+  if (!u || u.startsWith('data:')) return u;
+  const full = apiUrl(u);
+  return full.includes('/operacional/photos/') ? `${full}${full.includes('?') ? '&' : '?'}w=${w}` : full;
+};
 export const withAuth = (url) => {
   const t = localStorage.getItem('access_token');
   if (!t) return url;

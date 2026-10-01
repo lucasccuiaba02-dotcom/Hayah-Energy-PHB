@@ -9,7 +9,7 @@ import {
 } from 'lucide-react';
 import { AppLayout } from '../components/AppLayout';
 import { formatCurrency, PROJECT_TYPE_LABEL } from '../lib/constants';
-import { openAttachment, openUrl } from '../lib/files';
+import { openAttachment, openUrl, thumbSrc } from '../lib/files';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -166,7 +166,7 @@ const KindCard = ({ kindDef, attachments, onUpload, onOpen, onRemove, uploading,
 };
 
 const PhotosPanel = ({ photos, projectId, loading = false }) => {
-  const imgSrc = (u) => (u?.startsWith('data:') || u?.startsWith('http') ? u : `${BACKEND_URL}${u}`);
+  const imgSrc = (u) => thumbSrc(u);
   const grouped = photos.reduce((acc, ph) => {
     const key = (ph.point || 'Sem ponto').toUpperCase();
     if (!acc[key]) acc[key] = [];

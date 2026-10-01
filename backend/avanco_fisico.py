@@ -435,7 +435,7 @@ def build_router(db, get_current_user, require_admin, safe_object_id, today_fn, 
 
         async def runner(progress):
             progress(0, total, f"Preparando {total} foto(s)…")
-            sem = asyncio.Semaphore(8)
+            sem = asyncio.Semaphore(4)
             done = {"n": 0}
 
             async def _fetch(i, c):
@@ -460,7 +460,7 @@ def build_router(db, get_current_user, require_admin, safe_object_id, today_fn, 
             return await asyncio.to_thread(build_avanco_pdf, p, detail, photos=photos)
 
         code = "".join(ch if ch.isalnum() else "_" for ch in (p.get("project_code") or project_id))[:24]
-        return _pdf_jobs.start_job(current_user["_id"], "avanco", f"avanco_fisico_{code}_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M')}.pdf", runner)
+        return await _pdf_jobs.start_job(current_user["_id"], "avanco", f"avanco_fisico_{code}_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M')}.pdf", runner)
 
     @router.post("/projects/{project_id}/avanco/entries")
     async def add_entry(project_id: str, body: EntryBody, current_user: dict = Depends(get_current_user)):

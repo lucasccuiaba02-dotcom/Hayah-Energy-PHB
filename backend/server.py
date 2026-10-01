@@ -3067,7 +3067,8 @@ def _photo_public(project_id: str, photo: dict) -> dict:
 
 
 @api_router.get("/operacional/photos/{project_id}/{photo_id}/file")
-async def get_photo_file(project_id: str, photo_id: str, current_user: dict = Depends(get_current_user)):
+async def get_photo_file(project_id: str, photo_id: str, w: int = 0, current_user: dict = Depends(get_current_user)):
+    """`?w=320` devolve miniatura (JPEG) — grades com centenas de fotos no celular não baixam o original de cada uma."""
     project = await db.projects.find_one({"_id": safe_object_id(project_id), "user_id": current_user["_id"]}, {"photos": 1})
     if not project:
         raise HTTPException(status_code=404, detail="Obra não encontrada")
@@ -3077,9 +3078,16 @@ async def get_photo_file(project_id: str, photo_id: str, current_user: dict = De
     if photo.get("data_url"):
         header, b64 = photo["data_url"].split(",", 1)
         ct = header[5:].split(";")[0] or "image/jpeg"
-        return Response(content=base64.b64decode(b64), media_type=ct, headers={"Cache-Control": "private, max-age=86400"})
-    data, ct = await storage_get(photo["storage_path"])
-    return Response(content=data, media_type=photo.get("content_type") or ct, headers={"Cache-Control": "private, max-age=86400"})
+        data = base64.b64decode(b64)
+    else:
+        data, ct = await storage_get(photo["storage_path"])
+        ct = photo.get("content_type") or ct
+    if w and 0 < w <= 1200:
+        try:
+            data, ct = await asyncio.to_thread(_shrink_photo, data, w, 70), "image/jpeg"
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"thumb {photo_id}: {e}")
+    return Response(content=data, media_type=ct, headers={"Cache-Control": "private, max-age=86400"})
 
 @api_router.delete("/operacional/photos/{project_id}/{photo_id}")
 async def delete_photo(project_id: str, photo_id: str, current_user: dict = Depends(get_current_user)):
@@ -3273,7 +3281,7 @@ async def daily_log_pdf_job(project_id: str, body: DailyLogJobBody, current_user
 
     async def runner(progress):
         progress(0, total, f"Preparando {total} foto(s)…")
-        sem = asyncio.Semaphore(8)
+        sem = asyncio.Semaphore(4)
         done = {"n": 0}
 
         async def _one(ph):
@@ -3298,7 +3306,7 @@ async def daily_log_pdf_job(project_id: str, body: DailyLogJobBody, current_user
         return await asyncio.to_thread(build_daily_log_pdf, project, checklist, photos, notes)
 
     filename = f"diario_obra_{''.join(ch if ch.isalnum() else '_' for ch in (project.get('project_code') or project_id))[:24]}_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M')}.pdf"
-    return _pdf_jobs.start_job(current_user["_id"], "diario", filename, runner)
+    return await _pdf_jobs.start_job(current_user["_id"], "diario", filename, runner)
 
 # --- Web Push Notifications ---
 class PushSubscribeBody(BaseModel):
@@ -6083,6 +6091,7 @@ app.include_router(_build_laudo_router(db, get_current_user, safe_object_id, sto
 app.include_router(_campo.build_router(db, get_current_user, safe_object_id, build_project_response, _photo_public))
 import sucata as _sucata
 app.include_router(_sucata.build_router(db, get_current_user, safe_object_id))
+_pdf_jobs.configure(db, storage_put, storage_get)
 app.include_router(_pdf_jobs.build_router(get_current_user))
 import medicao as _medicao
 app.include_router(_medicao.build_router(db, get_current_user, safe_object_id, build_project_response))
@@ -6124,6 +6133,7 @@ async def startup_db():
         logger.warning(f"backfill programado: {e}")
     # Object storage init
     await init_storage()
+    await _pdf_jobs.ensure_indexes()
     # TTL index for live tracking positions — auto-expire after 10 minutes
     try:
         await db.tracking_positions.create_index("updated_at", expireAfterSeconds=600)

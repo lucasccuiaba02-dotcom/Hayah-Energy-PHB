@@ -436,28 +436,28 @@ export const ProjectDetailPage = () => {
           )}
         </div>
         {/* Tabs */}
-        <div className="px-4 pb-3 flex items-center gap-2">
+        <div className="px-4 pb-3 flex items-center gap-2 overflow-x-auto">
           <button
             data-testid="pd-tab-operacional"
             onClick={() => setTab('operacional')}
-            className={`flex-1 inline-flex items-center justify-center gap-1.5 text-[11px] font-bold uppercase tracking-wider px-3 py-2 rounded-full border transition ${
+            className={`flex-1 min-w-0 inline-flex items-center justify-center gap-1.5 text-[11px] font-bold uppercase tracking-wider px-2.5 sm:px-3 py-2 rounded-full border transition whitespace-nowrap ${
               tab === 'operacional'
                 ? 'bg-[#E0FF00] border-[#E0FF00] text-black'
                 : 'bg-white/5 border-white/10 text-zinc-400 hover:text-white'
             }`}
           >
-            <ShieldCheck className="w-3.5 h-3.5" /> Operacional
+            <ShieldCheck className="w-3.5 h-3.5 shrink-0" /> <span className="truncate">Operacional</span>
           </button>
           <button
             data-testid="pd-tab-arquivos"
             onClick={() => setTab('arquivos')}
-            className={`flex-1 inline-flex items-center justify-center gap-1.5 text-[11px] font-bold uppercase tracking-wider px-3 py-2 rounded-full border transition ${
+            className={`flex-1 min-w-0 inline-flex items-center justify-center gap-1.5 text-[11px] font-bold uppercase tracking-wider px-2.5 sm:px-3 py-2 rounded-full border transition whitespace-nowrap ${
               tab === 'arquivos'
                 ? 'bg-[#E0FF00] border-[#E0FF00] text-black'
                 : 'bg-white/5 border-white/10 text-zinc-400 hover:text-white'
             }`}
           >
-            <FolderOpen className="w-3.5 h-3.5" /> Arquivos
+            <FolderOpen className="w-3.5 h-3.5 shrink-0" /> <span className="truncate">Arquivos</span>
             <span className="ml-1 font-mono text-[9px] px-1.5 py-0.5 rounded-full bg-black/20 border border-white/10">
               {attachments.length + photos.length + materials.length}
             </span>
@@ -465,13 +465,13 @@ export const ProjectDetailPage = () => {
           <button
             data-testid="pd-tab-campo"
             onClick={() => setTab('campo')}
-            className={`flex-1 inline-flex items-center justify-center gap-1.5 text-[11px] font-bold uppercase tracking-wider px-3 py-2 rounded-full border transition ${
+            className={`flex-1 min-w-0 inline-flex items-center justify-center gap-1.5 text-[11px] font-bold uppercase tracking-wider px-2.5 sm:px-3 py-2 rounded-full border transition whitespace-nowrap ${
               tab === 'campo'
                 ? 'bg-[#00F0FF] border-[#00F0FF] text-black'
                 : 'bg-white/5 border-white/10 text-zinc-400 hover:text-white'
             }`}
           >
-            <MapPin className="w-3.5 h-3.5" /> Campo
+            <MapPin className="w-3.5 h-3.5 shrink-0" /> <span className="truncate">Campo</span>
           </button>
         </div>
       </div>
