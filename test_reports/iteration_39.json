@@ -1,0 +1,20 @@
+{
+  "summary": "Iteração 39 — Medições parciais numeradas. Backend 9/9 testes passaram cobrindo detail shape (medicoes[], next_number, totals.fechado/em_aberto/realizado/medicoes_count), fechar (400 vazio, 400 período inválido, sucesso com acumulado e movement_history), reabrir (400 não-última, 400 rascunho não vazio, 404 inexistente, sucesso devolve itens e preserva actual_value), copy_budget/from-orcado (actual_value = fechado + rascunho), PDF por medicao_id (filename _med01_, texto com 'MEDIÇÃO Nº 1', 'ACUMULADO', período; 404 inexistente; PDF do rascunho mostra 'Nº 2' e 'em aberto'), envio com medicao_id (503 skipped mas registra em `envios` com medicao_id/number/period, medicoes[0].envios == 1; sem medicao_id com rascunho vazio → 400), e list_projects com fechado/realizado/medicoes_count/realizado_count. Frontend validado em TEST-MED-PARC: aba 'Medição nº 3 (em aberto) · R$ 0,00', hint '2 fechada(s) R$ 10.843,74 · em aberto R$ 0,00', mo-fechar desabilitado sem itens, mo-pdf e mo-enviar desabilitados com rascunho vazio, histórico com 2 medições (R$ 4.623,18 e R$ 6.220,56), acumulado R$ 10.843,74, botão reabrir apenas na medição mais recente (nº 2), modal envio com título 'MEDIÇÃO Nº 2', mo-envio-number='2ª', mo-envio-period='01/10/2026 a 15/10/2026'. Responsivo 390px sem overflow (body.scrollWidth=390).",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": ["/app/backend/tests/test_iteration39.py", "/app/test_reports/pytest/iter39.xml"],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "medicao.py: `_find_medicao` só valida 404 quando `mid` truthy; endpoints que aceitam `medicao_id` opcional funcionam bem, mas a função deveria documentar isso explicitamente.",
+    "O endpoint `enviar_medicao` com `medicao_id` presente aplica os itens da medição fechada; se o front enviar `medicao_id` inválido ao mesmo tempo que há rascunho, cai em 404 antes de validar itens — comportamento ok mas poderia retornar mensagem mais clara.",
+    "`_render_pdf` recalcula `accumulated` como soma apenas das medições com number ≤ número da atual; funciona pois numeração é sequencial, mas vulnerável se um dia a ordem for alterada. Preferir filtrar por `closed_at`."
+  ],
+  "updated_files": ["/app/backend/tests/test_iteration39.py"],
+  "success_rate": {"backend": "100% (9/9)", "frontend": "100% (fluxo visual completo validado)"},
+  "test_credentials": "admin lucasc.cuiaba02@gmail.com / Hayah$152610 (de /app/memory/test_credentials.md)",
+  "seed_data_creation": "TEST-MED-ITER39 criado/removido em cada teste de fechar/reabrir. TEST-MED-PARC já existia com 2 medições fechadas e foi usado apenas para leitura/UI.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Para fluxo de medições parciais use TEST-MED-PARC (nº1=R$6.220,56, nº2=R$4.623,18, acumulado R$10.843,74, rascunho vazio). Testes de fechar/reabrir devem criar obras TEST-MED-* próprias. pymupdf está disponível para inspecionar texto do PDF.",
+  "rca of the issue": "Nenhuma falha identificada nesta iteração."
+}
