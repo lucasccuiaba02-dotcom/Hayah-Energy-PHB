@@ -15,22 +15,22 @@ const uid = () => Math.random().toString(36).slice(2, 10);
 const pdfQuery = (meta) => {
   const q = new URLSearchParams();
   if (meta.period) q.set('period', meta.period);
-  if (meta.number) q.set('number', meta.number);
   if (meta.notes) q.set('notes', meta.notes);
+  if (meta.medicao_id) q.set('medicao_id', meta.medicao_id);
   const s = q.toString();
   return s ? `?${s}` : '';
 };
 
 export const downloadMedicaoPdf = (projectId, meta = {}) =>
-  downloadUrl(withAuth(apiUrl(`/api/projects/${projectId}/medicao/pdf${pdfQuery(meta)}`)), `medicao_${projectId}.pdf`);
+  downloadUrl(withAuth(apiUrl(`/api/projects/${projectId}/medicao/pdf${pdfQuery(meta)}`)), `medicao_${projectId}${meta.medicao_id ? `_${meta.medicao_id}` : ''}.pdf`);
 
-/** Modal: fiscais da obra (salvos) + e-mails extras, mensagem, período/nº da medição → envia PDF em anexo via Resend. */
-export const MedicaoEnvioModal = ({ open, detail, onClose, onChanged }) => {
+/** Modal: fiscais da obra (salvos) + e-mails extras, mensagem, período/nº da medição → envia PDF em anexo via Resend.
+ *  `medicao` (opcional) = medição fechada do histórico; sem ela, envia a medição em aberto. */
+export const MedicaoEnvioModal = ({ open, detail, medicao = null, onClose, onChanged }) => {
   const [fiscais, setFiscais] = useState([]);
   const [message, setMessage] = useState('');
   const [notes, setNotes] = useState('');
   const [period, setPeriod] = useState('');
-  const [number, setNumber] = useState('');
   const [copyMe, setCopyMe] = useState(true);
   const [sending, setSending] = useState(false);
   const [savingFiscais, setSavingFiscais] = useState(false);
@@ -40,14 +40,18 @@ export const MedicaoEnvioModal = ({ open, detail, onClose, onChanged }) => {
     if (!open || !detail) return;
     const base = (detail.fiscais || []).map((f) => ({ ...f, _id: uid(), send: true }));
     setFiscais(base.length ? base : [{ _id: uid(), name: '', email: '', phone: '', send: true }]);
-    setMessage(''); setNotes(''); setPeriod(''); setNumber(''); setResult(null);
-  }, [open, detail]);
+    setMessage(''); setNotes(medicao?.notes || ''); setPeriod(medicao?.period || ''); setResult(null);
+  }, [open, detail, medicao]);
 
   const recipients = useMemo(() => fiscais.filter((f) => f.send && EMAIL_RE.test((f.email || '').trim())).map((f) => f.email.trim().toLowerCase()), [fiscais]);
   const dirtyFiscais = useMemo(() => JSON.stringify((detail?.fiscais || []).map((f) => [f.name, f.email, f.phone])) !== JSON.stringify(fiscais.filter((f) => (f.name || f.email).trim()).map((f) => [f.name, f.email, f.phone])), [detail, fiscais]);
   if (!open || !detail) return null;
   const p = detail.project;
-  const total = detail.totals?.realizado || 0;
+  const total = medicao ? medicao.total : (detail.totals?.em_aberto ?? detail.totals?.realizado ?? 0);
+  const count = medicao ? medicao.items_count : (detail.totals?.realizado_count || 0);
+  const number = medicao ? medicao.number : (detail.medicoes?.length ? detail.next_number : null);
+  const title = medicao ? `Medição nº ${medicao.number}` : (number ? `Medição nº ${number} (em aberto)` : 'Medição');
+  const envios = (detail.envios || []).filter((e) => (medicao ? e.medicao_id === medicao.id : !e.medicao_id));
 
   const upd = (id, patch) => setFiscais((l) => l.map((f) => (f._id === id ? { ...f, ...patch } : f)));
   const add = () => setFiscais((l) => [...l, { _id: uid(), name: '', email: '', phone: '', send: true }]);
@@ -66,7 +70,7 @@ export const MedicaoEnvioModal = ({ open, detail, onClose, onChanged }) => {
     setSending(true); setResult(null);
     try {
       if (dirtyFiscais) await axios.put(`${API}/projects/${p.id}/medicao/fiscais`, { fiscais: fiscais.filter((f) => (f.name || f.email).trim()).map(({ name, email, phone }) => ({ name, email, phone })) });
-      const { data } = await axios.post(`${API}/projects/${p.id}/medicao/enviar`, { recipients, message, notes, period, number, copy_me: copyMe, save_fiscais: true });
+      const { data } = await axios.post(`${API}/projects/${p.id}/medicao/enviar`, { recipients, message, notes, period, copy_me: copyMe, save_fiscais: true, medicao_id: medicao?.id || '' });
       setResult({ ok: true, recipients: data.recipients, filename: data.filename });
       onChanged?.(data);
       toast.success(`Medição enviada para ${data.recipients.length} destinatário(s)`);
@@ -83,9 +87,9 @@ export const MedicaoEnvioModal = ({ open, detail, onClose, onChanged }) => {
         <div className="flex items-center gap-3 px-5 py-4 border-b border-white/10">
           <div className="w-10 h-10 rounded-xl bg-[#39FF14]/15 border border-[#39FF14]/40 flex items-center justify-center"><Mail className="w-5 h-5 text-[#39FF14]" /></div>
           <div className="flex-1 min-w-0">
-            <p className="text-[10px] tracking-[0.25em] uppercase font-bold text-[#39FF14]">Enviar medição aos fiscais</p>
+            <p className="text-[10px] tracking-[0.25em] uppercase font-bold text-[#39FF14]">Enviar aos fiscais · {title}</p>
             <h3 className="font-heading font-black text-lg text-white leading-tight truncate">{p.project_code ? `${p.project_code} · ` : ''}{p.name}</h3>
-            <p className="text-[11px] text-zinc-400">{detail.totals?.realizado_count || 0} serviço(s) medidos · <span className="font-mono text-[#39FF14] font-bold">{formatCurrency(total)}</span> · PDF anexo</p>
+            <p className="text-[11px] text-zinc-400">{count} serviço(s) medidos · <span className="font-mono text-[#39FF14] font-bold">{formatCurrency(total)}</span>{medicao?.period ? ` · ${medicao.period}` : ''} · PDF anexo</p>
           </div>
           <button data-testid="mo-envio-close" onClick={onClose} className="p-2 rounded-lg hover:bg-white/10 text-zinc-400 hover:text-white"><X className="w-5 h-5" /></button>
         </div>
@@ -115,7 +119,7 @@ export const MedicaoEnvioModal = ({ open, detail, onClose, onChanged }) => {
 
           <div className="grid grid-cols-2 gap-2">
             <div><label className="text-[10px] uppercase tracking-wider font-bold text-zinc-400">Período da medição</label><input data-testid="mo-envio-period" value={period} onChange={(e) => setPeriod(e.target.value)} placeholder="ex.: 01/09 a 30/09/2026" className="mt-1 w-full px-3 py-2 bg-zinc-950 border border-white/10 rounded-lg text-sm text-white placeholder:text-zinc-600 focus:border-[#39FF14] focus:outline-none" /></div>
-            <div><label className="text-[10px] uppercase tracking-wider font-bold text-zinc-400">Nº da medição</label><input data-testid="mo-envio-number" value={number} onChange={(e) => setNumber(e.target.value)} placeholder="ex.: 01/2026 ou ÚNICA" className="mt-1 w-full px-3 py-2 bg-zinc-950 border border-white/10 rounded-lg text-sm text-white placeholder:text-zinc-600 focus:border-[#39FF14] focus:outline-none" /></div>
+            <div><label className="text-[10px] uppercase tracking-wider font-bold text-zinc-400">Nº da medição</label><div data-testid="mo-envio-number" className="mt-1 w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-sm text-zinc-300 font-mono">{number ? `${number}ª${medicao ? '' : ' (em aberto)'}` : 'Única'}</div></div>
           </div>
           <div>
             <label className="text-[10px] uppercase tracking-wider font-bold text-zinc-400">Mensagem do e-mail <span className="text-zinc-600 normal-case tracking-normal font-normal">(vazio = texto padrão)</span></label>
@@ -133,11 +137,11 @@ export const MedicaoEnvioModal = ({ open, detail, onClose, onChanged }) => {
             </div>
           )}
 
-          {(detail.envios || []).length > 0 && (
+          {envios.length > 0 && (
             <div data-testid="mo-envio-history">
-              <p className="text-[10px] uppercase tracking-wider font-bold text-zinc-400 mb-1.5 inline-flex items-center gap-1"><Clock className="w-3 h-3" /> Envios anteriores</p>
+              <p className="text-[10px] uppercase tracking-wider font-bold text-zinc-400 mb-1.5 inline-flex items-center gap-1"><Clock className="w-3 h-3" /> Envios anteriores desta medição</p>
               <div className="divide-y divide-white/5 rounded-xl border border-white/10 overflow-hidden">
-                {detail.envios.map((e) => (
+                {envios.map((e) => (
                   <div key={e.id} data-testid={`mo-envio-item-${e.id}`} className="px-3 py-2 flex items-center gap-2 text-[11px]">
                     <span className={`w-1.5 h-1.5 rounded-full ${e.status === 'sent' ? 'bg-[#39FF14]' : 'bg-[#FF003C]'}`} />
                     <span className="text-zinc-400 font-mono">{dateBR(e.at)}</span>
@@ -152,9 +156,9 @@ export const MedicaoEnvioModal = ({ open, detail, onClose, onChanged }) => {
         </div>
 
         <div className="flex items-center gap-2 px-5 py-3 border-t border-white/10">
-          <button type="button" data-testid="mo-envio-pdf" onClick={() => downloadMedicaoPdf(p.id, { period, number, notes })} className="inline-flex items-center gap-1.5 text-xs font-bold text-zinc-200 bg-white/5 hover:bg-white/10 px-3 sm:px-4 py-2 rounded-full whitespace-nowrap"><FileDown className="w-3.5 h-3.5" /> <span className="hidden sm:inline">Baixar</span> PDF</button>
+          <button type="button" data-testid="mo-envio-pdf" onClick={() => downloadMedicaoPdf(p.id, { period, notes, medicao_id: medicao?.id })} className="inline-flex items-center gap-1.5 text-xs font-bold text-zinc-200 bg-white/5 hover:bg-white/10 px-3 sm:px-4 py-2 rounded-full whitespace-nowrap"><FileDown className="w-3.5 h-3.5" /> <span className="hidden sm:inline">Baixar</span> PDF</button>
           <span className="text-[11px] text-zinc-500 flex-1 min-w-0 truncate">{recipients.length} destinatário(s){copyMe ? ' + cópia' : ''}</span>
-          <button type="button" data-testid="mo-envio-send" disabled={sending || !recipients.length || !detail.totals?.realizado_count} onClick={send} className="inline-flex items-center gap-1.5 text-xs font-black text-black bg-[#39FF14] hover:bg-[#2ee010] px-4 sm:px-5 py-2 rounded-full disabled:opacity-40 whitespace-nowrap"><Send className="w-3.5 h-3.5" /> {sending ? 'Enviando…' : 'Enviar por e-mail'}</button>
+          <button type="button" data-testid="mo-envio-send" disabled={sending || !recipients.length || !count} onClick={send} className="inline-flex items-center gap-1.5 text-xs font-black text-black bg-[#39FF14] hover:bg-[#2ee010] px-4 sm:px-5 py-2 rounded-full disabled:opacity-40 whitespace-nowrap"><Send className="w-3.5 h-3.5" /> {sending ? 'Enviando…' : 'Enviar por e-mail'}</button>
         </div>
       </motion.div>
     </div>

@@ -154,6 +154,21 @@ class EnvioBody(BaseModel):
     number: str = ""
     copy_me: bool = True
     save_fiscais: bool = True
+    medicao_id: str = ""
+
+
+class FecharBody(BaseModel):
+    period_from: str = ""
+    period_to: str = ""
+    notes: str = ""
+
+
+def _period_label(a: str, b: str) -> str:
+    a, b = (a or "")[:10], (b or "")[:10]
+    br = lambda s: "/".join(reversed(s.split("-"))) if s else ""  # noqa: E731
+    if a and b:
+        return f"{br(a)} a {br(b)}"
+    return br(a) or br(b) or ""
 
 
 def _line(l: LaborLine) -> dict:
@@ -182,21 +197,29 @@ def build_router(db, get_current_user, safe_object_id, build_project_response=No
         return p
 
     def _detail(p: dict) -> dict:
-        budget, measured = p.get("labor_budget") or [], p.get("labor_measured") or []
-        tb, tm = _total(budget), _total(measured)
+        budget, measured, medicoes = p.get("labor_budget") or [], p.get("labor_measured") or [], p.get("medicoes") or []
+        tb, draft = _total(budget), _total(measured)
+        fechado = round(sum(float(m.get("total") or 0) for m in medicoes), 2)
+        tm = round(fechado + draft, 2)
+        envios = p.get("medicao_envios") or []
         return {
             "project": {"id": str(p["_id"]), "project_code": p.get("project_code", ""), "name": p.get("name", ""), "team_name": p.get("team_name", ""),
                         "execution_status": p.get("execution_status", ""), "billing_stage": p.get("billing_stage", ""), "programmed_value": float(p.get("programmed_value") or 0),
                         "actual_value": float(p.get("actual_value") or 0), "labor_cost": float(p.get("labor_cost") or 0), "project_type": p.get("project_type", ""),
                         "location": p.get("location", "")},
             "budget": budget, "measured": measured,
-            "totals": {"orcado": tb, "realizado": tm, "diff": round(tm - tb, 2), "pct": round(100 * tm / tb, 1) if tb > 0 else None,
-                       "orcado_count": len(budget), "realizado_count": len(measured)},
+            "medicoes": [{**m, "envios": sum(1 for e in envios if e.get("medicao_id") == m.get("id"))} for m in medicoes],
+            "next_number": len(medicoes) + 1,
+            "totals": {"orcado": tb, "realizado": tm, "fechado": fechado, "em_aberto": draft, "diff": round(tm - tb, 2), "pct": round(100 * tm / tb, 1) if tb > 0 else None,
+                       "orcado_count": len(budget), "realizado_count": len(measured), "medicoes_count": len(medicoes)},
             "applied": {"labor_cost": float(p.get("labor_cost") or 0), "actual_value": float(p.get("actual_value") or 0),
                         "at": p.get("medicao_applied_at", ""), "by": p.get("medicao_applied_by", "")},
             "fiscais": p.get("fiscais") or [],
-            "envios": list(reversed((p.get("medicao_envios") or [])[-10:])),
+            "envios": list(reversed(envios[-10:])),
         }
+
+    def _fechado(p: dict) -> float:
+        return round(sum(float(m.get("total") or 0) for m in (p.get("medicoes") or [])), 2)
 
     async def _groups_map(user_id) -> dict:
         """catalog_id → grupo e ("code", código) → grupo, para agrupar linhas antigas sem `group`."""
@@ -209,14 +232,30 @@ def build_router(db, get_current_user, safe_object_id, build_project_response=No
                     out[("code", str(c["code"]).strip())] = g
         return out
 
-    async def _render_pdf(p: dict, user: dict, meta: dict) -> tuple:
+    async def _render_pdf(p: dict, user: dict, meta: dict, medicao: dict | None = None) -> tuple:
         from medicao_pdf import build_medicao_pdf, group_items
-        items = p.get("labor_measured") or []
+        items = (medicao or {}).get("items") if medicao else (p.get("labor_measured") or [])
         groups = group_items(items, await _groups_map(user["_id"]))
         company, logo = (await company_loader(user["_id"])) if company_loader else ({"name": "HAYAH ENERGY"}, None)
+        medicoes = p.get("medicoes") or []
+        if medicao:
+            meta = {**meta, "number": medicao.get("number"), "period": meta.get("period") or _period_label(medicao.get("period_from"), medicao.get("period_to")),
+                    "notes": meta.get("notes") or medicao.get("notes") or "", "closed_at": medicao.get("closed_at"),
+                    "accumulated": round(sum(float(m.get("total") or 0) for m in medicoes if int(m.get("number") or 0) <= int(medicao.get("number") or 0)), 2)}
+        elif medicoes:
+            meta = {**meta, "number": len(medicoes) + 1, "draft": True, "accumulated": round(_fechado(p) + _total(items), 2)}
         pdf = await asyncio.to_thread(build_medicao_pdf, p, items, groups, company, logo, meta)
         code = re.sub(r"[^A-Za-z0-9_-]+", "_", p.get("project_code") or p.get("name") or "obra")[:40]
-        return pdf, f"medicao_{code}_{datetime.now(timezone.utc).strftime('%Y%m%d')}.pdf", groups, company
+        suffix = f"_med{medicao['number']:02d}" if medicao else ""
+        return pdf, f"medicao_{code}{suffix}_{datetime.now(timezone.utc).strftime('%Y%m%d')}.pdf", groups, company, meta
+
+    def _find_medicao(p: dict, mid: str) -> dict | None:
+        if not mid:
+            return None
+        m = next((m for m in (p.get("medicoes") or []) if m.get("id") == mid), None)
+        if not m:
+            raise HTTPException(status_code=404, detail="Medição não encontrada")
+        return m
 
     # ── Catálogo (base geral do contrato) ─────────────────────────────────
     @router.get("/medicao/catalogo")
@@ -284,18 +323,20 @@ def build_router(db, get_current_user, safe_object_id, build_project_response=No
     @router.get("/medicao/projects")
     async def list_projects(q: str = "", current_user: dict = Depends(get_current_user)):
         proj = {"project_code": 1, "name": 1, "team_name": 1, "execution_status": 1, "billing_stage": 1, "programmed_value": 1, "actual_value": 1,
-                "labor_cost": 1, "labor_budget": 1, "labor_measured": 1, "medicao_applied_at": 1, "project_type": 1, "location": 1}
+                "labor_cost": 1, "labor_budget": 1, "labor_measured": 1, "medicao_applied_at": 1, "project_type": 1, "location": 1, "medicoes.total": 1}
         docs = await db.projects.find({"user_id": current_user["_id"]}, proj).sort("created_at", -1).to_list(5000)
         out = []
         ql = q.lower().strip()
         for p in docs:
             if ql and ql not in (p.get("project_code") or "").lower() and ql not in (p.get("name") or "").lower() and ql not in (p.get("team_name") or "").lower():
                 continue
-            tb, tm = _total(p.get("labor_budget")), _total(p.get("labor_measured"))
+            fechado = round(sum(float(m.get("total") or 0) for m in (p.get("medicoes") or [])), 2)
+            tb, tm = _total(p.get("labor_budget")), round(fechado + _total(p.get("labor_measured")), 2)
             out.append({"id": str(p["_id"]), "project_code": p.get("project_code", ""), "name": p.get("name", ""), "team_name": p.get("team_name", ""),
                         "execution_status": p.get("execution_status", ""), "billing_stage": p.get("billing_stage", ""), "project_type": p.get("project_type", ""),
                         "programmed_value": float(p.get("programmed_value") or 0), "actual_value": float(p.get("actual_value") or 0), "labor_cost": float(p.get("labor_cost") or 0),
-                        "orcado": tb, "realizado": tm, "orcado_count": len(p.get("labor_budget") or []), "realizado_count": len(p.get("labor_measured") or []),
+                        "orcado": tb, "realizado": tm, "fechado": fechado, "medicoes_count": len(p.get("medicoes") or []),
+                        "orcado_count": len(p.get("labor_budget") or []), "realizado_count": len(p.get("labor_measured") or []) + len(p.get("medicoes") or []),
                         "applied_at": p.get("medicao_applied_at", "")})
         totals = {"projects": len(out), "orcado": round(sum(o["orcado"] for o in out), 2), "realizado": round(sum(o["realizado"] for o in out), 2),
                   "with_measurement": sum(1 for o in out if o["realizado_count"])}
@@ -331,11 +372,11 @@ def build_router(db, get_current_user, safe_object_id, build_project_response=No
     async def save_measured(project_id: str, body: LinesBody, current_user: dict = Depends(get_current_user)):
         p = await _project(project_id, current_user)
         items = [_line(l) for l in body.items if l.description.strip()]
-        total = _total(items)
+        total = round(_fechado(p) + _total(items), 2)
         old = float(p.get("actual_value") or 0)
         upd = {"labor_measured": items, "actual_value": total, "medicao_applied_at": _now(), "medicao_applied_by": current_user.get("name", "")}
         push = {"movement_history": {"event": "medicao_aplicada", "field": "actual_value", "old": old, "new": total, "at": _now(), "by": current_user.get("name", ""),
-                                     "note": f"Medição de mão de obra: {len(items)} item(ns)"}}
+                                     "note": f"Medição de mão de obra nº {len(p.get('medicoes') or []) + 1} (em aberto): {len(items)} item(ns)"}}
         await db.projects.update_one({"_id": p["_id"]}, {"$set": upd, "$push": push})
         return _detail(await _project(project_id, current_user))
 
@@ -346,9 +387,50 @@ def build_router(db, get_current_user, safe_object_id, build_project_response=No
         if not items:
             raise HTTPException(status_code=400, detail="Esta obra não tem lista orçada")
         old = float(p.get("actual_value") or 0)
-        total = _total(items)
+        total = round(_fechado(p) + _total(items), 2)
         await db.projects.update_one({"_id": p["_id"]}, {"$set": {"labor_measured": items, "actual_value": total, "medicao_applied_at": _now(), "medicao_applied_by": current_user.get("name", "")},
                                                           "$push": {"movement_history": {"event": "medicao_aplicada", "field": "actual_value", "old": old, "new": total, "at": _now(), "by": current_user.get("name", ""), "note": "Realizado copiado do orçado"}}})
+        return _detail(await _project(project_id, current_user))
+
+    # ── Medições parciais (fechamentos numerados) ─────────────────────────
+    @router.post("/projects/{project_id}/medicao/fechar")
+    async def fechar_medicao(project_id: str, body: FecharBody, current_user: dict = Depends(get_current_user)):
+        p = await _project(project_id, current_user)
+        items = p.get("labor_measured") or []
+        if not items:
+            raise HTTPException(status_code=400, detail="A medição em aberto não tem itens para fechar")
+        if body.period_from and body.period_to and body.period_to[:10] < body.period_from[:10]:
+            raise HTTPException(status_code=400, detail="Período inválido: data final anterior à inicial")
+        medicoes = p.get("medicoes") or []
+        number = len(medicoes) + 1
+        total = _total(items)
+        entry = {"id": uuid4().hex[:10], "number": number, "period_from": body.period_from[:10], "period_to": body.period_to[:10],
+                 "period": _period_label(body.period_from, body.period_to), "notes": body.notes.strip()[:1000], "items": items, "total": total,
+                 "qty_total": round(sum(float(i.get("qty") or 0) for i in items), 2), "items_count": len(items),
+                 "closed_at": _now(), "closed_by": current_user.get("name", "")}
+        fechado = round(_fechado(p) + total, 2)
+        await db.projects.update_one({"_id": p["_id"]}, {
+            "$push": {"medicoes": entry, "movement_history": {"event": "medicao_fechada", "field": "actual_value", "old": float(p.get("actual_value") or 0), "new": fechado, "at": _now(),
+                                                              "by": current_user.get("name", ""), "note": f"Medição nº {number} fechada ({entry['period'] or 'sem período'}): {len(items)} item(ns) · R$ {total:,.2f}"}},
+            "$set": {"labor_measured": [], "actual_value": fechado, "medicao_applied_at": _now(), "medicao_applied_by": current_user.get("name", "")}})
+        return {"fechada": entry, **_detail(await _project(project_id, current_user))}
+
+    @router.post("/projects/{project_id}/medicao/{medicao_id}/reabrir")
+    async def reabrir_medicao(project_id: str, medicao_id: str, current_user: dict = Depends(get_current_user)):
+        p = await _project(project_id, current_user)
+        medicoes = p.get("medicoes") or []
+        m = _find_medicao(p, medicao_id)
+        if not medicoes or medicoes[-1].get("id") != medicao_id:
+            raise HTTPException(status_code=400, detail="Só a última medição fechada pode ser reaberta")
+        if p.get("labor_measured"):
+            raise HTTPException(status_code=400, detail="A medição em aberto já tem itens — salve-a vazia ou feche-a antes de reabrir a anterior")
+        rest = medicoes[:-1]
+        fechado = round(sum(float(x.get("total") or 0) for x in rest), 2)
+        new_actual = round(fechado + float(m.get("total") or 0), 2)
+        await db.projects.update_one({"_id": p["_id"]}, {
+            "$set": {"medicoes": rest, "labor_measured": m.get("items") or [], "actual_value": new_actual, "medicao_applied_at": _now(), "medicao_applied_by": current_user.get("name", "")},
+            "$push": {"movement_history": {"event": "medicao_reaberta", "field": "actual_value", "old": float(p.get("actual_value") or 0), "new": new_actual, "at": _now(),
+                                           "by": current_user.get("name", ""), "note": f"Medição nº {m.get('number')} reaberta para correção"}}})
         return _detail(await _project(project_id, current_user))
 
     # ── Fiscais da obra · PDF · envio por e-mail ───────────────────────────
@@ -360,16 +442,19 @@ def build_router(db, get_current_user, safe_object_id, build_project_response=No
         return _detail(await _project(project_id, current_user))
 
     @router.get("/projects/{project_id}/medicao/pdf")
-    async def medicao_pdf(project_id: str, notes: str = "", period: str = "", number: str = "", current_user: dict = Depends(get_current_user)):
+    async def medicao_pdf(project_id: str, notes: str = "", period: str = "", number: str = "", medicao_id: str = "", current_user: dict = Depends(get_current_user)):
         p = await _project(project_id, current_user)
-        pdf, filename, _g, _c = await _render_pdf(p, current_user, {"notes": notes[:1000], "period": period[:60], "number": number[:30]})
+        m = _find_medicao(p, medicao_id)
+        pdf, filename, _g, _c, _m = await _render_pdf(p, current_user, {"notes": notes[:1000], "period": period[:60]}, m)
         return Response(content=pdf, media_type="application/pdf",
                         headers={"Content-Disposition": f'attachment; filename="{filename}"', "Content-Length": str(len(pdf)), "Cache-Control": "no-store"})
 
     @router.post("/projects/{project_id}/medicao/enviar")
     async def enviar_medicao(project_id: str, body: EnvioBody, current_user: dict = Depends(get_current_user)):
         p = await _project(project_id, current_user)
-        if not (p.get("labor_measured") or []):
+        m = _find_medicao(p, body.medicao_id)
+        items = (m or {}).get("items") if m else (p.get("labor_measured") or [])
+        if not items:
             raise HTTPException(status_code=400, detail="Lance e salve a medição (lista realizada) antes de enviar")
         recipients = sorted({r.strip().lower() for r in body.recipients if EMAIL_RE.match(r.strip())})
         if not recipients:
@@ -382,20 +467,22 @@ def build_router(db, get_current_user, safe_object_id, build_project_response=No
             if new:
                 await db.projects.update_one({"_id": p["_id"]}, {"$set": {"fiscais": (p.get("fiscais") or []) + new}})
                 p["fiscais"] = (p.get("fiscais") or []) + new
-        pdf, filename, groups, company = await _render_pdf(p, current_user, {"notes": body.notes[:1000], "period": body.period[:60], "number": body.number[:30]})
+        pdf, filename, groups, company, meta = await _render_pdf(p, current_user, {"notes": body.notes[:1000], "period": body.period[:60]}, m)
         from medicao_pdf import medicao_email_html
-        total_qty = sum(float(i.get("qty") or 0) for i in p["labor_measured"])
-        total_val = _total(p["labor_measured"])
-        default_msg = (f"Prezado(a) fiscal,\n\nSegue em anexo o Resumo de Mão de Obra da obra {p.get('project_code') or ''} — {p.get('name') or ''}, "
-                       f"totalizando {len(p['labor_measured'])} serviço(s) e R$ {total_val:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".") + ".\n\nFicamos à disposição para conferência e validação.")
-        html = medicao_email_html(p, groups, total_qty, total_val, company, body.message.strip() or default_msg)
-        subject = f"[{company.get('name', 'HAYAH ENERGY')}] Medição de Mão de Obra · {p.get('project_code') or p.get('name') or ''}"
+        total_qty = sum(float(i.get("qty") or 0) for i in items)
+        total_val = _total(items)
+        med_label = f"Medição nº {meta['number']}" if meta.get("number") else "Resumo de Mão de Obra"
+        default_msg = (f"Prezado(a) fiscal,\n\nSegue em anexo o Resumo de Mão de Obra — {med_label} da obra {p.get('project_code') or ''} — {p.get('name') or ''}"
+                       + (f", período {meta['period']}" if meta.get("period") else "") + f", totalizando {len(items)} serviço(s) e R$ {total_val:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+                       + ".\n\nFicamos à disposição para conferência e validação.")
+        html = medicao_email_html(p, groups, total_qty, total_val, company, body.message.strip() or default_msg, meta=meta)
+        subject = f"[{company.get('name', 'HAYAH ENERGY')}] {med_label} · {p.get('project_code') or p.get('name') or ''}"
         if not send_email:
             raise HTTPException(status_code=503, detail="Envio de e-mail não configurado")
         result = await send_email(recipients, subject, html, [{"filename": filename, "content": base64.b64encode(pdf).decode("ascii")}])
         entry = {"id": uuid4().hex[:10], "at": _now(), "by": current_user.get("name", ""), "recipients": recipients, "status": result.get("status"),
-                 "email_id": result.get("id", ""), "error": result.get("error", "") or result.get("reason", ""), "total": total_val, "items": len(p["labor_measured"]),
-                 "filename": filename, "period": body.period[:60], "number": body.number[:30]}
+                 "email_id": result.get("id", ""), "error": result.get("error", "") or result.get("reason", ""), "total": total_val, "items": len(items),
+                 "filename": filename, "period": meta.get("period") or "", "number": str(meta.get("number") or ""), "medicao_id": (m or {}).get("id", "")}
         await db.projects.update_one({"_id": p["_id"]}, {"$push": {"medicao_envios": entry}})
         if result.get("status") == "error":
             raise HTTPException(status_code=502, detail=f"Falha ao enviar e-mail: {result.get('error')}")

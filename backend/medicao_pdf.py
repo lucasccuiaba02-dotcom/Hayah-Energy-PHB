@@ -75,6 +75,8 @@ def build_medicao_pdf(project: dict, items: list, groups: list, company: dict, l
 
     total_qty = sum(float(i.get("qty") or 0) for i in items)
     total_val = sum(float(i.get("total") or 0) for i in items)
+    accumulated = meta.get("accumulated")
+    med_label = f"MEDIÇÃO Nº {meta['number']}" if meta.get("number") else "MEDIÇÃO"
     story = []
 
     # ── Quadro da obra + FECHAMENTO (como no modelo)
@@ -84,25 +86,28 @@ def build_medicao_pdf(project: dict, items: list, groups: list, company: dict, l
         [Paragraph(project.get("name") or "—", st_info_val), Paragraph(project.get("project_code") or "—", st_info_val),
          Paragraph(TYPE_LABEL.get(project.get("project_type") or "", project.get("project_type") or "—"), st_info_val), Paragraph(project.get("team_name") or "—", st_info_val)],
         [Paragraph("LOCAL", st_info_lbl), Paragraph("PERÍODO DA MEDIÇÃO", st_info_lbl), Paragraph("Nº MEDIÇÃO", st_info_lbl), Paragraph("FISCAL(IS) DA OBRA", st_info_lbl)],
-        [Paragraph(project.get("location") or "—", st_info_val), Paragraph(meta.get("period") or _dt(project.get("medicao_applied_at")), st_info_val),
-         Paragraph(meta.get("number") or "ÚNICA", st_info_val), Paragraph(fiscais, st_info_val)],
+        [Paragraph(project.get("location") or "—", st_info_val), Paragraph(meta.get("period") or _dt(meta.get("closed_at") or project.get("medicao_applied_at")), st_info_val),
+         Paragraph((f"{meta['number']}ª" if meta.get("number") else "EM ABERTO") + (" · em aberto" if meta.get("draft") else "") + (" · " + _dt(meta["closed_at"]) if meta.get("closed_at") else ""), st_info_val), Paragraph(fiscais, st_info_val)],
     ]
     info_w = W * 0.66
-    info_t = Table(info, colWidths=[info_w * 0.32, info_w * 0.23, info_w * 0.19, info_w * 0.26])
+    info_t = Table(info, colWidths=[info_w * 0.30, info_w * 0.26, info_w * 0.18, info_w * 0.26])
     info_t.setStyle(TableStyle([
         ("BOX", (0, 0), (-1, -1), 0.8, NAVY), ("INNERGRID", (0, 0), (-1, -1), 0.3, LINE),
         ("BACKGROUND", (0, 0), (-1, 0), ZEBRA), ("BACKGROUND", (0, 2), (-1, 2), ZEBRA),
         ("VALIGN", (0, 0), (-1, -1), "MIDDLE"), ("TOPPADDING", (0, 0), (-1, -1), 2.5), ("BOTTOMPADDING", (0, 0), (-1, -1), 2.5), ("LEFTPADDING", (0, 0), (-1, -1), 4),
     ]))
-    fech = Table([
-        [Paragraph("FECHAMENTO", ParagraphStyle("f", parent=st_head, fontSize=8.5))],
-        [Table([[Paragraph("QUANT. TOTAL", st_info_lbl), Paragraph("VALOR TOTAL", st_info_lbl)],
-                [Paragraph(_num(total_qty), ParagraphStyle("q", parent=st_info_val, fontSize=11, alignment=TA_CENTER)),
-                 Paragraph(_brl(total_val), ParagraphStyle("v", parent=st_info_val, fontSize=11, alignment=TA_CENTER, textColor=NAVY))]],
-               colWidths=[(W * 0.34 - 2) * 0.42, (W * 0.34 - 2) * 0.58],
-               style=TableStyle([("ALIGN", (0, 0), (-1, -1), "CENTER"), ("LINEAFTER", (0, 0), (0, -1), 0.3, LINE), ("TOPPADDING", (0, 0), (-1, -1), 3), ("BOTTOMPADDING", (0, 0), (-1, -1), 3)]))],
-        [Paragraph(f"{len(items)} item(ns) · {len(groups)} grupo(s)", ParagraphStyle("n", parent=st_small, alignment=TA_CENTER, fontSize=6.8))],
-    ], colWidths=[W * 0.34 - 2])
+    fw = W * 0.34 - 2
+    fech_rows = [[Paragraph("FECHAMENTO" + (f" · {med_label}" if meta.get("number") else ""), ParagraphStyle("f", parent=st_head, fontSize=8.5))],
+                 [Table([[Paragraph("QUANT. TOTAL", st_info_lbl), Paragraph("VALOR DESTA MEDIÇÃO" if accumulated is not None else "VALOR TOTAL", st_info_lbl)],
+                         [Paragraph(_num(total_qty), ParagraphStyle("q", parent=st_info_val, fontSize=11, alignment=TA_CENTER)),
+                          Paragraph(_brl(total_val), ParagraphStyle("v", parent=st_info_val, fontSize=11, alignment=TA_CENTER, textColor=NAVY))]],
+                        colWidths=[fw * 0.42, fw * 0.58],
+                        style=TableStyle([("ALIGN", (0, 0), (-1, -1), "CENTER"), ("LINEAFTER", (0, 0), (0, -1), 0.3, LINE), ("TOPPADDING", (0, 0), (-1, -1), 3), ("BOTTOMPADDING", (0, 0), (-1, -1), 3)]))]]
+    if accumulated is not None:
+        fech_rows.append([Table([[Paragraph("ACUMULADO DA OBRA", st_info_lbl), Paragraph(_brl(accumulated), ParagraphStyle("acc", parent=st_info_val, fontSize=9.5, alignment=TA_RIGHT, textColor=NAVY))]],
+                                colWidths=[fw * 0.5, fw * 0.5], style=TableStyle([("LINEABOVE", (0, 0), (-1, 0), 0.3, LINE), ("TOPPADDING", (0, 0), (-1, -1), 2), ("BOTTOMPADDING", (0, 0), (-1, -1), 2)]))])
+    fech_rows.append([Paragraph(f"{len(items)} item(ns) · {len(groups)} grupo(s)", ParagraphStyle("n", parent=st_small, alignment=TA_CENTER, fontSize=6.8))])
+    fech = Table(fech_rows, colWidths=[fw])
     fech.setStyle(TableStyle([("BOX", (0, 0), (-1, -1), 0.8, NAVY), ("BACKGROUND", (0, 0), (-1, 0), NAVY), ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
                               ("TOPPADDING", (0, 0), (-1, 0), 3), ("BOTTOMPADDING", (0, 0), (-1, 0), 3), ("TOPPADDING", (0, 1), (-1, -1), 1), ("BOTTOMPADDING", (0, 1), (-1, -1), 2)]))
     top = Table([[info_t, fech]], colWidths=[info_w, W - info_w], style=TableStyle([("VALIGN", (0, 0), (-1, -1), "TOP"), ("LEFTPADDING", (0, 0), (-1, -1), 0), ("RIGHTPADDING", (0, 0), (-1, -1), 0), ("LEFTPADDING", (1, 0), (1, 0), 2)]))
@@ -183,7 +188,8 @@ def build_medicao_pdf(project: dict, items: list, groups: list, company: dict, l
         canvas.setFont("Helvetica-Bold", 14)
         canvas.drawString(x, h - 11 * mm, "RESUMO DE MÃO DE OBRA")
         canvas.setFont("Helvetica", 8.5)
-        canvas.drawString(x, h - 16.5 * mm, f"Medição de serviços executados · {company.get('name', 'HAYAH ENERGY')}" + (f" · {company.get('tagline')}" if company.get("tagline") else ""))
+        sub = f"{med_label}" + (f" · {meta['period']}" if meta.get("period") else "") + f" · {company.get('name', 'HAYAH ENERGY')}"
+        canvas.drawString(x, h - 16.5 * mm, sub)
         canvas.setFont("Helvetica-Bold", 9)
         canvas.drawRightString(w - 12 * mm, h - 10 * mm, project.get("project_code") or "")
         canvas.setFont("Helvetica", 7.5)
@@ -202,7 +208,12 @@ def build_medicao_pdf(project: dict, items: list, groups: list, company: dict, l
     return buf.getvalue()
 
 
-def medicao_email_html(project: dict, groups: list, total_qty: float, total_val: float, company: dict, message: str, logo_url: str = "") -> str:
+def medicao_email_html(project: dict, groups: list, total_qty: float, total_val: float, company: dict, message: str, logo_url: str = "", meta: dict | None = None) -> str:
+    meta = meta or {}
+    med_title = f"Medição nº {meta['number']}" if meta.get("number") else "Medição de Mão de Obra"
+    period_html = f"<div style='font-size:12px;margin-top:2px;opacity:.9'>Período: {meta['period']}</div>" if meta.get("period") else ""
+    acc_html = (f"<tr style='background:#f3f4f6'><td style='padding:7px 8px;font-size:11px;color:#374151' colspan='3'>Acumulado da obra (medições fechadas)</td>"
+                f"<td style='padding:7px 8px;text-align:right;font-weight:bold;font-size:12px;color:#1F3864'>{_brl(meta['accumulated'])}</td></tr>") if meta.get("accumulated") is not None else ""
     rows = "".join(
         f"<tr><td style='padding:6px 8px;border-bottom:1px solid #e5e7eb;font-size:12px'>{g['name']}</td>"
         f"<td style='padding:6px 8px;border-bottom:1px solid #e5e7eb;font-size:12px;text-align:right'>{len(g['items'])}</td>"
@@ -216,8 +227,9 @@ def medicao_email_html(project: dict, groups: list, total_qty: float, total_val:
       <div style="background:#1F3864;color:#fff;padding:18px 22px;border-bottom:4px solid #B8CC00">
         {logo_html}
         <div style="font-size:11px;letter-spacing:3px;text-transform:uppercase;opacity:.85">{company.get('name', 'HAYAH ENERGY')}</div>
-        <div style="font-size:20px;font-weight:bold;margin-top:4px">Medição de Mão de Obra</div>
+        <div style="font-size:20px;font-weight:bold;margin-top:4px">{med_title}</div>
         <div style="font-size:13px;margin-top:2px">{project.get('project_code') or ''} · {project.get('name') or ''}</div>
+        {period_html}
       </div>
       <div style="padding:20px 22px">
         <p style="font-size:14px;line-height:1.5;margin:0 0 14px">{msg_html}</p>
@@ -230,10 +242,10 @@ def medicao_email_html(project: dict, groups: list, total_qty: float, total_val:
           </tr></thead>
           <tbody>{rows}</tbody>
           <tfoot><tr style="background:#1F3864;color:#fff">
-            <td style="padding:8px;font-weight:bold;font-size:12px" colspan="2">TOTAL DA MEDIÇÃO</td>
+            <td style="padding:8px;font-weight:bold;font-size:12px" colspan="2">TOTAL {('DA ' + med_title.upper()) if meta.get('number') else 'DA MEDIÇÃO'}</td>
             <td style="padding:8px;text-align:right;font-weight:bold;font-size:12px">{_num(total_qty)}</td>
             <td style="padding:8px;text-align:right;font-weight:bold;font-size:13px">{_brl(total_val)}</td>
-          </tr></tfoot>
+          </tr>{acc_html}</tfoot>
         </table>
         <p style="font-size:12px;color:#6b7280;margin:14px 0 0">O resumo completo (por serviço, código e preço unitário) segue em anexo em PDF.</p>
         <p style="font-size:13px;margin:18px 0 0;line-height:1.5">Atenciosamente,<br/><b>{company.get('responsible_name') or company.get('name', 'HAYAH ENERGY')}</b><br/>

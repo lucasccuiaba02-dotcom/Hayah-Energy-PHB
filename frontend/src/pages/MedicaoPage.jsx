@@ -2,13 +2,15 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import axios from 'axios';
 import { toast } from 'sonner';
 import { motion } from 'framer-motion';
-import { Search, Ruler, BookOpen, Save, Upload, Copy, CheckCircle2, DollarSign, ClipboardList, TrendingUp, ArrowRight, FileDown, Mail } from 'lucide-react';
+import { Search, Ruler, BookOpen, Save, Upload, Copy, CheckCircle2, DollarSign, ClipboardList, TrendingUp, ArrowRight, FileDown, Mail, Lock } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { AppLayout } from '../components/AppLayout';
 import { formatCurrency, EXECUTION_STATUS_LABEL, PROJECT_TYPE_LABEL } from '../lib/constants';
 import { LaborLinesEditor } from '../components/medicao/LaborLinesEditor';
 import { LaborCatalogModal } from '../components/medicao/LaborCatalogModal';
 import { MedicaoEnvioModal, downloadMedicaoPdf } from '../components/medicao/MedicaoEnvioModal';
+import { FecharMedicaoModal } from '../components/medicao/FecharMedicaoModal';
+import { MedicoesHistory } from '../components/medicao/MedicoesHistory';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -74,6 +76,8 @@ export const MedicaoPage = () => {
   const [saving, setSaving] = useState(false);
   const [catalogOpen, setCatalogOpen] = useState(false);
   const [envioOpen, setEnvioOpen] = useState(false);
+  const [envioMedicao, setEnvioMedicao] = useState(null);
+  const [fecharOpen, setFecharOpen] = useState(false);
   const [importing, setImporting] = useState(false);
   const importRef = useRef(null);
 
@@ -130,6 +134,13 @@ export const MedicaoPage = () => {
       setDetail(data); setBudget(data.budget); setMeasured(data.measured); toast.success(`${data.imported} item(ns) importados · Orçado ${formatCurrency(data.totals.orcado)}`); loadList();
     } catch (err) { toast.error(err?.response?.data?.detail || 'Erro ao importar'); } finally { setImporting(false); if (importRef.current) importRef.current.value = ''; }
   };
+  const applyDetail = (data) => { if (!data?.project) return; setDetail(data); setBudget(data.budget || []); setMeasured(data.measured || []); loadList(); };
+  const reabrir = async (m) => {
+    if (!detail || !window.confirm(`Reabrir a Medição nº ${m.number}? Os itens voltam para a medição em aberto.`)) return;
+    try { const { data } = await axios.post(`${API}/projects/${detail.project.id}/medicao/${m.id}/reabrir`); applyDetail(data); setTab('realizado'); toast.success(`Medição nº ${m.number} reaberta`); }
+    catch (err) { toast.error(err?.response?.data?.detail || 'Erro ao reabrir'); }
+  };
+  const openEnvio = (m = null) => { setEnvioMedicao(m); setEnvioOpen(true); };
 
   const p = detail?.project;
   const t = list.totals || {};
@@ -158,14 +169,14 @@ export const MedicaoPage = () => {
                   <p className="text-[11px] text-zinc-500 mt-0.5">{p.team_name || '—'}{p.project_type ? ` · ${PROJECT_TYPE_LABEL[p.project_type] || p.project_type}` : ''}{EXECUTION_STATUS_LABEL[p.execution_status] ? ` · ${EXECUTION_STATUS_LABEL[p.execution_status].label}` : ''}{p.billing_stage ? ` · Faturamento: ${BILLING_LABEL[p.billing_stage] || p.billing_stage}` : ''}</p>
                 </div>
                 <div className="flex items-center gap-2 flex-wrap">
-                  <button data-testid="mo-pdf" disabled={!detail.totals.realizado_count} onClick={() => downloadMedicaoPdf(p.id)} title={detail.totals.realizado_count ? 'Baixar o Resumo de Mão de Obra (PDF)' : 'Lance e salve a medição primeiro'} className="inline-flex items-center gap-1.5 text-xs font-bold text-zinc-200 bg-white/5 hover:bg-white/10 border border-white/10 px-3 py-2 rounded-full disabled:opacity-40"><FileDown className="w-3.5 h-3.5" /> PDF da medição</button>
-                  <button data-testid="mo-enviar" disabled={!detail.totals.realizado_count} onClick={() => setEnvioOpen(true)} title={detail.totals.realizado_count ? 'Enviar o PDF por e-mail aos fiscais' : 'Lance e salve a medição primeiro'} className="inline-flex items-center gap-1.5 text-xs font-black text-black bg-[#39FF14] hover:bg-[#2ee010] px-3 py-2 rounded-full disabled:opacity-40"><Mail className="w-3.5 h-3.5" /> Enviar aos fiscais{detail.fiscais?.length ? ` (${detail.fiscais.length})` : ''}</button>
+                  <button data-testid="mo-pdf" disabled={!detail.totals.realizado_count} onClick={() => downloadMedicaoPdf(p.id)} title={detail.totals.realizado_count ? 'Baixar o Resumo de Mão de Obra da medição em aberto (PDF)' : 'Lance e salve a medição primeiro'} className="inline-flex items-center gap-1.5 text-xs font-bold text-zinc-200 bg-white/5 hover:bg-white/10 border border-white/10 px-3 py-2 rounded-full disabled:opacity-40"><FileDown className="w-3.5 h-3.5" /> PDF (em aberto)</button>
+                  <button data-testid="mo-enviar" disabled={!detail.totals.realizado_count} onClick={() => openEnvio(null)} title={detail.totals.realizado_count ? 'Enviar a medição em aberto por e-mail aos fiscais' : 'Lance e salve a medição primeiro'} className="inline-flex items-center gap-1.5 text-xs font-black text-black bg-[#39FF14] hover:bg-[#2ee010] px-3 py-2 rounded-full disabled:opacity-40"><Mail className="w-3.5 h-3.5" /> Enviar aos fiscais{detail.fiscais?.length ? ` (${detail.fiscais.length})` : ''}</button>
                   <button data-testid="mo-open-faturamento" onClick={() => navigate('/faturamento')} className="text-[11px] font-bold text-[#00F0FF] hover:underline inline-flex items-center gap-1">Ver na esteira <ArrowRight className="w-3 h-3" /></button>
                 </div>
               </div>
               <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mt-3">
                 <div className="rounded-xl border border-[#00F0FF]/30 bg-[#00F0FF]/5 p-3"><p className="text-[9px] uppercase tracking-wider font-bold text-[#00F0FF]">Orçado (M.O.)</p><p className="font-mono text-lg font-black text-white" data-testid="mo-total-orcado">{formatCurrency(detail.totals.orcado)}</p><p className="text-[10px] text-zinc-500">{detail.totals.orcado_count} item(ns) · labor_cost da obra</p></div>
-                <div className="rounded-xl border border-[#39FF14]/30 bg-[#39FF14]/5 p-3"><p className="text-[9px] uppercase tracking-wider font-bold text-[#39FF14]">Realizado (medido)</p><p className="font-mono text-lg font-black text-white" data-testid="mo-total-realizado">{formatCurrency(detail.totals.realizado)}</p><p className="text-[10px] text-zinc-500">{detail.totals.realizado_count} item(ns)</p></div>
+                <div className="rounded-xl border border-[#39FF14]/30 bg-[#39FF14]/5 p-3"><p className="text-[9px] uppercase tracking-wider font-bold text-[#39FF14]">Realizado (medido)</p><p className="font-mono text-lg font-black text-white" data-testid="mo-total-realizado">{formatCurrency(detail.totals.realizado)}</p><p className="text-[10px] text-zinc-500" data-testid="mo-total-realizado-hint">{detail.totals.medicoes_count ? `${detail.totals.medicoes_count} fechada(s) ${formatCurrency(detail.totals.fechado)} · em aberto ${formatCurrency(detail.totals.em_aberto)}` : `${detail.totals.realizado_count} item(ns) em aberto`}</p></div>
                 <div className="rounded-xl border border-white/10 bg-white/[0.02] p-3"><p className="text-[9px] uppercase tracking-wider font-bold text-zinc-400">Diferença</p><p className={`font-mono text-lg font-black ${detail.totals.diff >= 0 ? 'text-[#39FF14]' : 'text-[#FF5E00]'}`} data-testid="mo-total-diff">{detail.totals.diff >= 0 ? '+' : ''}{formatCurrency(detail.totals.diff)}</p><p className="text-[10px] text-zinc-500">{detail.totals.pct != null ? `${detail.totals.pct}% do orçado` : 'sem orçado'}</p></div>
                 <div className="rounded-xl border border-[#E0FF00]/30 bg-[#E0FF00]/5 p-3"><p className="text-[9px] uppercase tracking-wider font-bold text-[#E0FF00]">Produção Realizada (obra)</p><p className="font-mono text-lg font-black text-white" data-testid="mo-applied-actual">{formatCurrency(detail.applied.actual_value)}</p><p className="text-[10px] text-zinc-500 inline-flex items-center gap-1">{detail.applied.at ? <><CheckCircle2 className="w-3 h-3 text-[#39FF14]" /> aplicado {dateBR(detail.applied.at)}</> : 'ainda sem medição aplicada'}</p></div>
               </div>
@@ -174,13 +185,16 @@ export const MedicaoPage = () => {
             <div className="glass-panel rounded-2xl p-4">
               <div className="flex items-center gap-2 flex-wrap mb-3">
                 <button data-testid="mo-tab-orcado" onClick={() => setTab('orcado')} className={`text-[11px] font-bold uppercase tracking-wider px-4 py-2 rounded-full border transition ${tab === 'orcado' ? 'bg-[#00F0FF] border-[#00F0FF] text-black' : 'bg-white/5 border-white/10 text-zinc-400 hover:text-white'}`}>Orçado · {formatCurrency(sum(budget))}</button>
-                <button data-testid="mo-tab-realizado" onClick={() => setTab('realizado')} className={`text-[11px] font-bold uppercase tracking-wider px-4 py-2 rounded-full border transition ${tab === 'realizado' ? 'bg-[#39FF14] border-[#39FF14] text-black' : 'bg-white/5 border-white/10 text-zinc-400 hover:text-white'}`}>Realizado · {formatCurrency(sum(measured))}</button>
+                <button data-testid="mo-tab-realizado" onClick={() => setTab('realizado')} className={`text-[11px] font-bold uppercase tracking-wider px-4 py-2 rounded-full border transition ${tab === 'realizado' ? 'bg-[#39FF14] border-[#39FF14] text-black' : 'bg-white/5 border-white/10 text-zinc-400 hover:text-white'}`}>Medição nº {detail.next_number || 1} (em aberto) · {formatCurrency(sum(measured))}</button>
                 <div className="ml-auto flex items-center gap-2">
                   {dirty && <span data-testid="mo-dirty" className="text-[10px] font-bold text-[#FF5E00]">alterações não salvas</span>}
+                  {tab === 'realizado' && (
+                    <button data-testid="mo-fechar" disabled={dirty || !measured.length} onClick={() => setFecharOpen(true)} title={dirty ? 'Salve a medição antes de fechar' : !measured.length ? 'Sem itens em aberto' : `Fechar a Medição nº ${detail.next_number || 1} e guardar no histórico`} className="inline-flex items-center gap-1 text-xs font-black text-black bg-[#E0FF00] hover:bg-[#C8E600] px-4 py-2 rounded-full disabled:opacity-40"><Lock className="w-3.5 h-3.5" /> Fechar medição nº {detail.next_number || 1}</button>
+                  )}
                   <button data-testid="mo-save" disabled={saving || !dirty} onClick={save} className="inline-flex items-center gap-1 text-xs font-black text-black px-4 py-2 rounded-full disabled:opacity-40" style={{ background: tab === 'orcado' ? '#00F0FF' : '#39FF14' }}><Save className="w-3.5 h-3.5" /> {saving ? 'Salvando…' : tab === 'orcado' ? 'Salvar orçado' : 'Salvar medição → Faturamento'}</button>
                 </div>
               </div>
-              <p className="text-[11px] text-zinc-500 mb-3">{tab === 'orcado' ? 'Mão de obra prevista para a obra. O total vira o campo "Mão de Obra" (labor_cost) do cadastro.' : 'No fechamento, selecione da base os serviços efetivamente executados e as quantidades. O total vira a Produção Realizada (actual_value) e aparece na esteira de Faturamento.'}</p>
+              <p className="text-[11px] text-zinc-500 mb-3">{tab === 'orcado' ? 'Mão de obra prevista para a obra. O total vira o campo "Mão de Obra" (labor_cost) do cadastro.' : `Rascunho da Medição nº ${detail.next_number || 1}: selecione da base os serviços executados no período e as quantidades, salve e depois feche a medição para guardá-la no histórico (PDF e envio próprios). Produção Realizada = medições fechadas + em aberto.`}</p>
               {tab === 'orcado' ? (
                 <LaborLinesEditor items={budget} onChange={setBudget} catalog={catalog} accent="#00F0FF" testPrefix="mo-orc"
                   extraActions={<><input ref={importRef} data-testid="mo-orc-import-file" type="file" accept=".xlsx,.xls,.csv" className="hidden" onChange={(e) => importBudget(e.target.files?.[0])} /><button type="button" data-testid="mo-orc-import" disabled={importing} onClick={() => importRef.current?.click()} className="text-xs font-bold text-black bg-[#00F0FF] hover:bg-[#00D9E5] px-3 py-2 rounded-full inline-flex items-center gap-1 disabled:opacity-50"><Upload className="w-3 h-3" /> {importing ? 'Importando…' : 'Importar planilha orçada'}</button></>} />
@@ -189,12 +203,15 @@ export const MedicaoPage = () => {
                   extraActions={<button type="button" data-testid="mo-real-copy" disabled={!budget.length} onClick={copyFromBudget} className="text-xs font-bold text-zinc-200 bg-white/5 hover:bg-white/10 px-3 py-2 rounded-full inline-flex items-center gap-1 disabled:opacity-40"><Copy className="w-3 h-3" /> Copiar do orçado</button>} />
               )}
             </div>
+
+            <MedicoesHistory detail={detail} onEnviar={(m) => openEnvio(m)} onReabrir={reabrir} />
           </motion.div>
         )}
       </div>
 
       <LaborCatalogModal open={catalogOpen} catalog={catalog} onClose={() => setCatalogOpen(false)} onChanged={loadCatalog} />
-      <MedicaoEnvioModal open={envioOpen} detail={detail} onClose={() => setEnvioOpen(false)} onChanged={(data) => { if (data?.project) setDetail(data); }} />
+      <MedicaoEnvioModal open={envioOpen} detail={detail} medicao={envioMedicao} onClose={() => { setEnvioOpen(false); setEnvioMedicao(null); }} onChanged={(data) => { if (data?.project) setDetail(data); }} />
+      <FecharMedicaoModal open={fecharOpen} detail={detail} onClose={() => setFecharOpen(false)} onClosed={applyDetail} />
     </AppLayout>
   );
 };
