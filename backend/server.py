@@ -6300,6 +6300,12 @@ async def startup_db():
         logger.warning(f"owner_id backfill: {e}")
 
     try:
+        from tabela_precos import seed_once_for_admins
+        await seed_once_for_admins(db, logger)
+    except Exception as e:
+        logger.warning(f"seed catálogo tabela contratual: {e}")
+
+    try:
         from apscheduler.schedulers.asyncio import AsyncIOScheduler
         from apscheduler.triggers.cron import CronTrigger
         from apscheduler.triggers.interval import IntervalTrigger

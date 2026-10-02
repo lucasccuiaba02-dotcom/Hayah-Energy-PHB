@@ -44,6 +44,7 @@ export const LaborLinesEditor = ({ items, onChange, catalog = [], accent = '#E0F
                   <button key={c.id} type="button" data-testid={`${testPrefix}-pick-${c.id}`} onMouseDown={(e) => e.preventDefault()} onClick={() => addFromCatalog(c)} className="w-full text-left px-3 py-2 hover:bg-white/5 flex items-center gap-2 text-xs">
                     <span className="font-mono text-[#E0FF00] w-20 truncate">{c.code || '—'}</span>
                     <span className="flex-1 text-white truncate">{c.description}</span>
+                    {c.group && <span className="hidden sm:inline text-[9px] uppercase tracking-wider text-zinc-500 truncate max-w-[120px]">{c.group}</span>}
                     <span className="text-zinc-500">{c.unit}</span>
                     <span className="font-mono text-zinc-300">{formatCurrency(c.unit_price)}</span>
                   </button>

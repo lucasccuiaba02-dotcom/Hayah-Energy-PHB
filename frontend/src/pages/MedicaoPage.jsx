@@ -26,7 +26,7 @@ const Kpi = ({ icon: Icon, label, value, hint, color, testid }) => (
 );
 
 const ProjectList = ({ projects, selectedId, onSelect, q, setQ, filter, setFilter }) => (
-  <div className="glass-panel rounded-2xl overflow-hidden" data-testid="mo-project-list">
+  <div className="glass-panel rounded-2xl overflow-hidden min-w-0" data-testid="mo-project-list">
     <div className="p-3 border-b border-white/5 space-y-2">
       <div className="relative">
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-zinc-500" />
@@ -154,13 +154,13 @@ export const MedicaoPage = () => {
         <Kpi testid="mo-kpi-pct" icon={TrendingUp} label="Realizado ÷ Orçado" value={t.orcado ? `${(100 * (t.realizado || 0) / t.orcado).toFixed(1)}%` : '—'} hint="aderência global" color="#FF5E00" />
       </div>
 
-      <div className="grid lg:grid-cols-[340px_1fr] gap-4">
+      <div className="grid lg:grid-cols-[340px_1fr] gap-4 min-w-0">
         <ProjectList projects={filtered} selectedId={selectedId} onSelect={setSelectedId} q={q} setQ={setQ} filter={filter} setFilter={setFilter} />
 
         {!p ? (
           <div className="glass-panel rounded-2xl p-10 text-center"><Ruler className="w-12 h-12 text-zinc-600 mx-auto mb-3" /><p className="text-zinc-400 font-bold">Escolha uma obra para lançar a medição</p></div>
         ) : (
-          <motion.div key={p.id} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} className="space-y-4" data-testid="mo-detail">
+          <motion.div key={p.id} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} className="space-y-4 min-w-0" data-testid="mo-detail">
             <div className="glass-panel rounded-2xl p-4">
               <div className="flex items-start gap-3 flex-wrap">
                 <div className="flex-1 min-w-0">

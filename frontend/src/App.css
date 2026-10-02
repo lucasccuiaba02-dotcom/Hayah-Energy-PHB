@@ -113,4 +113,10 @@
 [data-theme="light"] .border-white\/8,
 [data-theme="light"] .border-white\/10 { border-color: rgba(0,0,0,0.08) !important; }
 
+/* Painéis escuros de modais/listas (#0f0f10) viram cartões claros */
+[data-theme="light"] .bg-\[\#0f0f10\] {
+  background-color: #ffffff !important;
+  border-color: rgba(0,0,0,0.08) !important;
+}
+
 /* Keep highlighted CTAs (yellow/cyan/red badges) UNCHANGED in light mode */

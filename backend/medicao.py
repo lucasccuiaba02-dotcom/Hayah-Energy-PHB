@@ -184,7 +184,14 @@ def _total(items) -> float:
 
 def _cat(doc: dict) -> dict:
     return {"id": str(doc["_id"]), "code": doc.get("code", ""), "description": doc.get("description", ""), "unit": doc.get("unit", "UN"),
-            "unit_price": float(doc.get("unit_price") or 0), "group": doc.get("group", ""), "updated_at": doc.get("updated_at", "")}
+            "unit_price": float(doc.get("unit_price") or 0), "group": doc.get("group", ""), "updated_at": doc.get("updated_at", ""),
+            "action": doc.get("action", ""), "linha": doc.get("linha", ""), "ups": doc.get("ups"), "base_price": doc.get("base_price"),
+            "adjust_pct": doc.get("adjust_pct"), "source": doc.get("source", "")}
+
+
+class TabelaContratoBody(BaseModel):
+    pct: float = 6.0
+    replace: bool = True
 
 
 def build_router(db, get_current_user, safe_object_id, build_project_response=None, company_loader=None, send_email=None, app_url: str = ""):
@@ -318,6 +325,25 @@ def build_router(db, get_current_user, safe_object_id, build_project_response=No
                 created += 1
         total = await db.labor_catalog.count_documents({"user_id": current_user["_id"]})
         return {"imported": len(parsed), "created": created, "updated": updated, "total": total}
+
+    @router.get("/medicao/catalogo/tabela-contrato")
+    async def tabela_contrato_info(current_user: dict = Depends(get_current_user)):
+        from tabela_precos import SOURCE, load_tabela
+        rows = load_tabela()
+        loaded = await db.labor_catalog.count_documents({"user_id": current_user["_id"], "source": SOURCE})
+        flag = await db.app_settings.find_one({"key": "labor_catalog_seed", "user_id": str(current_user["_id"]), "source": SOURCE}, {"_id": 0, "at": 1, "result": 1})
+        return {"rows": len(rows), "lm": sum(1 for r in rows if r["linha"] == "LM"), "lv": sum(1 for r in rows if r["linha"] == "LV"),
+                "loaded": loaded, "seeded_at": (flag or {}).get("at", ""), "pct": ((flag or {}).get("result") or {}).get("pct")}
+
+    @router.post("/medicao/catalogo/tabela-contrato")
+    async def tabela_contrato_load(body: TabelaContratoBody, current_user: dict = Depends(get_current_user)):
+        from tabela_precos import SOURCE, seed_catalog
+        if body.pct < 0 or body.pct > 100:
+            raise HTTPException(status_code=400, detail="Percentual de reajuste deve ficar entre 0 e 100")
+        res = await seed_catalog(db, current_user["_id"], body.pct, replace=body.replace)
+        await db.app_settings.update_one({"key": "labor_catalog_seed", "user_id": str(current_user["_id"]), "source": SOURCE},
+                                         {"$set": {"result": res, "at": _now()}}, upsert=True)
+        return res
 
     # ── Lista de obras para a aba ─────────────────────────────────────────
     @router.get("/medicao/projects")

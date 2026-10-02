@@ -1,8 +1,8 @@
-import React, { useState, useRef, useMemo } from 'react';
+import React, { useState, useRef, useMemo, useEffect } from 'react';
 import axios from 'axios';
 import { toast } from 'sonner';
 import { motion } from 'framer-motion';
-import { X, Upload, Plus, Trash2, Save, Search, BookOpen } from 'lucide-react';
+import { X, Upload, Plus, Trash2, Save, Search, BookOpen, FileSpreadsheet } from 'lucide-react';
 import { formatCurrency } from '../../lib/constants';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
@@ -12,16 +12,41 @@ const inp = 'bg-zinc-950 border border-white/10 rounded-lg px-2 py-1.5 text-xs t
 /** Base geral do contrato: catálogo de serviços de mão de obra com preço unitário (import xlsx/csv + CRUD). */
 export const LaborCatalogModal = ({ open, catalog, onClose, onChanged }) => {
   const [q, setQ] = useState('');
+  const [linha, setLinha] = useState('');
   const [draft, setDraft] = useState({ code: '', description: '', unit: 'UN', unit_price: '', group: '' });
   const [importing, setImporting] = useState(false);
+  const [loadingTabela, setLoadingTabela] = useState(false);
+  const [tabela, setTabela] = useState(null);
+  const [pct, setPct] = useState('6');
   const [replace, setReplace] = useState(false);
   const fileRef = useRef(null);
 
+  useEffect(() => {
+    if (!open) return;
+    axios.get(`${API}/medicao/catalogo/tabela-contrato`).then(({ data }) => setTabela(data)).catch(() => setTabela(null));
+  }, [open, catalog.length]);
+
   const filtered = useMemo(() => {
     const t = q.trim().toLowerCase();
-    return t ? catalog.filter((c) => c.code.toLowerCase().includes(t) || c.description.toLowerCase().includes(t) || (c.group || '').toLowerCase().includes(t)) : catalog;
-  }, [catalog, q]);
+    let list = linha ? catalog.filter((c) => (c.linha || 'LM') === linha) : catalog;
+    if (t) list = list.filter((c) => c.code.toLowerCase().includes(t) || c.description.toLowerCase().includes(t) || (c.group || '').toLowerCase().includes(t));
+    return list;
+  }, [catalog, q, linha]);
   if (!open) return null;
+
+  const loadTabela = async () => {
+    const p = Number(pct);
+    if (Number.isNaN(p) || p < 0 || p > 100) { toast.error('Percentual inválido (0 a 100)'); return; }
+    const msg = `Carregar a tabela contratual (${tabela?.rows || 707} serviços · Linha Morta + Linha Viva) com reajuste de +${p}%?\n\nIsso SUBSTITUI toda a base atual (${catalog.length} item(ns)).`;
+    if (!window.confirm(msg)) return;
+    setLoadingTabela(true);
+    try {
+      const { data } = await axios.post(`${API}/medicao/catalogo/tabela-contrato`, { pct: p, replace: true });
+      toast.success(`${data.imported} serviços carregados (+${data.pct}%) · ${data.lm} Linha Morta · ${data.lv} Linha Viva`);
+      onChanged();
+    } catch (err) { toast.error(err?.response?.data?.detail || 'Erro ao carregar a tabela contratual'); }
+    finally { setLoadingTabela(false); }
+  };
 
   const add = async () => {
     if (!draft.description.trim()) { toast.error('Descrição obrigatória'); return; }
@@ -62,6 +87,11 @@ export const LaborCatalogModal = ({ open, catalog, onClose, onChanged }) => {
             <p className="text-[10px] tracking-[0.25em] uppercase text-[#E0FF00] font-bold">Base geral do contrato</p>
             <h3 className="text-white font-bold text-lg">Serviços de mão de obra · {catalog.length} item(ns)</h3>
             <p className="text-[11px] text-zinc-500">Planilha com colunas Código · Descrição · Un · Preço unitário (opcional: Grupo). Itens com o mesmo código são atualizados.</p>
+            {tabela?.seeded_at && (
+              <p className="text-[10px] text-[#00F0FF] mt-0.5" data-testid="mo-catalog-tabela-info">
+                Tabela contratual carregada em {new Date(tabela.seeded_at).toLocaleDateString('pt-BR')} · +{tabela.pct ?? 6}% · {tabela.loaded} serviços ({tabela.lm} LM · {tabela.lv} LV)
+              </p>
+            )}
           </div>
           <button data-testid="mo-catalog-close" onClick={onClose} className="w-9 h-9 rounded-full bg-white/5 hover:bg-white/10 text-zinc-400 hover:text-white flex items-center justify-center"><X className="w-4 h-4" /></button>
         </div>
@@ -70,9 +100,20 @@ export const LaborCatalogModal = ({ open, catalog, onClose, onChanged }) => {
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-zinc-500" />
             <input data-testid="mo-catalog-search" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Buscar código, descrição ou grupo…" className={`${inp} w-full pl-9`} />
           </div>
+          <div className="inline-flex rounded-full bg-white/5 p-0.5 text-[10px] font-bold" data-testid="mo-catalog-linha">
+            {[['', 'Todos'], ['LM', 'Linha Morta'], ['LV', 'Linha Viva']].map(([v, l]) => (
+              <button key={v || 'all'} type="button" data-testid={`mo-catalog-linha-${v || 'all'}`} onClick={() => setLinha(v)} className={`px-2.5 py-1 rounded-full ${linha === v ? 'bg-[#E0FF00] text-black' : 'text-zinc-400 hover:text-white'}`}>{l}</button>
+            ))}
+          </div>
           <label className="inline-flex items-center gap-1.5 text-[10px] text-zinc-400 cursor-pointer"><input data-testid="mo-catalog-replace" type="checkbox" checked={replace} onChange={(e) => setReplace(e.target.checked)} className="accent-[#E0FF00]" /> substituir base inteira</label>
           <input ref={fileRef} data-testid="mo-catalog-file" type="file" accept=".xlsx,.xls,.csv" className="hidden" onChange={(e) => importFile(e.target.files?.[0])} />
           <button data-testid="mo-catalog-import" disabled={importing} onClick={() => fileRef.current?.click()} className="text-xs font-bold text-black bg-[#00F0FF] hover:bg-[#00D9E5] px-3 py-2 rounded-full inline-flex items-center gap-1 disabled:opacity-50"><Upload className="w-3 h-3" /> {importing ? 'Importando…' : 'Importar planilha'}</button>
+          <div className="inline-flex items-center gap-1 rounded-full border border-white/10 pl-2 pr-0.5 py-0.5" data-testid="mo-catalog-tabela-box">
+            <span className="text-[10px] text-zinc-400">Reajuste</span>
+            <input data-testid="mo-catalog-tabela-pct" type="number" step="0.5" min="0" max="100" value={pct} onChange={(e) => setPct(e.target.value)} className="w-12 bg-transparent text-xs font-mono text-white text-right focus:outline-none" />
+            <span className="text-[10px] text-zinc-400 mr-1">%</span>
+            <button data-testid="mo-catalog-tabela-load" disabled={loadingTabela} onClick={loadTabela} title="Carrega a tabela de preços do contrato (Linha Morta + Linha Viva) com o reajuste informado — substitui a base atual" className="text-xs font-bold text-black bg-[#E0FF00] hover:bg-[#C8E600] px-3 py-1.5 rounded-full inline-flex items-center gap-1 disabled:opacity-50"><FileSpreadsheet className="w-3 h-3" /> {loadingTabela ? 'Carregando…' : 'Tabela do contrato'}</button>
+          </div>
         </div>
         <div className="px-5 py-3 border-b border-white/5 grid grid-cols-2 md:grid-cols-6 gap-2 items-end bg-white/[0.02]">
           <div><label className="text-[9px] uppercase tracking-wider text-zinc-500 font-bold">Código</label><input data-testid="mo-catalog-new-code" value={draft.code} onChange={(e) => setDraft({ ...draft, code: e.target.value })} className={`${inp} w-full font-mono`} /></div>
@@ -81,7 +122,7 @@ export const LaborCatalogModal = ({ open, catalog, onClose, onChanged }) => {
           <div><label className="text-[9px] uppercase tracking-wider text-zinc-500 font-bold">Preço unit. (R$)</label><input data-testid="mo-catalog-new-price" type="number" step="0.01" value={draft.unit_price} onChange={(e) => setDraft({ ...draft, unit_price: e.target.value })} className={`${inp} w-full font-mono`} /></div>
           <button data-testid="mo-catalog-add" onClick={add} className="text-xs font-black text-black bg-[#E0FF00] hover:bg-[#C8E600] px-3 py-2 rounded-full inline-flex items-center justify-center gap-1"><Plus className="w-3 h-3" /> Adicionar</button>
         </div>
-        <div className="overflow-y-auto flex-1">
+        <div className="overflow-y-auto overflow-x-auto flex-1">
           {filtered.length === 0 ? (
             <p className="p-8 text-center text-sm text-zinc-500">{catalog.length === 0 ? 'Base vazia. Importe a planilha do contrato ou cadastre o primeiro serviço.' : 'Nada encontrado.'}</p>
           ) : (
@@ -95,7 +136,10 @@ export const LaborCatalogModal = ({ open, catalog, onClose, onChanged }) => {
                     <td className="px-3 py-1.5"><input defaultValue={c.description} onBlur={(e) => patch(c, 'description', e.target.value)} className="bg-transparent border border-transparent hover:border-white/10 focus:border-[#E0FF00] rounded px-1 py-0.5 w-full text-white focus:outline-none" /></td>
                     <td className="px-2 py-1.5"><input defaultValue={c.group} onBlur={(e) => patch(c, 'group', e.target.value)} className="bg-transparent border border-transparent hover:border-white/10 focus:border-[#E0FF00] rounded px-1 py-0.5 w-28 text-zinc-300 focus:outline-none" /></td>
                     <td className="px-2 py-1.5 text-center"><input defaultValue={c.unit} onBlur={(e) => patch(c, 'unit', e.target.value.toUpperCase())} className="bg-transparent border border-transparent hover:border-white/10 focus:border-[#E0FF00] rounded px-1 py-0.5 w-12 text-center text-zinc-300 focus:outline-none" /></td>
-                    <td className="px-3 py-1.5 text-right"><input data-testid={`mo-catalog-price-${c.id}`} type="number" step="0.01" defaultValue={c.unit_price} onBlur={(e) => patch(c, 'unit_price', e.target.value)} className="bg-transparent border border-transparent hover:border-white/10 focus:border-[#E0FF00] rounded px-1 py-0.5 w-24 text-right font-mono text-white focus:outline-none" /></td>
+                    <td className="px-3 py-1.5 text-right">
+                      <input data-testid={`mo-catalog-price-${c.id}`} type="number" step="0.01" defaultValue={c.unit_price} onBlur={(e) => patch(c, 'unit_price', e.target.value)} className="bg-transparent border border-transparent hover:border-white/10 focus:border-[#E0FF00] rounded px-1 py-0.5 w-24 text-right font-mono text-white focus:outline-none" />
+                      {c.base_price != null && <div className="text-[9px] text-zinc-500 font-mono pr-1" title="Preço da tabela contratual antes do reajuste">tabela {formatCurrency(c.base_price)}{c.ups != null ? ` · ${c.ups} UPS` : ''}</div>}
+                    </td>
                     <td className="px-2 py-1.5 text-right"><button data-testid={`mo-catalog-delete-${c.id}`} onClick={() => remove(c)} className="w-6 h-6 rounded-full bg-white/5 hover:bg-[#FF003C]/20 text-zinc-500 hover:text-[#FF003C] inline-flex items-center justify-center"><Trash2 className="w-3 h-3" /></button></td>
                   </tr>
                 ))}
@@ -104,7 +148,7 @@ export const LaborCatalogModal = ({ open, catalog, onClose, onChanged }) => {
           )}
         </div>
         <div className="px-5 py-3 border-t border-white/10 flex items-center justify-between text-[11px] text-zinc-500">
-          <span>Total da base: <b className="font-mono text-white">{formatCurrency(catalog.reduce((s, c) => s + Number(c.unit_price || 0), 0))}</b> (soma dos preços unitários)</span>
+          <span>Total da base: <b className="font-mono text-white">{formatCurrency(catalog.reduce((s, c) => s + Number(c.unit_price || 0), 0))}</b> (soma dos preços unitários) · exibindo <b className="text-white">{filtered.length}</b> de {catalog.length}</span>
           <button onClick={onClose} className="text-xs font-bold text-black bg-[#E0FF00] px-4 py-2 rounded-full inline-flex items-center gap-1"><Save className="w-3 h-3" /> Concluir</button>
         </div>
       </motion.div>
