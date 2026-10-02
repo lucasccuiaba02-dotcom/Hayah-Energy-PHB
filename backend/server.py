@@ -6149,7 +6149,36 @@ app.include_router(_sucata.build_router(db, get_current_user, safe_object_id))
 _pdf_jobs.configure(db, storage_put, storage_get)
 app.include_router(_pdf_jobs.build_router(get_current_user))
 import medicao as _medicao
-app.include_router(_medicao.build_router(db, get_current_user, safe_object_id, build_project_response))
+
+
+async def _medicao_company(user_id):
+    from orcamentos import DEFAULT_COMPANY
+    doc = await db.app_settings.find_one({"user_id": user_id, "key": "company_profile"})
+    company = {**DEFAULT_COMPANY, **((doc or {}).get("value") or {})}
+    logo = None
+    if company.get("logo_storage_path"):
+        try:
+            logo = (await storage_get(company["logo_storage_path"], timeout=20))[0]
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"medicao logo: {e}")
+    return company, logo
+
+
+async def _medicao_send_email(recipients, subject, html, attachments):
+    api_key, sender = await _resend_credentials(db)
+    if not api_key:
+        return {"status": "skipped", "reason": "no_api_key"}
+    try:
+        import resend
+        resend.api_key = api_key
+        result = await asyncio.to_thread(resend.Emails.send, {"from": sender, "to": recipients, "subject": subject, "html": html, "attachments": attachments})
+        return {"status": "sent", "id": result.get("id")}
+    except Exception as e:  # noqa: BLE001
+        logger.error(f"medicao e-mail: {e}")
+        return {"status": "error", "error": str(e)}
+
+
+app.include_router(_medicao.build_router(db, get_current_user, safe_object_id, build_project_response, company_loader=_medicao_company, send_email=_medicao_send_email))
 
 
 async def notifications_tick_job():

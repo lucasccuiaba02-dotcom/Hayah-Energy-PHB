@@ -1,6 +1,8 @@
 """Set/2026 · Medição de Mão de Obra.
 Base geral do contrato (catálogo de serviços com preço unitário) + por obra: lista ORÇADA (vira `labor_cost`) e lista
 REALIZADA no fechamento (vira `actual_value` = Produção Realizada → alimenta a esteira de Faturamento)."""
+import asyncio
+import base64
 import csv
 import io
 import re
@@ -9,8 +11,10 @@ from typing import List, Optional
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from fastapi.responses import Response
 from pydantic import BaseModel
 
+EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 HEADER_KEYWORDS = {
     "code": ["cod", "código", "codigo", "item", "ref", "sap", "code"],
     "unit_price": ["preço unit", "preco unit", "valor unit", "vlr unit", "p. unit", "unitário", "unitario", "preço", "preco", "valor", "price"],
@@ -125,16 +129,38 @@ class LaborLine(BaseModel):
     unit_price: float = 0
     qty: float = 0
     notes: str = ""
+    group: str = ""
 
 
 class LinesBody(BaseModel):
     items: List[LaborLine]
 
 
+class Fiscal(BaseModel):
+    name: str = ""
+    email: str = ""
+    phone: str = ""
+
+
+class FiscaisBody(BaseModel):
+    fiscais: List[Fiscal]
+
+
+class EnvioBody(BaseModel):
+    recipients: List[str]
+    message: str = ""
+    notes: str = ""
+    period: str = ""
+    number: str = ""
+    copy_me: bool = True
+    save_fiscais: bool = True
+
+
 def _line(l: LaborLine) -> dict:
     qty, price = float(l.qty or 0), float(l.unit_price or 0)
     return {"id": l.id or uuid4().hex[:10], "catalog_id": l.catalog_id or "", "code": (l.code or "").strip(), "description": l.description.strip(),
-            "unit": (l.unit or "UN").upper()[:10], "unit_price": price, "qty": qty, "total": round(qty * price, 2), "notes": (l.notes or "").strip()[:300]}
+            "unit": (l.unit or "UN").upper()[:10], "unit_price": price, "qty": qty, "total": round(qty * price, 2), "notes": (l.notes or "").strip()[:300],
+            "group": (l.group or "").strip()[:80]}
 
 
 def _total(items) -> float:
@@ -146,7 +172,7 @@ def _cat(doc: dict) -> dict:
             "unit_price": float(doc.get("unit_price") or 0), "group": doc.get("group", ""), "updated_at": doc.get("updated_at", "")}
 
 
-def build_router(db, get_current_user, safe_object_id, build_project_response=None):
+def build_router(db, get_current_user, safe_object_id, build_project_response=None, company_loader=None, send_email=None, app_url: str = ""):
     router = APIRouter(prefix="/api")
 
     async def _project(pid, user):
@@ -161,13 +187,36 @@ def build_router(db, get_current_user, safe_object_id, build_project_response=No
         return {
             "project": {"id": str(p["_id"]), "project_code": p.get("project_code", ""), "name": p.get("name", ""), "team_name": p.get("team_name", ""),
                         "execution_status": p.get("execution_status", ""), "billing_stage": p.get("billing_stage", ""), "programmed_value": float(p.get("programmed_value") or 0),
-                        "actual_value": float(p.get("actual_value") or 0), "labor_cost": float(p.get("labor_cost") or 0), "project_type": p.get("project_type", "")},
+                        "actual_value": float(p.get("actual_value") or 0), "labor_cost": float(p.get("labor_cost") or 0), "project_type": p.get("project_type", ""),
+                        "location": p.get("location", "")},
             "budget": budget, "measured": measured,
             "totals": {"orcado": tb, "realizado": tm, "diff": round(tm - tb, 2), "pct": round(100 * tm / tb, 1) if tb > 0 else None,
                        "orcado_count": len(budget), "realizado_count": len(measured)},
             "applied": {"labor_cost": float(p.get("labor_cost") or 0), "actual_value": float(p.get("actual_value") or 0),
                         "at": p.get("medicao_applied_at", ""), "by": p.get("medicao_applied_by", "")},
+            "fiscais": p.get("fiscais") or [],
+            "envios": list(reversed((p.get("medicao_envios") or [])[-10:])),
         }
+
+    async def _groups_map(user_id) -> dict:
+        """catalog_id → grupo e ("code", código) → grupo, para agrupar linhas antigas sem `group`."""
+        out = {}
+        async for c in db.labor_catalog.find({"user_id": user_id}, {"code": 1, "group": 1}):
+            g = (c.get("group") or "").strip()
+            if g:
+                out[str(c["_id"])] = g
+                if c.get("code"):
+                    out[("code", str(c["code"]).strip())] = g
+        return out
+
+    async def _render_pdf(p: dict, user: dict, meta: dict) -> tuple:
+        from medicao_pdf import build_medicao_pdf, group_items
+        items = p.get("labor_measured") or []
+        groups = group_items(items, await _groups_map(user["_id"]))
+        company, logo = (await company_loader(user["_id"])) if company_loader else ({"name": "HAYAH ENERGY"}, None)
+        pdf = await asyncio.to_thread(build_medicao_pdf, p, items, groups, company, logo, meta)
+        code = re.sub(r"[^A-Za-z0-9_-]+", "_", p.get("project_code") or p.get("name") or "obra")[:40]
+        return pdf, f"medicao_{code}_{datetime.now(timezone.utc).strftime('%Y%m%d')}.pdf", groups, company
 
     # ── Catálogo (base geral do contrato) ─────────────────────────────────
     @router.get("/medicao/catalogo")
@@ -301,5 +350,57 @@ def build_router(db, get_current_user, safe_object_id, build_project_response=No
         await db.projects.update_one({"_id": p["_id"]}, {"$set": {"labor_measured": items, "actual_value": total, "medicao_applied_at": _now(), "medicao_applied_by": current_user.get("name", "")},
                                                           "$push": {"movement_history": {"event": "medicao_aplicada", "field": "actual_value", "old": old, "new": total, "at": _now(), "by": current_user.get("name", ""), "note": "Realizado copiado do orçado"}}})
         return _detail(await _project(project_id, current_user))
+
+    # ── Fiscais da obra · PDF · envio por e-mail ───────────────────────────
+    @router.put("/projects/{project_id}/medicao/fiscais")
+    async def save_fiscais(project_id: str, body: FiscaisBody, current_user: dict = Depends(get_current_user)):
+        p = await _project(project_id, current_user)
+        fiscais = [{"name": f.name.strip()[:80], "email": f.email.strip().lower()[:120], "phone": f.phone.strip()[:30]} for f in body.fiscais if (f.name or f.email).strip()]
+        await db.projects.update_one({"_id": p["_id"]}, {"$set": {"fiscais": fiscais}})
+        return _detail(await _project(project_id, current_user))
+
+    @router.get("/projects/{project_id}/medicao/pdf")
+    async def medicao_pdf(project_id: str, notes: str = "", period: str = "", number: str = "", current_user: dict = Depends(get_current_user)):
+        p = await _project(project_id, current_user)
+        pdf, filename, _g, _c = await _render_pdf(p, current_user, {"notes": notes[:1000], "period": period[:60], "number": number[:30]})
+        return Response(content=pdf, media_type="application/pdf",
+                        headers={"Content-Disposition": f'attachment; filename="{filename}"', "Content-Length": str(len(pdf)), "Cache-Control": "no-store"})
+
+    @router.post("/projects/{project_id}/medicao/enviar")
+    async def enviar_medicao(project_id: str, body: EnvioBody, current_user: dict = Depends(get_current_user)):
+        p = await _project(project_id, current_user)
+        if not (p.get("labor_measured") or []):
+            raise HTTPException(status_code=400, detail="Lance e salve a medição (lista realizada) antes de enviar")
+        recipients = sorted({r.strip().lower() for r in body.recipients if EMAIL_RE.match(r.strip())})
+        if not recipients:
+            raise HTTPException(status_code=400, detail="Informe ao menos um e-mail válido de fiscal")
+        if body.copy_me and EMAIL_RE.match(current_user.get("email") or ""):
+            recipients = sorted(set(recipients) | {current_user["email"].strip().lower()})
+        if body.save_fiscais:
+            known = {f.get("email") for f in (p.get("fiscais") or [])}
+            new = [{"name": "", "email": r, "phone": ""} for r in recipients if r not in known and r != (current_user.get("email") or "").lower()]
+            if new:
+                await db.projects.update_one({"_id": p["_id"]}, {"$set": {"fiscais": (p.get("fiscais") or []) + new}})
+                p["fiscais"] = (p.get("fiscais") or []) + new
+        pdf, filename, groups, company = await _render_pdf(p, current_user, {"notes": body.notes[:1000], "period": body.period[:60], "number": body.number[:30]})
+        from medicao_pdf import medicao_email_html
+        total_qty = sum(float(i.get("qty") or 0) for i in p["labor_measured"])
+        total_val = _total(p["labor_measured"])
+        default_msg = (f"Prezado(a) fiscal,\n\nSegue em anexo o Resumo de Mão de Obra da obra {p.get('project_code') or ''} — {p.get('name') or ''}, "
+                       f"totalizando {len(p['labor_measured'])} serviço(s) e R$ {total_val:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".") + ".\n\nFicamos à disposição para conferência e validação.")
+        html = medicao_email_html(p, groups, total_qty, total_val, company, body.message.strip() or default_msg)
+        subject = f"[{company.get('name', 'HAYAH ENERGY')}] Medição de Mão de Obra · {p.get('project_code') or p.get('name') or ''}"
+        if not send_email:
+            raise HTTPException(status_code=503, detail="Envio de e-mail não configurado")
+        result = await send_email(recipients, subject, html, [{"filename": filename, "content": base64.b64encode(pdf).decode("ascii")}])
+        entry = {"id": uuid4().hex[:10], "at": _now(), "by": current_user.get("name", ""), "recipients": recipients, "status": result.get("status"),
+                 "email_id": result.get("id", ""), "error": result.get("error", "") or result.get("reason", ""), "total": total_val, "items": len(p["labor_measured"]),
+                 "filename": filename, "period": body.period[:60], "number": body.number[:30]}
+        await db.projects.update_one({"_id": p["_id"]}, {"$push": {"medicao_envios": entry}})
+        if result.get("status") == "error":
+            raise HTTPException(status_code=502, detail=f"Falha ao enviar e-mail: {result.get('error')}")
+        if result.get("status") == "skipped":
+            raise HTTPException(status_code=503, detail="RESEND_API_KEY não configurada — cadastre em Configurações › Integrações para enviar e-mails")
+        return {"status": "sent", "recipients": recipients, "filename": filename, "envio": entry, **_detail(await _project(project_id, current_user))}
 
     return router

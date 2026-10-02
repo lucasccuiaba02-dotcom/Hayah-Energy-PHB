@@ -95,6 +95,9 @@
 [data-theme="light"] .bg-zinc-950\/90,
 [data-theme="light"] input.bg-zinc-950\/90,
 [data-theme="light"] select.bg-zinc-950\/90,
+[data-theme="light"] input.bg-zinc-950,
+[data-theme="light"] textarea.bg-zinc-950,
+[data-theme="light"] select.bg-zinc-950,
 [data-theme="light"] .bg-transparent input {
   background: #ffffff !important;
   color: #111 !important;

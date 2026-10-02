@@ -23,7 +23,7 @@ export const LaborLinesEditor = ({ items, onChange, catalog = [], accent = '#E0F
   const addFromCatalog = (c) => {
     const existing = items.find((it) => it.catalog_id === c.id);
     if (existing) { update(existing.id, { qty: num(existing.qty) + 1 }); }
-    else onChange([...items, { id: uid(), catalog_id: c.id, code: c.code, description: c.description, unit: c.unit, unit_price: c.unit_price, qty: 1, total: c.unit_price, notes: '' }]);
+    else onChange([...items, { id: uid(), catalog_id: c.id, code: c.code, description: c.description, unit: c.unit, unit_price: c.unit_price, qty: 1, total: c.unit_price, notes: '', group: c.group || '' }]);
     setPick(''); setOpenPicker(false);
   };
   const addManual = () => onChange([...items, { id: uid(), catalog_id: '', code: '', description: '', unit: 'UN', unit_price: 0, qty: 1, total: 0, notes: '' }]);

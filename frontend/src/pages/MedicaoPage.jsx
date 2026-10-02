@@ -2,12 +2,13 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import axios from 'axios';
 import { toast } from 'sonner';
 import { motion } from 'framer-motion';
-import { Search, Ruler, BookOpen, Save, Upload, Copy, CheckCircle2, DollarSign, ClipboardList, TrendingUp, ArrowRight } from 'lucide-react';
+import { Search, Ruler, BookOpen, Save, Upload, Copy, CheckCircle2, DollarSign, ClipboardList, TrendingUp, ArrowRight, FileDown, Mail } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { AppLayout } from '../components/AppLayout';
 import { formatCurrency, EXECUTION_STATUS_LABEL, PROJECT_TYPE_LABEL } from '../lib/constants';
 import { LaborLinesEditor } from '../components/medicao/LaborLinesEditor';
 import { LaborCatalogModal } from '../components/medicao/LaborCatalogModal';
+import { MedicaoEnvioModal, downloadMedicaoPdf } from '../components/medicao/MedicaoEnvioModal';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -72,6 +73,7 @@ export const MedicaoPage = () => {
   const [tab, setTab] = useState('realizado');
   const [saving, setSaving] = useState(false);
   const [catalogOpen, setCatalogOpen] = useState(false);
+  const [envioOpen, setEnvioOpen] = useState(false);
   const [importing, setImporting] = useState(false);
   const importRef = useRef(null);
 
@@ -155,7 +157,11 @@ export const MedicaoPage = () => {
                   <h2 className="text-white text-xl font-bold truncate" data-testid="mo-detail-name">{p.name}</h2>
                   <p className="text-[11px] text-zinc-500 mt-0.5">{p.team_name || '—'}{p.project_type ? ` · ${PROJECT_TYPE_LABEL[p.project_type] || p.project_type}` : ''}{EXECUTION_STATUS_LABEL[p.execution_status] ? ` · ${EXECUTION_STATUS_LABEL[p.execution_status].label}` : ''}{p.billing_stage ? ` · Faturamento: ${BILLING_LABEL[p.billing_stage] || p.billing_stage}` : ''}</p>
                 </div>
-                <button data-testid="mo-open-faturamento" onClick={() => navigate('/faturamento')} className="text-[11px] font-bold text-[#00F0FF] hover:underline inline-flex items-center gap-1">Ver na esteira <ArrowRight className="w-3 h-3" /></button>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <button data-testid="mo-pdf" disabled={!detail.totals.realizado_count} onClick={() => downloadMedicaoPdf(p.id)} title={detail.totals.realizado_count ? 'Baixar o Resumo de Mão de Obra (PDF)' : 'Lance e salve a medição primeiro'} className="inline-flex items-center gap-1.5 text-xs font-bold text-zinc-200 bg-white/5 hover:bg-white/10 border border-white/10 px-3 py-2 rounded-full disabled:opacity-40"><FileDown className="w-3.5 h-3.5" /> PDF da medição</button>
+                  <button data-testid="mo-enviar" disabled={!detail.totals.realizado_count} onClick={() => setEnvioOpen(true)} title={detail.totals.realizado_count ? 'Enviar o PDF por e-mail aos fiscais' : 'Lance e salve a medição primeiro'} className="inline-flex items-center gap-1.5 text-xs font-black text-black bg-[#39FF14] hover:bg-[#2ee010] px-3 py-2 rounded-full disabled:opacity-40"><Mail className="w-3.5 h-3.5" /> Enviar aos fiscais{detail.fiscais?.length ? ` (${detail.fiscais.length})` : ''}</button>
+                  <button data-testid="mo-open-faturamento" onClick={() => navigate('/faturamento')} className="text-[11px] font-bold text-[#00F0FF] hover:underline inline-flex items-center gap-1">Ver na esteira <ArrowRight className="w-3 h-3" /></button>
+                </div>
               </div>
               <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mt-3">
                 <div className="rounded-xl border border-[#00F0FF]/30 bg-[#00F0FF]/5 p-3"><p className="text-[9px] uppercase tracking-wider font-bold text-[#00F0FF]">Orçado (M.O.)</p><p className="font-mono text-lg font-black text-white" data-testid="mo-total-orcado">{formatCurrency(detail.totals.orcado)}</p><p className="text-[10px] text-zinc-500">{detail.totals.orcado_count} item(ns) · labor_cost da obra</p></div>
@@ -188,6 +194,7 @@ export const MedicaoPage = () => {
       </div>
 
       <LaborCatalogModal open={catalogOpen} catalog={catalog} onClose={() => setCatalogOpen(false)} onChanged={loadCatalog} />
+      <MedicaoEnvioModal open={envioOpen} detail={detail} onClose={() => setEnvioOpen(false)} onChanged={(data) => { if (data?.project) setDetail(data); }} />
     </AppLayout>
   );
 };
