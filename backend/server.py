@@ -6143,6 +6143,8 @@ app.include_router(_build_orcamentos_router(db, get_current_user, safe_object_id
 app.include_router(_build_notifications_router(db, get_current_user, os.environ.get("FRONTEND_URL", "")))
 from laudo_trafo import build_router as _build_laudo_router
 app.include_router(_build_laudo_router(db, get_current_user, safe_object_id, storage_put, storage_get, APP_NAME, _apply_photo_watermark))
+from ditais import build_router as _build_ditais_router  # noqa: E402
+app.include_router(_build_ditais_router(db, get_current_user, safe_object_id, storage_put, storage_get, APP_NAME, _shrink_photo))
 app.include_router(_campo.build_router(db, get_current_user, safe_object_id, build_project_response, _photo_public))
 import sucata as _sucata
 app.include_router(_sucata.build_router(db, get_current_user, safe_object_id))

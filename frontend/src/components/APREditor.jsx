@@ -97,7 +97,7 @@ export const PROCEDIMENTOS = [
 ];
 
 // ─── Canvas de assinatura reutilizável ──────────────────────────────────────
-const SignaturePad = ({ value, onChange, testid }) => {
+export const SignaturePad = ({ value, onChange, testid }) => {
   const canvasRef = useRef(null);
   const drawing = useRef(false);
   const last = useRef({ x: 0, y: 0 });

@@ -3,10 +3,11 @@ import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import axios from 'axios';
 import { toast } from 'sonner';
-import { ArrowLeft, Zap, AlertTriangle, Package, CheckCircle2, Camera, X, MapPin, Wifi, WifiOff, FileText, FolderOpen, ShieldCheck, Download, Upload, Trash2, Folder } from 'lucide-react';
+import { ArrowLeft, Zap, AlertTriangle, Package, CheckCircle2, Camera, X, MapPin, Wifi, WifiOff, FileText, FolderOpen, ShieldCheck, Download, Upload, Trash2, Folder, ListChecks } from 'lucide-react';
 import { HayahLogo } from '../components/HayahLogo';
 import { PROJECT_TYPE_LABEL, EXECUTION_STATUS_LABEL, formatCurrency, resolveMaterialCodeAndDesc } from '../lib/constants';
 import { APREditor } from '../components/APREditor';
+import { DitaisEditor, ditaisCounts } from '../components/DitaisEditor';
 import { PinchZoomImage } from '../components/PinchZoomImage';
 import { AvancoQuickEntry, AvancoItemsTable, ProgressBar, effColor } from '../components/AvancoWidgets';
 import { AvancoPdfModal } from '../components/AvancoPdfModal';
@@ -58,6 +59,10 @@ export const ProjectDetailPage = () => {
   const [aprList, setAprList] = useState([]);
   const [aprSelected, setAprSelected] = useState(null); // objeto ou null para nova
   const [aprLineType, setAprLineType] = useState(null); // Set/2026 · 'viva' força APR Linha Viva
+  // Out/2026 · DITAIS (procedimento fotográfico de segurança)
+  const [ditaisOpen, setDitaisOpen] = useState(false);
+  const [ditaisList, setDitaisList] = useState([]);
+  const [ditaisSelected, setDitaisSelected] = useState(null);
   const [fromPacote, setFromPacote] = useState(false); // Set/2026 · dados vindos do pacote do dia (offline)
   const [teams, setTeams] = useState([]);
   const [equipamentos, setEquipamentos] = useState([]);
@@ -88,6 +93,14 @@ export const ProjectDetailPage = () => {
       return next;
     });
   }).catch(() => {});
+  const refreshDitais = () => axios.get(`${API}/projects/${id}/ditais`).then(({ data, headers }) => {
+    if (headers?.['x-from-cache']) return;
+    const pending = getQueue().filter((a) => a.type === 'ditais' && a.projectId === id).map((a) => a.data?.client_id);
+    setDitaisList((prev) => [...prev.filter((d) => d._offline && pending.includes(d.client_id) && !(data || []).some((s) => s.client_id === d.client_id)), ...(data || [])]);
+  }).catch(() => {
+    const pending = getQueue().filter((a) => a.type === 'ditais' && a.projectId === id);
+    if (pending.length) setDitaisList((prev) => (prev.length ? prev : pending.map((a) => ({ ...a.data, id: null, _offline: true, counts: { fotos: 0, na: Object.values(a.data?.steps_na || {}).filter((s) => s.na).length } }))));
+  });
 
   useEffect(() => {
     const hasCache = !navigator.onLine && applyPacote();
@@ -99,17 +112,19 @@ export const ProjectDetailPage = () => {
     }).catch(() => { /* offline OK */ });
     // APRs + teams + equipamentos vinculados + avanço físico
     refreshAprs();
+    refreshDitais();
     axios.get(`${API}/teams`).then(({ data }) => setTeams(data || [])).catch(() => {});
     axios.get(`${API}/equipamentos?project_id=${id}`).then(({ data }) => setEquipamentos(Array.isArray(data) ? data : [])).catch(() => {});
     loadAvanco();
 
     const onOn = () => {
       setOnline(true);
-      syncQueue(axios, API).then((r) => { if (r.synced > 0) { toast.success(`${r.synced} registro(s) offline sincronizado(s)`); refreshAprs(); } });
+      syncQueue(axios, API).then((r) => { if (r.synced > 0) { toast.success(`${r.synced} registro(s) offline sincronizado(s)`); refreshAprs(); refreshDitais(); } });
       // Fev/2026 · sincroniza fotos que estavam no IDB aguardando sinal
       syncPhotoQueue(axios, API, null, { force: true }).then(async (r) => {
         if (r.synced > 0) {
           toast.success(`${r.synced} foto(s) sincronizada(s) do offline`);
+          refreshDitais();
           // recarrega lista de fotos do backend
           try {
             const { data } = await axios.get(`${API}/operacional/checklist/${id}`);
@@ -166,6 +181,17 @@ export const ProjectDetailPage = () => {
 
   const openApr = (apr, lineType = null) => { setAprSelected(apr); setAprLineType(lineType); setAprOpen(true); };
   const aprsViva = aprList.filter((a) => a.line_type === 'viva');
+
+  // Out/2026 · ?ditais=1 (Modo Campo) abre um DITAIS novo — só uma vez
+  const ditaisAutoOpened = useRef(false);
+  useEffect(() => {
+    if (searchParams.get('ditais') === '1' && project && !ditaisAutoOpened.current) {
+      ditaisAutoOpened.current = true;
+      setDitaisSelected(null);
+      setDitaisOpen(true);
+    }
+  }, [searchParams, project]);
+  const openDitais = (d) => { setDitaisSelected(d); setDitaisOpen(true); };
 
   const updateCheck = async (key) => {
     const updated = { ...checklist, [key]: !checklist[key] };
@@ -569,6 +595,43 @@ export const ProjectDetailPage = () => {
                   <span className="text-[10px] text-zinc-400 shrink-0">Abrir</span>
                 </button>
               ))}
+            </div>
+          )}
+        </div>
+
+        {/* Out/2026 · DITAIS — procedimento fotográfico obrigatório */}
+        <div data-testid="pd-ditais-card" className="glass-panel rounded-2xl p-4 border border-[#E0FF00]/30">
+          <div className="flex items-center justify-between mb-3 gap-2">
+            <div className="min-w-0">
+              <p className="text-[10px] tracking-[0.2em] uppercase font-bold text-[#E0FF00]">DITAIS — Procedimento</p>
+              <p className="text-xs text-zinc-500 truncate">Desligar · Interromper · Testar · Aterrar · Isolar · Sinalizar</p>
+            </div>
+            <button data-testid="pd-ditais-new" onClick={() => openDitais(null)} className="text-xs font-black px-3 py-2 rounded-full bg-[#E0FF00] text-black flex items-center gap-1 shrink-0">
+              <ListChecks className="w-3 h-3" /> Novo DITAIS
+            </button>
+          </div>
+          {ditaisList.length === 0 ? (
+            <p data-testid="pd-ditais-empty" className="text-[11px] text-zinc-500 italic">Nenhum DITAIS registrado ainda — a equipe de campo tira as 6 fotos e o PDF sai pronto.</p>
+          ) : (
+            <div className="space-y-1.5">
+              {ditaisList.map((d, idx) => {
+                const c = d.counts || ditaisCounts(d.steps);
+                const done = (c.fotos || 0) + (c.na || 0);
+                return (
+                  <button key={d.id || d.client_id || idx} data-testid={`pd-ditais-item-${d.id || d.client_id}`} onClick={() => openDitais(d)} className="w-full flex items-center justify-between gap-2 px-3 py-2 rounded-lg bg-white/[0.03] border border-white/10 hover:border-white/30 text-left">
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs text-white font-bold truncate">
+                        DITAIS {(d.data_execucao || '').slice(0, 10).split('-').reverse().join('/')} <span className="text-[10px] text-zinc-400 font-normal">· {d.responsavel || d.created_by || '—'}</span>
+                        {d._offline && <span data-testid={`pd-ditais-offline-${d.client_id}`} className="ml-1 text-[9px] font-black px-1.5 py-0.5 rounded-full bg-[#FF5E00]/15 border border-[#FF5E00]/40 text-[#FF5E00]">AGUARDANDO SYNC</span>}
+                      </p>
+                      <p className="text-[10px] text-zinc-500">
+                        <span className={done === 6 ? 'text-[#39FF14] font-bold' : 'text-[#FF5E00] font-bold'}>{done === 6 ? 'COMPLETO' : `${done}/6 ETAPAS`}</span> · {c.fotos || 0} foto(s){c.na ? ` · ${c.na} N/A` : ''}
+                      </p>
+                    </div>
+                    <span className="text-[10px] text-zinc-400 shrink-0">Abrir</span>
+                  </button>
+                );
+              })}
             </div>
           )}
         </div>
@@ -1099,6 +1162,24 @@ export const ProjectDetailPage = () => {
       )}
 
       {/* Fev/2026 · APR Editor Modal */}
+      {ditaisOpen && (
+        <DitaisEditor
+          projectId={id}
+          project={project}
+          photos={photos}
+          initial={ditaisSelected}
+          onClose={() => setDitaisOpen(false)}
+          onDeleted={(d) => setDitaisList((prev) => prev.filter((x) => x.id !== d.id))}
+          onSaved={async (saved, meta) => {
+            setDitaisSelected(saved);
+            if (meta?.offline) {
+              setDitaisList((prev) => [saved, ...prev.filter((d) => !((saved.id && d.id === saved.id) || (saved.client_id && d.client_id === saved.client_id)))]);
+              return;
+            }
+            await refreshDitais();
+          }}
+        />
+      )}
       {aprOpen && (
         <APREditor
           projectId={id}

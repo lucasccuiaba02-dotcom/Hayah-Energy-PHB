@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import axios from 'axios';
 import { toast } from 'sonner';
 import { useNavigate } from 'react-router-dom';
-import { Camera, ShieldCheck, FolderOpen, Info, MapPin, Zap, AlertTriangle, Package, RefreshCw, Wifi, WifiOff, UploadCloud, CheckCircle2, Navigation, Flag, Users } from 'lucide-react';
+import { Camera, ShieldCheck, FolderOpen, Info, MapPin, Zap, AlertTriangle, Package, RefreshCw, Wifi, WifiOff, UploadCloud, CheckCircle2, Navigation, Flag, Users, ListChecks } from 'lucide-react';
 import { AppLayout } from '../components/AppLayout';
 import { useAuth } from '../contexts/AuthContext';
 import { PROJECT_TYPE_LABEL } from '../lib/constants';
@@ -17,9 +17,9 @@ const STAGE = { enviada: ['Requisição enviada', '#00F0FF'], separado: ['Materi
 const hhmm = (iso) => (iso ? new Date(iso).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) : '');
 
 const Action = ({ testid, icon: Icon, label, color, onClick }) => (
-  <button data-testid={testid} onClick={onClick} className="rounded-2xl p-4 flex flex-col items-center justify-center gap-2 border transition active:scale-95" style={{ background: `${color}14`, borderColor: `${color}55` }}>
-    <Icon className="w-7 h-7" style={{ color }} />
-    <span className="text-[11px] font-black uppercase tracking-wider text-white">{label}</span>
+  <button data-testid={testid} onClick={onClick} className="rounded-2xl p-3 flex flex-col items-center justify-center gap-1.5 border transition active:scale-95 min-w-0" style={{ background: `${color}14`, borderColor: `${color}55` }}>
+    <Icon className="w-6 h-6" style={{ color }} />
+    <span className="text-[10px] font-black uppercase tracking-wider text-white truncate max-w-full">{label}</span>
   </button>
 );
 
@@ -50,9 +50,10 @@ const CampoCard = ({ p, user, online, onCheckin, onReceipt, navigate }) => {
         </div>
       </div>
 
-      <div className="grid grid-cols-4 gap-2 px-4">
+      <div className="grid grid-cols-5 gap-1.5 px-4">
         <Action testid={`campo-camera-${p.id}`} icon={Camera} label="Câmera" color="#E0FF00" onClick={() => navigate(`/projeto/${p.id}?camera=1`)} />
         <Action testid={`campo-apr-${p.id}`} icon={ShieldCheck} label={aprHref === 'viva' ? 'APR LV' : 'APR'} color={aprHref === 'viva' ? '#FF003C' : '#39FF14'} onClick={() => navigate(`/projeto/${p.id}?apr=${aprHref}`)} />
+        <Action testid={`campo-ditais-${p.id}`} icon={ListChecks} label="DITAIS" color="#FACC15" onClick={() => navigate(`/projeto/${p.id}?ditais=1`)} />
         <Action testid={`campo-docs-${p.id}`} icon={FolderOpen} label="Docs" color="#00F0FF" onClick={() => navigate(`/projeto/${p.id}?tab=arquivos`)} />
         <Action testid={`campo-info-${p.id}`} icon={Info} label="Obra" color="#FF5E00" onClick={() => navigate(`/projeto/${p.id}`)} />
       </div>

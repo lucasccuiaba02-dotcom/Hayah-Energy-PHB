@@ -23,7 +23,7 @@ const tx = async (mode) => {
   return db.transaction(STORE, mode).objectStore(STORE);
 };
 
-export const enqueuePhoto = async ({ projectId, file, label = 'depois', point = '' }) => {
+export const enqueuePhoto = async ({ projectId, file, label = 'depois', point = '', url = '', fields = null, meta = null }) => {
   const store = await tx('readwrite');
   return new Promise((resolve, reject) => {
     const req = store.add({
@@ -33,6 +33,9 @@ export const enqueuePhoto = async ({ projectId, file, label = 'depois', point = 
       type: file.type || 'image/jpeg',
       label,
       point,
+      url, // Out/2026 · destino alternativo (ex.: foto de etapa do DITAIS); vazio = foto da obra
+      fields, // campos extras do FormData
+      meta, // identificação para a UI (ex.: {kind:'ditais', clientId, step})
       queuedAt: new Date().toISOString(),
     });
     req.onsuccess = () => resolve(req.result);
@@ -103,9 +106,13 @@ export const syncPhotoQueue = async (axios, API, onProgress, { force = false } =
     try {
       const fd = new FormData();
       fd.append('file', new File([item.blob], item.filename, { type: item.type }));
-      fd.append('label', item.label || 'depois');
-      fd.append('point', item.point || '');
-      await axios.post(`${API}/operacional/photos/${item.projectId}`, fd, {
+      if (item.url) {
+        Object.entries(item.fields || {}).forEach(([k, v]) => fd.append(k, v ?? ''));
+      } else {
+        fd.append('label', item.label || 'depois');
+        fd.append('point', item.point || '');
+      }
+      await axios.post(item.url ? `${API}${item.url}` : `${API}/operacional/photos/${item.projectId}`, fd, {
         headers: { 'Content-Type': 'multipart/form-data' },
         timeout: 90000,
       });

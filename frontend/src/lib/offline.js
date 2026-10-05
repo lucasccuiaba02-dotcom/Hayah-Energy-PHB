@@ -9,9 +9,10 @@ export const getQueue = () => {
   }
 };
 
-export const enqueue = (action) => {
-  const queue = getQueue();
-  queue.push({ ...action, timestamp: Date.now() });
+export const enqueue = (action, { replaceKey } = {}) => {
+  let queue = getQueue();
+  if (replaceKey) queue = queue.filter((a) => !(a.type === action.type && a.replaceKey === replaceKey));
+  queue.push({ ...action, replaceKey, timestamp: Date.now() });
   localStorage.setItem(QUEUE_KEY, JSON.stringify(queue));
 };
 
@@ -33,6 +34,9 @@ export const syncQueue = async (axios, API) => {
         synced += 1;
       } else if (action.type === 'checkin') {
         await axios.post(`${API}/campo/checkin`, action.data);
+        synced += 1;
+      } else if (action.type === 'ditais') {
+        await axios.post(`${API}/projects/${action.projectId}/ditais`, action.data);
         synced += 1;
       } else if (action.type === 'material_receipt') {
         const fd = new FormData();
