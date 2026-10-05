@@ -124,23 +124,27 @@ export const DitaisEditor = ({ projectId, project, photos = [], initial = null, 
   }, [initial, projectId, project]);
 
   const setField = (k, v) => setForm((f) => ({ ...f, [k]: v }));
-  const payload = () => ({ client_id: clientId.current, ...form, observacao: obs, assinatura: sig, assinatura_nome: sigNome,
-    steps_na: Object.fromEntries(DITAIS_STEPS.map(([k]) => [k, { na: steps[k]?.status === 'na', motivo: steps[k]?.na_motivo || '' }])) });
+  const payload = (stepsNow = steps) => ({ client_id: clientId.current, ...form, observacao: obs, assinatura: sig, assinatura_nome: sigNome,
+    steps_na: Object.fromEntries(DITAIS_STEPS.map(([k]) => [k, { na: stepsNow[k]?.status === 'na', motivo: stepsNow[k]?.na_motivo || '' }])) });
   const mergeServer = (data) => {
     setDoc(data);
     setSteps((s) => { const n = { ...data.steps }; Object.keys(s).forEach((k) => { if (s[k]?._queued) n[k] = s[k]; }); return n; });
   };
 
+  const saveOffline = (stepsNow = steps, { silent = false } = {}) => {
+    const body = payload(stepsNow);
+    enqueue({ type: 'ditais', projectId, data: body }, { replaceKey: clientId.current });
+    const c = ditaisCounts(stepsNow);
+    const local = { ...(doc || {}), ...body, id: doc?.id || null, project_id: projectId, steps: stepsNow, counts: c, complete: c.pendentes === 0, created_at: doc?.created_at || new Date().toISOString(), updated_at: new Date().toISOString(), _offline: true };
+    setDoc(local);
+    onSaved?.(local, { offline: true });
+    if (!silent) toast.success('DITAIS salvo no celular — sincroniza quando voltar o sinal');
+    return local;
+  };
+
   const save = async ({ silent = false } = {}) => {
+    if (!navigator.onLine) return saveOffline(steps, { silent });
     const body = payload();
-    if (!navigator.onLine) {
-      enqueue({ type: 'ditais', projectId, data: body }, { replaceKey: clientId.current });
-      const local = { ...(doc || {}), ...body, id: doc?.id || null, project_id: projectId, steps, counts: ditaisCounts(steps), complete: counts.pendentes === 0, created_at: doc?.created_at || new Date().toISOString(), _offline: true };
-      setDoc(local);
-      onSaved?.(local, { offline: true });
-      if (!silent) toast.success('DITAIS salvo no celular — sincroniza quando voltar o sinal');
-      return local;
-    }
     setSaving(true);
     try {
       const { data } = await axios.post(`${API}/projects/${projectId}/ditais`, body);
@@ -149,11 +153,7 @@ export const DitaisEditor = ({ projectId, project, photos = [], initial = null, 
       if (!silent) toast.success('DITAIS salvo');
       return data;
     } catch (err) {
-      if (!err?.response) {
-        enqueue({ type: 'ditais', projectId, data: body }, { replaceKey: clientId.current });
-        toast.warning('Sem conexão — DITAIS guardado no celular');
-        return doc;
-      }
+      if (!err?.response) { toast.warning('Sem conexão — DITAIS guardado no celular'); return saveOffline(steps, { silent: true }); }
       toast.error(err?.response?.data?.detail || 'Erro ao salvar DITAIS');
       return null;
     } finally { setSaving(false); }
@@ -161,8 +161,9 @@ export const DitaisEditor = ({ projectId, project, photos = [], initial = null, 
 
   const queueLocal = async (k, file, takenAt) => {
     const qid = await enqueuePhoto({ projectId, file, url: `/projects/${projectId}/ditais/${clientId.current}/steps/${k}/photo`, fields: { taken_at: takenAt }, meta: { kind: 'ditais', clientId: clientId.current, step: k } });
-    setSteps((s) => ({ ...s, [k]: { status: 'foto', na_motivo: '', photo: null, _local: URL.createObjectURL(file), _queued: true, _qid: qid } }));
-    enqueue({ type: 'ditais', projectId, data: payload() }, { replaceKey: clientId.current });
+    const nextSteps = { ...steps, [k]: { status: 'foto', na_motivo: '', photo: null, _local: URL.createObjectURL(file), _queued: true, _qid: qid } };
+    setSteps(nextSteps);
+    saveOffline(nextSteps, { silent: true });
     toast.success('Foto guardada no celular — envia quando voltar o sinal');
   };
 

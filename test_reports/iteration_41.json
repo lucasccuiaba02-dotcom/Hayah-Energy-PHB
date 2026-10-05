@@ -1,0 +1,46 @@
+{
+  "summary": "Testing DITAIS feature (iteration 41). Backend: 15/15 pytest tests passing (prefill defaults, CRUD/upsert by client_id, GET by id/client_id, PATCH toggling N/A back to pendente, DELETE, photo upload with existing client_id, photo auto-create for nonexistent client_id (offline sync case), ObjectId 404, invalid step 400, non-image 400, N/A removes photo, from-photo 404, PDF with photos >50KB & without photos, auth 401). Frontend (mobile 390x844): happy path validated - DITAIS card and item list render, editor opens with correct prefill (regional=DCMD, prestadora=GRUPO ATUAL, data_execucao=today), model-toggle works, S N/A sets 'Não aplicável' and shows motivo input, D photo upload via set_input_files sets status 'Foto registrada' with img, Save shows toast, item appears with counts (e.g. '2/6 ETAPAS · 1 foto(s) · 1 N/A'), reopen persists sig_nome, PDF endpoint returns 200 application/pdf with attachment Content-Disposition, remove photo returns status to Pendente, delete removes item from list. Offline flow (critical) validated: context.set_offline(True)+'offline' event shows 'ditais-offline-badge', save button becomes 'Salvar offline', T photo upload offline queues to IndexedDB (hayah_offline_photos), status becomes 'Foto aguardando sync'; after set_offline(False)+'online' event the sync drains the queue and GET /api/projects/{pid}/ditais shows steps.T.status='foto' on server. Cleanup: all TEST_ records deleted at end.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {
+        "component": "ProjectDetailPage DITAIS list",
+        "issue": "After saving a DITAIS offline and closing the editor, the newly created local record does not appear in the DITAIS list with an 'AGUARDANDO SYNC' badge until the online sync completes. The server-side item eventually appears correctly after sync, but the immediate offline-only state (pd-ditais-offline-{client_id} badge) was not observed on list after closing editor. Likely ProjectDetailPage.refreshDitais() does not include the local offline queue items (only server list).",
+        "selector": "[data-testid^='pd-ditais-offline-']",
+        "priority": "LOW"
+      }
+    ],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration41_ditais.py",
+    "/app/test_reports/pytest/iteration_41_ditais.xml"
+  ],
+  "action_items": [
+    "(Optional/LOW) Make ProjectDetailPage show offline-only DITAIS records in the list immediately after closing the editor (merge enqueued ditais from offline queue with server list, mark with _offline:true so pd-ditais-offline-* badge renders)."
+  ],
+  "critical_code_review_comments": [
+    "DitaisEditor.jsx (303 lines) and ditais.py (519 lines) are within reasonable limits.",
+    "ditais.py correctly excludes storage_path from public API via _pub() (no raw _id/storage leak).",
+    "Upload endpoint correctly auto-creates DITAIS by non-ObjectId client_id (offline photo-before-form path works end-to-end).",
+    "PDF endpoint handles missing photos/signatures gracefully (verified: no 500 with no photos, with N/A, with base64 PNG signature, and with multi-line observação).",
+    "Offline queue uses two independent stores (hayah_offline (type=ditais JSON) and hayah_offline_photos). On reconnection both drain and server state converges — confirmed via GET after sync."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iteration41_ditais.py (new)"
+  ],
+  "success_rate": {
+    "backend": "100% (15/15)",
+    "frontend": "~95% (happy path + offline sync OK; minor: offline-only item not shown in list pre-sync)"
+  },
+  "test_credentials": "admin lucasc.cuiaba02@gmail.com / Hayah$152610 (from /app/memory/test_credentials.md)",
+  "seed_data_creation": "No persistent seed. All TEST_* DITAIS records created during tests were deleted in teardown and in the UI test cleanup step (3 records removed).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Backend DITAIS endpoints (ditais.py) fully covered by /app/backend/tests/test_iteration41_ditais.py (pytest, 15 tests, module-scoped login + autocleanup). Project id 6a625e61592149428e288fc1 'Equipe 1' is the standard test obra. For offline UI testing use page.context.set_offline(True) + explicit window.dispatchEvent(new Event('offline'/'online')); IndexedDB 'hayah_offline_photos' is where DITAIS photos go. The campo-ditais-{id} quick-action button only renders for projects shown on CampoPage (projects with activity today); if no cards render, verify checkins exist first.",
+  "rca of the issue": "N/A — no critical bugs found. The minor UI issue (offline item not in list before sync) is a UX nice-to-have, not a defect: sync still works and data converges correctly. Reproduction for the minor: project page → New DITAIS → go offline → upload photo → Save offline → Close → list shows only server records (no offline-only entry with AGUARDANDO SYNC badge). Mitigation: in ProjectDetailPage.refreshDitais, merge offline queue entries where type==='ditais' into the rendered list with _offline:true."
+}

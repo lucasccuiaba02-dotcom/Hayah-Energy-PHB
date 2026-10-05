@@ -99,7 +99,7 @@ export const ProjectDetailPage = () => {
     setDitaisList((prev) => [...prev.filter((d) => d._offline && pending.includes(d.client_id) && !(data || []).some((s) => s.client_id === d.client_id)), ...(data || [])]);
   }).catch(() => {
     const pending = getQueue().filter((a) => a.type === 'ditais' && a.projectId === id);
-    if (pending.length) setDitaisList((prev) => (prev.length ? prev : pending.map((a) => ({ ...a.data, id: null, _offline: true, counts: { fotos: 0, na: Object.values(a.data?.steps_na || {}).filter((s) => s.na).length } }))));
+    if (pending.length) setDitaisList((prev) => (prev.length ? prev : pending.map((a) => ({ ...a.data, id: null, _offline: true, counts: ditaisCounts(Object.fromEntries(Object.entries(a.data?.steps_na || {}).map(([k, v]) => [k, { status: v.na ? 'na' : 'pendente' }]))) }))));
   });
 
   useEffect(() => {
