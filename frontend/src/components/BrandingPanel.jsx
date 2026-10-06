@@ -86,8 +86,9 @@ export const BrandingPanel = () => {
   const [key, setKey] = useState('');
   const [unlocked, setUnlocked] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [form, setForm] = useState({ app_name: brand.app_name, company_name: brand.company_name, tagline: brand.tagline, logo_data_url: brand.logo_data_url });
-  useEffect(() => { setForm({ app_name: brand.app_name, company_name: brand.company_name, tagline: brand.tagline, logo_data_url: brand.logo_data_url }); }, [brand]);
+  const fromBrand = (b) => ({ app_name: b.app_name || '', company_name: b.company_name || '', tagline: b.tagline || '', logo_data_url: b.logo_data_url || '' });
+  const [form, setForm] = useState(() => fromBrand(brand));
+  useEffect(() => { setForm(fromBrand(brand)); }, [brand]);
 
   const unlock = async () => {
     if (!key) { toast.error('Informe a senha-mestra'); return; }

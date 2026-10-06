@@ -1,0 +1,44 @@
+{
+  "summary": "Iteration 42 — Features (1)–(6) regression. Backend pytest: 22/22 passing (sequential run; parallel xdist mode has a race between TestLicense.test_block_and_unblock and TestImpacto because block/unblock briefly makes any /api/* return 402 — not a product bug, just a parallel-test ordering caveat). Covered: license status, master-key verification (ok/bad), master-key required on config/checkout/manual-payment/branding, config validations (ciclo 1–365, valor>=0, paid_until date), warning window (days_left=3), full block→402 on /api/projects while /licenca/status, /branding, /auth/login remain 200, manual payment extend_license adds history method='manual' and unblocks (paid_until = today+30), Stripe checkout creates cs_test_* session + payment_transactions row with pending status, checkout 400 when valor=0, pagamento/status/<unknown> → 404, branding update + public GET /api/branding reflects immediately + 400 for non-image data URL and >300KB logo, almoxarifado impacto CRUD + cost math (4h × 3 × R$55.50 = R$666 with hh_rate basis), invalid tipo 400, requisition NF upload/get/delete (PDF stored and served, /documentos lists notas_fiscais, counts.notas_fiscais incremented), requisition PDF labels (pypdf extraction confirms 'ENCARREGADO' and 'ALMOXARIFADO' present, 'SOLICITANTE'/'ALMOXARIFE' absent), warehouse_status 'despadronizado' PATCH persists on materials_list[], and attachments accept kinds nota_fiscal/laudo_trafo/laudo_medidor/ditais with optional nf_numero form. Frontend smoke: login ok, /licenca shows licenca-status-card + licenca-history + licenca-master-toggle (collapsed by default; licenca-stripe-box/licenca-pay-online appear only once master panel is opened, which matches design), /configuracoes branding-panel rejects wrong master-key (form stays hidden) and reveals branding-form with all fields (app-name/tagline/company-name/logo-upload/preview/save) on correct key, /materiais shows almox-impacto-panel (toggle expands, total chip renders R$ with correct value), /documentos renders all four new folders (Nota Fiscal, Laudo do Transformador, Laudo do Medidor, DITAIS), /payment/cancel shows 'cancelado'. Cleanup: license left enabled=false, branding restored to Hayah Energy/ENERGY/no logo, test ocorrência deleted.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "/configuracoes BrandingPanel", "issues": ["React warning in console: 'A component is changing a controlled input to be uncontrolled.' — likely a branding input initialized with undefined (e.g. company_name/tagline/app_name/logo_data_url returned as undefined on first render). Not blocking but should default state fields to '' in BrandingPanel to silence warning."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration42.py",
+    "/app/test_reports/pytest/iteration_42.xml"
+  ],
+  "action_items": [
+    "(LOW) Fix controlled→uncontrolled React warning in BrandingPanel by defaulting app_name/tagline/company_name/logo_data_url to '' when state is initialized.",
+    "(INFO/no-op) When blocking the license during testing (test_block_and_unblock), parallel pytest runs may race: _cache invalidation + the global 402 middleware briefly affects other workers. Run with -p no:xdist for license tests or isolate TestLicense into its own file to avoid flakiness."
+  ],
+  "critical_code_review_comments": [
+    "licenca.py (304 lines) and almox_impacto.py (166 lines) are concise and well-structured. Both exclude _id from public payloads (status_of + _pub).",
+    "License middleware correctly whitelists /api/auth, /api/licenca, /api/branding, /api/stripe/webhook, /api/health and uses a 60s cache invalidated by _invalidate() on every config/extend — verified: config → immediate 402 (no stale cache) → manual payment → immediate 200.",
+    "material_requisition_pdf.py line ~230 uses correct labels 'ENCARREGADO'/'ALMOXARIFADO' as required.",
+    "Stripe checkout creates a payment_transactions record with credited=False and kind='licenca' before returning — correct for later webhook crediting via _credit_session() (idempotent via credited:{$ne:true}).",
+    "extend_license() correctly bases the new paid_until on max(today, existing paid_until) so renewing while still active extends from current paid_until and renewing after expiry extends from today — matches spec.",
+    "Impacto compute_cost: when hh_rate is None falls back to hours × (daily_target ÷ 8) — but note it does NOT multiply by members in that branch. Verify with product: for daily-target basis the formula is per-person daily target, so skipping ×members is intentional (team-level cost). Document if ambiguous.",
+    "almox_impacto router is scoped per user (user_id filter on reads/writes) — multi-tenant safe."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iteration42.py (new)"
+  ],
+  "success_rate": {
+    "backend": "100% (22/22 sequential)",
+    "frontend": "~95% (smoke validated all new testids + folder names + Stripe/branding gating; did not run full E2E checkout, NF upload UI, or 390px viewport layout)"
+  },
+  "test_credentials": "admin lucasc.cuiaba02@gmail.com / Hayah$152610; LICENSE_MASTER_KEY=hayah-master-BEi_yAhwwVtd (from /app/backend/.env)",
+  "seed_data_creation": "Transient only. All TEST_ ocorrências and NF uploads created during tests were deleted in the test (or cleaned up post-run via API). License was left enabled=false and branding restored (Hayah Energy / ENERGY / '' logo) as instructed.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Run iteration_42 pytest sequentially (pytest -o addopts= -p no:xdist) because TestLicense.test_block_and_unblock briefly returns 402 on all /api/* which races with the impacto tests under xdist. The project with id 6aade9e554f9f5aa51348a8d has at least one material_requisition; 6a625e61592149428e288fc1 has material in materials_list (field name is materials_list, not materials). pypdf 6.15 is already installed. Front-end /licenca Stripe box is only visible once the master-key accordion is opened (licenca-master-toggle). BrandingPanel has a minor controlled→uncontrolled React warning.",
+  "rca of the issue": "N/A — no product bugs. Only parallel-run flakiness explained in context."
+}
