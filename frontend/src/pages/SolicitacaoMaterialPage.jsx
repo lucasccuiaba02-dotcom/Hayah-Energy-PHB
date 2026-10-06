@@ -5,8 +5,10 @@ import { toast } from 'sonner';
 import { AppLayout } from '../components/AppLayout';
 import {
   Package, Send, FileText, MapPin, Users, Calendar, Hash, PenLine,
-  CheckCircle2, History, FileDown, Camera, Truck, AlertCircle, Loader, RefreshCw, Eye, X, ClipboardList, Plus, MessageCircle, ListChecks, Undo2, PackageCheck,
+  CheckCircle2, History, FileDown, Camera, Truck, AlertCircle, Loader, RefreshCw, Eye, X, ClipboardList, Plus, MessageCircle, ListChecks, Undo2, PackageCheck, Receipt, Trash2,
 } from 'lucide-react';
+import { openUrl } from '../lib/files';
+import { AlmoxImpactoPanel } from '../components/AlmoxImpactoPanel';
 import { WAREHOUSE_RESPONSE_STATUS, WAREHOUSE_RESPONSE_LABEL, MATERIAL_UNITS, ITEM_WAREHOUSE_STATUS, ITEM_WAREHOUSE_STATUS_LABEL, resolveMaterialCodeAndDesc } from '../lib/constants';
 import { PROJECT_TYPE_LABEL, formatCurrency, todayISO } from '../lib/constants';
 
@@ -785,6 +787,9 @@ export const SolicitacaoMaterialPage = () => {
             </div>
           </motion.div>
         )}
+
+        {/* Out/2026 · Impacto do almoxarifado em HH */}
+        <AlmoxImpactoPanel projects={projects} />
       </div>
 
       {previewUrl && (
@@ -1078,6 +1083,47 @@ const QtyInput = ({ value, onCommit, saving, color, testid }) => {
   );
 };
 
+const RequisitionNotaFiscal = ({ req, projectId, onSaved }) => {
+  const nf = req.nota_fiscal || null;
+  const [numero, setNumero] = useState(nf?.numero || '');
+  const [saving, setSaving] = useState(false);
+  const fileRef = useRef(null);
+  useEffect(() => { setNumero(nf?.numero || ''); }, [nf?.numero]);
+  const save = async (file) => {
+    if (!numero.trim() && !file && !nf?.has_file && !nf?.storage_path && !nf?.filename) { toast.error('Informe o número da NF ou anexe o PDF'); return; }
+    setSaving(true);
+    try {
+      const fd = new FormData();
+      fd.append('numero', numero.trim());
+      if (file) fd.append('file', file);
+      await axios.post(`${API}/projects/${projectId}/requisitions/${req.id}/nota-fiscal`, fd, { headers: { 'Content-Type': 'multipart/form-data' } });
+      toast.success(file ? 'Nota fiscal anexada' : 'Número da NF salvo');
+      onSaved && onSaved();
+    } catch (e) { toast.error(e.response?.data?.detail || 'Erro ao salvar a nota fiscal'); }
+    finally { setSaving(false); }
+  };
+  const remove = async () => {
+    if (!window.confirm('Remover a nota fiscal desta requisição?')) return;
+    try { await axios.delete(`${API}/projects/${projectId}/requisitions/${req.id}/nota-fiscal`); toast.success('Nota fiscal removida'); onSaved && onSaved(); }
+    catch (e) { toast.error(e.response?.data?.detail || 'Erro ao remover'); }
+  };
+  const hasFile = !!(nf?.filename);
+  return (
+    <div data-testid={`req-nf-${req.id}`} className="flex items-center gap-1.5 flex-wrap rounded-full border border-[#F59E0B]/30 bg-[#F59E0B]/5 pl-2 pr-1 py-0.5">
+      <Receipt className="w-3 h-3 text-[#F59E0B]" />
+      <span className="text-[10px] font-bold text-[#F59E0B]">NF</span>
+      <input data-testid={`req-nf-numero-${req.id}`} value={numero} onChange={(e) => setNumero(e.target.value)} onBlur={() => { if (numero.trim() && numero.trim() !== (nf?.numero || '')) save(null); }} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); save(null); } }} placeholder="nº da nota" className="w-24 bg-transparent text-[11px] font-mono text-white placeholder:text-zinc-600 focus:outline-none" />
+      <input ref={fileRef} data-testid={`req-nf-file-${req.id}`} type="file" accept="application/pdf,image/*" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) save(f); e.target.value = ''; }} />
+      {hasFile ? (
+        <button type="button" data-testid={`req-nf-open-${req.id}`} onClick={() => openUrl(`/api/projects/${projectId}/requisitions/${req.id}/nota-fiscal/file`)} title={nf.filename} className="text-[10px] font-bold text-[#F59E0B] inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full hover:bg-white/5"><FileDown className="w-3 h-3" /> PDF</button>
+      ) : (
+        <button type="button" data-testid={`req-nf-upload-${req.id}`} onClick={() => fileRef.current?.click()} disabled={saving} className="text-[10px] font-bold text-black bg-[#F59E0B] inline-flex items-center gap-0.5 px-2 py-0.5 rounded-full disabled:opacity-60">{saving ? <Loader className="w-3 h-3 animate-spin" /> : <Plus className="w-3 h-3" />} PDF</button>
+      )}
+      {(hasFile || nf?.numero) && <button type="button" data-testid={`req-nf-remove-${req.id}`} onClick={remove} title="Remover nota fiscal" className="w-5 h-5 rounded-full text-zinc-500 hover:text-[#FF003C] flex items-center justify-center"><Trash2 className="w-3 h-3" /></button>}
+    </div>
+  );
+};
+
 const RequisitionRow = ({ req, projectId, onOpenPdf, onOpenPhoto, onConfirm, onResend, onWarehouseResponseSaved, confirming, resending, defaultReceiver }) => {
   const [expand, setExpand] = useState(false);
   const [receiver, setReceiver] = useState(defaultReceiver || '');
@@ -1202,6 +1248,7 @@ const RequisitionRow = ({ req, projectId, onOpenPdf, onOpenPhoto, onConfirm, onR
             <ClipboardList className="w-3 h-3" /> {wrChip.label}
           </span>
         )}
+        {!req.is_resend && <RequisitionNotaFiscal req={req} projectId={projectId} onSaved={onWarehouseResponseSaved} />}
         <button
           data-testid={`req-pdf-${req.id}`}
           onClick={onOpenPdf}

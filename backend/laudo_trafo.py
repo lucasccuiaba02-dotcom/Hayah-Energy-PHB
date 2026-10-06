@@ -10,6 +10,7 @@ from zoneinfo import ZoneInfo
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from fastapi.responses import Response
 from PIL import Image, ImageOps
+from branding_cache import brand_name
 from pydantic import BaseModel
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
@@ -301,7 +302,7 @@ def build_laudo_pdf(v: dict, photos: dict, logo_bytes: Optional[bytes]) -> bytes
         value(105, 263.5, str(v["encarregado"]).upper(), align="center")
     text(105, 267.5, "NOME DO ENCARREGADO POR EXTENSO", size=6.5, align="center")
 
-    text(12, 276, f"Gerado por Hayah Energy · {datetime.now(TZ).strftime('%d/%m/%Y %H:%M')} · Patrimônio {v.get('patrimonio') or '—'} · Série {v.get('numero_serie') or '—'}", size=6, color=colors.grey)
+    text(12, 276, f"Gerado por {brand_name()} · {datetime.now(TZ).strftime('%d/%m/%Y %H:%M')} · Patrimônio {v.get('patrimonio') or '—'} · Série {v.get('numero_serie') or '—'}", size=6, color=colors.grey)
     c.showPage()
     c.save()
     return buf.getvalue()

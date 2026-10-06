@@ -5,7 +5,7 @@ import { toast } from 'sonner';
 import {
   FolderOpen, FileText, Package, ShieldAlert, Map, FileSearch, Camera,
   Upload, Download, Trash2, Search, X, ChevronDown, ChevronRight, Layers,
-  Calendar, Users, DollarSign,
+  Calendar, Users, DollarSign, Receipt, Zap, Gauge, ListChecks,
 } from 'lucide-react';
 import { AppLayout } from '../components/AppLayout';
 import { formatCurrency, PROJECT_TYPE_LABEL } from '../lib/constants';
@@ -47,6 +47,7 @@ const GeneratedRequisitions = ({ reqs, loading }) => (
             <span className="font-bold">{r.requisition_type === 'parcial' ? `PARCIAL nº ${r.seq}` : 'Requisição total'}</span>
             <span className="text-zinc-400">{r.items_count} item(ns) · {r.created_by || '—'}</span>
             {r.received_at && <span className="text-[10px] text-[#39FF14]">recebido {dateBR(r.received_at)}</span>}
+            {r.nota_fiscal && <span className="text-[10px] font-mono font-bold text-[#F59E0B]">NF {r.nota_fiscal}</span>}
             {r.receipt_photo_url && <button onClick={() => openUrl(r.receipt_photo_url)} className="text-[10px] text-[#39FF14] underline">canhoto</button>}
             <button data-testid={`doc-req-pdf-${r.id}`} onClick={() => openUrl(r.pdf_url)} className="ml-auto w-7 h-7 rounded-full bg-white/5 hover:bg-white/10 text-[#00F0FF] flex items-center justify-center" title="Abrir PDF da requisição"><Download className="w-3.5 h-3.5" /></button>
           </div>
@@ -54,6 +55,56 @@ const GeneratedRequisitions = ({ reqs, loading }) => (
       </div>
     )}
   </div>
+);
+
+// Out/2026 · documentos gerados: notas fiscais das requisições, laudos de equipamentos e DITAIS
+const GeneratedList = ({ testid, title, items, loading, empty, color, render }) => (
+  <div data-testid={testid} className="px-4 py-2 border-b border-white/5" style={{ background: `${color}08` }}>
+    <p className="text-[9px] tracking-[0.2em] uppercase font-bold text-zinc-500 mb-1">{title} · {items.length}</p>
+    {loading ? <p className="text-[11px] text-zinc-500 italic">Carregando…</p> : items.length === 0 ? <p className="text-[11px] text-zinc-500 italic">{empty}</p> : (
+      <div className="divide-y divide-white/5">{items.map(render)}</div>
+    )}
+  </div>
+);
+
+const GeneratedNotas = ({ notas, loading }) => (
+  <GeneratedList testid="doc-generated-nfs" title="Notas fiscais lançadas nas requisições" items={notas} loading={loading} color="#F59E0B" empty="Nenhuma NF lançada no Almoxarifado › Requisições. Anexe abaixo NFs avulsas." render={(n) => (
+    <div key={n.req_id} data-testid={`doc-nf-${n.req_id}`} className="flex items-center gap-2 py-1.5 text-xs text-zinc-200 flex-wrap">
+      <span className="font-mono font-black text-[#F59E0B]">NF {n.numero || '—'}</span>
+      <span className="text-zinc-400">{n.requisition_type === 'parcial' ? `Requisição parcial nº ${n.seq}` : 'Requisição total'} · {dateBR(n.created_at)}</span>
+      {n.uploaded_by && <span className="text-[10px] text-zinc-500">{n.uploaded_by}</span>}
+      {n.file_url ? (
+        <button data-testid={`doc-nf-file-${n.req_id}`} onClick={() => openUrl(n.file_url)} className="ml-auto w-7 h-7 rounded-full bg-white/5 hover:bg-white/10 text-[#F59E0B] flex items-center justify-center" title="Abrir PDF da nota fiscal"><Download className="w-3.5 h-3.5" /></button>
+      ) : <span className="ml-auto text-[10px] text-zinc-500 italic">sem PDF</span>}
+    </div>
+  )} />
+);
+
+const GeneratedLaudos = ({ laudos, loading, tipo }) => {
+  const items = laudos.filter((l) => (tipo === 'medidor' ? (l.tipo || '').toLowerCase().includes('medidor') : !(l.tipo || '').toLowerCase().includes('medidor')));
+  return (
+    <GeneratedList testid={`doc-generated-laudos-${tipo}`} title={tipo === 'medidor' ? 'Laudos de medidor (equipamentos da obra)' : 'Laudos de transformador (equipamentos da obra)'} items={items} loading={loading} color={tipo === 'medidor' ? '#38BDF8' : '#E0FF00'} empty="Nenhum equipamento vinculado a esta obra. Anexe abaixo o laudo escaneado." render={(l) => (
+      <div key={l.id} data-testid={`doc-laudo-${l.id}`} className="flex items-center gap-2 py-1.5 text-xs text-zinc-200 flex-wrap">
+        <span className="font-bold uppercase">{l.tipo || 'equipamento'}</span>
+        {l.numero_serie && <span className="font-mono text-zinc-400">S/N {l.numero_serie}</span>}
+        {l.patrimonio && <span className="font-mono text-zinc-400">Pat. {l.patrimonio}</span>}
+        {l.potencia && <span className="text-zinc-400">{l.potencia}</span>}
+        <span className={`text-[10px] ${l.has_laudo ? 'text-[#39FF14]' : 'text-zinc-500'}`}>{l.has_laudo ? 'laudo preenchido' : 'laudo não preenchido'}</span>
+        <button data-testid={`doc-laudo-pdf-${l.id}`} onClick={() => openUrl(l.pdf_url)} className="ml-auto w-7 h-7 rounded-full bg-white/5 hover:bg-white/10 text-[#E0FF00] flex items-center justify-center" title="Abrir PDF do laudo"><Download className="w-3.5 h-3.5" /></button>
+      </div>
+    )} />
+  );
+};
+
+const GeneratedDitais = ({ ditais, loading }) => (
+  <GeneratedList testid="doc-generated-ditais" title="DITAIS preenchidos pelas equipes" items={ditais} loading={loading} color="#FACC15" empty="Nenhum DITAIS registrado nesta obra (Modo Campo › DITAIS)." render={(d) => (
+    <div key={d.id} data-testid={`doc-ditais-${d.id}`} className="flex items-center gap-2 py-1.5 text-xs text-zinc-200 flex-wrap">
+      <span className="font-mono text-zinc-400">{dateBR(d.data_execucao)}</span>
+      <span className="truncate">{d.responsavel || '—'}</span>
+      <span className={`text-[10px] font-bold ${d.complete ? 'text-[#39FF14]' : 'text-[#FF5E00]'}`}>{d.complete ? 'COMPLETO' : `${d.fotos + d.na}/6 ETAPAS`}</span>
+      <button data-testid={`doc-ditais-pdf-${d.id}`} onClick={() => openUrl(d.pdf_url)} className="ml-auto w-7 h-7 rounded-full bg-white/5 hover:bg-white/10 text-[#FACC15] flex items-center justify-center" title="Abrir PDF do DITAIS"><Download className="w-3.5 h-3.5" /></button>
+    </div>
+  )} />
 );
 
 class DocsErrorBoundary extends React.Component {
@@ -81,6 +132,10 @@ export const DOC_KINDS = [
   { key: 'croqui',    label: 'Croqui', icon: Map,      color: '#FF5E00', hint: 'Croquis de campo, esboços' },
   { key: 'dwg',       label: 'Arquivos DWG', icon: FileSearch, color: '#A855F7', hint: 'AutoCAD, DXF, IFC etc.' },
   { key: 'fotos_ext', label: 'Fotos Anexas', icon: Camera,   color: '#39FF14', hint: 'Imagens avulsas (para fotos operacionais use Operacional)' },
+  { key: 'nota_fiscal', label: 'Nota Fiscal', icon: Receipt, color: '#F59E0B', hint: 'NF de materiais/serviços — nº da nota + PDF', askNumber: true },
+  { key: 'laudo_trafo', label: 'Laudo do Transformador', icon: Zap, color: '#E0FF00', hint: 'Laudos gerados no app + laudos escaneados' },
+  { key: 'laudo_medidor', label: 'Laudo do Medidor', icon: Gauge, color: '#38BDF8', hint: 'Laudos de medidor (equipamentos) + anexos' },
+  { key: 'ditais', label: 'DITAIS', icon: ListChecks, color: '#FACC15', hint: 'Procedimento fotográfico (D·I·T·A·I·S) gerado pelas equipes' },
 ];
 
 const fmtBytes = (n) => {
@@ -132,7 +187,7 @@ const KindCard = ({ kindDef, attachments, onUpload, onOpen, onRemove, uploading,
           data-testid={`doc-file-${kindDef.key}`}
           accept={kindDef.key === 'dwg' ? '.dwg,.dxf,.ifc,application/*' : 'application/pdf,image/*,.pdf,.jpg,.jpeg,.png,.xlsx,.xls,.csv'}
           className="hidden"
-          onChange={(e) => onUpload(e.target.files?.[0], kindDef.key, () => { if (inputRef.current) inputRef.current.value = ''; })}
+          onChange={(e) => onUpload(e.target.files?.[0], kindDef.key, () => { if (inputRef.current) inputRef.current.value = ''; }, kindDef.askNumber)}
         />
       </div>
       {generated}
@@ -146,7 +201,7 @@ const KindCard = ({ kindDef, attachments, onUpload, onOpen, onRemove, uploading,
                 <FileText className="w-3.5 h-3.5" style={{ color: kindDef.color }} />
               </div>
               <div className="flex-1 min-w-0">
-                <p className="text-white text-sm font-bold truncate" title={a.filename}>{a.filename}</p>
+                <p className="text-white text-sm font-bold truncate" title={a.filename}>{a.nf_numero ? <span className="font-mono text-[#F59E0B] mr-1" data-testid={`doc-att-nf-${a.id}`}>NF {a.nf_numero}</span> : null}{a.filename}</p>
                 <p className="text-[10px] text-zinc-500 font-mono">
                   {fmtBytes(a.size)} · {(a.uploaded_at || '').slice(0, 10)} {a.uploaded_by ? `· ${a.uploaded_by}` : ''}
                 </p>
@@ -329,14 +384,20 @@ export const DocumentosPage = () => {
     return acc;
   }, [attachments]);
 
-  const totalDocs = attachments.length + (docs?.counts?.photos || 0) + (docs?.counts?.aprs || 0) + (docs?.counts?.requisitions || 0);
+  const totalDocs = attachments.length + (docs?.counts?.photos || 0) + (docs?.counts?.aprs || 0) + (docs?.counts?.requisitions || 0) + (docs?.counts?.notas_fiscais || 0) + (docs?.counts?.ditais || 0);
 
-  const upload = async (file, kind, done) => {
+  const upload = async (file, kind, done, askNumber = false) => {
     if (!file || !selectedProject) return;
+    let nfNumero = '';
+    if (askNumber) {
+      nfNumero = window.prompt('Número da nota fiscal:', '') ?? '';
+      if (nfNumero === '' ) { if (!window.confirm('Anexar sem número da NF?')) { if (done) done(); return; } }
+    }
     setUploadingKind(kind);
     try {
       const fd = new FormData();
       fd.append('kind', kind);
+      if (nfNumero) fd.append('nf_numero', nfNumero.trim());
       fd.append('file', file);
       const { data } = await axios.post(`${API}/projects/${selectedProject.id}/attachments`, fd, {
         headers: { 'Content-Type': 'multipart/form-data' },
@@ -359,7 +420,7 @@ export const DocumentosPage = () => {
   };
 
   return (
-    <AppLayout title="Documentos" subtitle="Central de arquivos por obra — projeto executivo, materiais, APR, croqui, DWG e fotos">
+    <AppLayout title="Documentos" subtitle="Central de arquivos por obra — projeto, materiais, APR, croqui, DWG, fotos, notas fiscais, laudos e DITAIS">
       <DocsErrorBoundary>
       <div className="grid lg:grid-cols-[320px_1fr] gap-4">
         {/* Sidebar Projetos */}
@@ -471,7 +532,15 @@ export const DocumentosPage = () => {
                     onRemove={remove}
                     uploading={uploadingKind === kd.key}
                     projectId={selectedProject.id}
-                    generated={kd.key === 'apr' ? <GeneratedAprs aprs={docs?.aprs || []} loading={docsLoading} /> : kd.key === 'materiais' ? <GeneratedRequisitions reqs={docs?.requisitions || []} loading={docsLoading} /> : null}
+                    generated={
+                      kd.key === 'apr' ? <GeneratedAprs aprs={docs?.aprs || []} loading={docsLoading} />
+                        : kd.key === 'materiais' ? <GeneratedRequisitions reqs={docs?.requisitions || []} loading={docsLoading} />
+                          : kd.key === 'nota_fiscal' ? <GeneratedNotas notas={docs?.notas_fiscais || []} loading={docsLoading} />
+                            : kd.key === 'laudo_trafo' ? <GeneratedLaudos laudos={docs?.laudos || []} loading={docsLoading} tipo="trafo" />
+                              : kd.key === 'laudo_medidor' ? <GeneratedLaudos laudos={docs?.laudos || []} loading={docsLoading} tipo="medidor" />
+                                : kd.key === 'ditais' ? <GeneratedDitais ditais={docs?.ditais || []} loading={docsLoading} />
+                                  : null
+                    }
                   />
                 ))}
               </div>

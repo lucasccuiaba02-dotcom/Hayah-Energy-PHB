@@ -1043,6 +1043,7 @@ class DailyReturnBody(BaseModel):
     executed: bool
     reason: Optional[str] = None  # motivo se não executado
     notes: Optional[str] = ""
+    hours_lost: Optional[float] = None  # Out/2026 · horas perdidas (impacto do almoxarifado)
 
 @api_router.post("/programacao/return")
 async def register_daily_return(body: DailyReturnBody, current_user: dict = Depends(get_current_user)):
@@ -1053,6 +1054,7 @@ async def register_daily_return(body: DailyReturnBody, current_user: dict = Depe
         "executed": body.executed,
         "reason": body.reason or "",
         "notes": body.notes or "",
+        "hours_lost": float(body.hours_lost or 0),
         "registered_at": datetime.now(timezone.utc).isoformat(),
         "registered_by": current_user.get("email", ""),
     }
@@ -1062,7 +1064,24 @@ async def register_daily_return(body: DailyReturnBody, current_user: dict = Depe
     else:
         update["$set"] = {"execution_status": "a_reprogramar"}
     await db.projects.update_one({"_id": safe_object_id(body.project_id)}, update)
-    return {"status": "ok", "executed": body.executed, "new_status": update["$set"].get("execution_status")}
+    # Out/2026 · impacto do almoxarifado: não executada por material OU obra já separada na doca e não atendida
+    impacto = None
+    if not body.executed:
+        try:
+            from almox_impacto import register_ocorrencia
+            separada = any((r.get("warehouse_response") or {}).get("status") in ("separado", "na_doca", "separado_parcial") for r in (project.get("material_requisitions") or []))
+            motivo_label = {"frota": "Frota", "seguranca": "Segurança", "temporal": "Temporal", "chuva": "Chuva", "acesso": "Acesso", "almoxarifado": "Almoxarifado / material", "outro": "Outro"}.get(body.reason or "", body.reason or "")
+            if body.reason == "almoxarifado":
+                impacto = await register_ocorrencia(db, current_user, project=project, tipo="separada_nao_atendida" if separada else "nao_atendida", hours=float(body.hours_lost or 8),
+                                                    description=f"Programação de {body.date} não executada — motivo: {motivo_label}. {body.notes or ''}".strip(), date=body.date,
+                                                    source="retorno", ref={"date": body.date, "reason": body.reason})
+            elif separada:
+                impacto = await register_ocorrencia(db, current_user, project=project, tipo="separada_nao_atendida", hours=float(body.hours_lost or 0),
+                                                    description=f"Material separado no almoxarifado e obra não executada em {body.date} — motivo: {motivo_label}. {body.notes or ''}".strip(), date=body.date,
+                                                    source="retorno", ref={"date": body.date, "reason": body.reason})
+        except Exception as e:
+            logger.warning(f"impacto almoxarifado (retorno): {e}")
+    return {"status": "ok", "executed": body.executed, "new_status": update["$set"].get("execution_status"), "impacto_id": str(impacto["_id"]) if impacto else None}
 
 @api_router.get("/programacao/pending-returns")
 async def pending_returns(current_user: dict = Depends(get_current_user), date: str = "", mode: str = ""):
@@ -4096,7 +4115,8 @@ async def delete_equipamento_photo(equip_id: str, photo_id: str, current_user: d
 @api_router.post("/projects/{project_id}/attachments")
 async def upload_project_attachment(
     project_id: str,
-    kind: str = Form("projeto"),  # projeto | materiais | apr | croqui | dwg | fotos_ext | project_pdf (legacy) | material_pdf (legacy) | other
+    kind: str = Form("projeto"),  # projeto | materiais | apr | croqui | dwg | fotos_ext | nota_fiscal | laudo_trafo | laudo_medidor | ditais | other
+    nf_numero: str = Form(""),  # Out/2026 · número da nota fiscal (kind = nota_fiscal)
     file: UploadFile = File(...),
     current_user: dict = Depends(get_current_user),
 ):
@@ -4124,6 +4144,8 @@ async def upload_project_attachment(
         "uploaded_by": current_user.get("name", ""),
         "is_deleted": False,
     }
+    if (nf_numero or "").strip():
+        att["nf_numero"] = nf_numero.strip()[:60]
     await db.projects.update_one(
         {"_id": safe_object_id(project_id)},
         {"$push": {"attachments": att}}
@@ -4187,6 +4209,7 @@ async def project_documentos(project_id: str, current_user: dict = Depends(get_c
         reqs.append({"id": r.get("id"), "created_at": r.get("created_at", ""), "created_by": r.get("created_by", ""), "requisition_type": r.get("requisition_type", "total"),
                      "seq": r.get("seq"), "items_count": len(r.get("items") or r.get("materials_snapshot") or []), "email_status": r.get("email_status", ""),
                      "warehouse_status": (r.get("warehouse_response") or {}).get("status", ""), "received_at": rc.get("received_at", ""), "received_by": rc.get("received_by", ""),
+                     "nota_fiscal": (r.get("nota_fiscal") or {}).get("numero", ""),
                      "receipt_photo_url": f"/api/projects/{pid}/requisitions/{r.get('id')}/receipt-photo" if rc.get("photo_path") else "",
                      "pdf_url": f"/api/projects/{pid}/requisitions/{r.get('id')}/pdf"})
     photos = [_photo_public(pid, ph) for ph in sorted((project.get("photos") or []), key=lambda x: x.get("uploaded_at", ""), reverse=True)]
@@ -4197,9 +4220,81 @@ async def project_documentos(project_id: str, current_user: dict = Depends(get_c
     atts = [a for a in (project.get("attachments") or []) if not a.get("is_deleted")]
     for a in atts:
         a["url"] = f"/api/projects/{pid}/attachments/{a.get('id')}"
-    return {"project_id": pid, "attachments": atts, "aprs": aprs, "requisitions": reqs, "photos": photos,
+    # Out/2026 · Notas fiscais vinculadas às requisições, laudos de equipamentos da obra e DITAIS gerados
+    notas = []
+    for r in (project.get("material_requisitions") or []):
+        nf = r.get("nota_fiscal") or {}
+        if nf.get("numero") or nf.get("storage_path"):
+            notas.append({"req_id": r.get("id"), "numero": nf.get("numero", ""), "filename": nf.get("filename", ""), "uploaded_at": nf.get("uploaded_at", ""), "uploaded_by": nf.get("uploaded_by", ""),
+                          "seq": r.get("seq"), "requisition_type": r.get("requisition_type", "total"), "created_at": r.get("created_at", ""),
+                          "file_url": f"/api/projects/{pid}/requisitions/{r.get('id')}/nota-fiscal/file" if nf.get("storage_path") else ""})
+    laudos = []
+    async for eq in db.equipamentos.find({"user_id": current_user["_id"], "project_id": pid}, {"tipo": 1, "numero_serie": 1, "patrimonio": 1, "potencia": 1, "fabricante": 1, "laudo": 1, "created_at": 1}):
+        laudos.append({"id": str(eq["_id"]), "tipo": eq.get("tipo", ""), "numero_serie": eq.get("numero_serie", ""), "patrimonio": eq.get("patrimonio", ""), "potencia": eq.get("potencia", ""),
+                       "fabricante": eq.get("fabricante", ""), "has_laudo": bool(eq.get("laudo")), "pdf_url": f"/api/equipamentos/{str(eq['_id'])}/laudo/pdf"})
+    ditais = []
+    async for d in db.ditais.find({"user_id": current_user["_id"], "project_id": pid}, {"data_execucao": 1, "responsavel": 1, "steps": 1, "numero_obra": 1}).sort("data_execucao", -1):
+        sts = [((d.get("steps") or {}).get(k) or {}).get("status") for k in ("D", "I1", "T", "A", "I2", "S")]
+        ditais.append({"id": str(d["_id"]), "data_execucao": d.get("data_execucao", ""), "responsavel": d.get("responsavel", ""), "fotos": sts.count("foto"), "na": sts.count("na"),
+                       "complete": sts.count("foto") + sts.count("na") == 6, "pdf_url": f"/api/ditais/{str(d['_id'])}/pdf"})
+    return {"project_id": pid, "attachments": atts, "aprs": aprs, "requisitions": reqs, "photos": photos, "notas_fiscais": notas, "laudos": laudos, "ditais": ditais,
             "materials_count": len(project.get("materials_list") or []), "returns_count": len(project.get("material_returns") or []),
-            "counts": {"attachments": len(atts), "aprs": len(aprs), "requisitions": len(reqs), "photos": len(photos)}}
+            "counts": {"attachments": len(atts), "aprs": len(aprs), "requisitions": len(reqs), "photos": len(photos), "notas_fiscais": len(notas), "laudos": len(laudos), "ditais": len(ditais)}}
+
+
+# ============ Out/2026 · Nota fiscal da requisição (nº + PDF) ============
+@api_router.post("/projects/{project_id}/requisitions/{req_id}/nota-fiscal")
+async def set_requisition_nota_fiscal(project_id: str, req_id: str, numero: str = Form(""), file: UploadFile | None = File(None), current_user: dict = Depends(get_current_user)):
+    project = await db.projects.find_one({"_id": safe_object_id(project_id), "user_id": current_user["_id"]}, {"material_requisitions": 1})
+    if not project:
+        raise HTTPException(status_code=404, detail="Obra não encontrada")
+    req = next((r for r in (project.get("material_requisitions") or []) if r.get("id") == req_id), None)
+    if not req:
+        raise HTTPException(status_code=404, detail="Requisição não encontrada")
+    nf = dict(req.get("nota_fiscal") or {})
+    nf["numero"] = (numero or "").strip()[:60]
+    if file is not None and file.filename:
+        content = await file.read()
+        if not content or len(content) > 25 * 1024 * 1024:
+            raise HTTPException(status_code=400, detail="Arquivo vazio ou maior que 25MB")
+        ct = file.content_type or "application/pdf"
+        if not (ct == "application/pdf" or ct.startswith("image/")):
+            raise HTTPException(status_code=400, detail="Envie a nota fiscal em PDF ou imagem")
+        ext = (file.filename.rsplit(".", 1)[-1] or "pdf").lower() if "." in file.filename else "pdf"
+        path = f"{APP_NAME}/notas_fiscais/{current_user['_id']}/{project_id}/{req_id}-{secrets.token_urlsafe(4)}.{ext}"
+        res = await storage_put(path, content, ct)
+        nf.update({"filename": file.filename, "storage_path": res.get("path", path), "content_type": ct, "size": len(content)})
+    if not nf.get("numero") and not nf.get("storage_path"):
+        raise HTTPException(status_code=400, detail="Informe o número da nota fiscal e/ou anexe o PDF")
+    nf.update({"uploaded_at": datetime.now(timezone.utc).isoformat(), "uploaded_by": current_user.get("name", "")})
+    await db.projects.update_one({"_id": safe_object_id(project_id), "material_requisitions.id": req_id}, {"$set": {"material_requisitions.$.nota_fiscal": nf}})
+    return {"status": "ok", "nota_fiscal": {k: v for k, v in nf.items() if k != "storage_path"} | {"has_file": bool(nf.get("storage_path"))}}
+
+
+@api_router.get("/projects/{project_id}/requisitions/{req_id}/nota-fiscal/file")
+async def requisition_nota_fiscal_file(project_id: str, req_id: str, download: int = 0, current_user: dict = Depends(get_current_user)):
+    project = await db.projects.find_one({"_id": safe_object_id(project_id), "user_id": current_user["_id"]}, {"material_requisitions": 1})
+    if not project:
+        raise HTTPException(status_code=404, detail="Obra não encontrada")
+    req = next((r for r in (project.get("material_requisitions") or []) if r.get("id") == req_id), None)
+    nf = (req or {}).get("nota_fiscal") or {}
+    if not nf.get("storage_path"):
+        raise HTTPException(status_code=404, detail="Requisição sem arquivo de nota fiscal")
+    data, ct = await storage_get(nf["storage_path"])
+    safe_name = "".join(ch if ch.isalnum() or ch in "._- ()" else "_" for ch in (nf.get("filename") or f"NF_{nf.get('numero') or req_id}.pdf"))
+    return Response(content=data, media_type=nf.get("content_type") or ct or "application/pdf",
+                    headers={"Content-Disposition": f'{"attachment" if download else "inline"}; filename="{safe_name}"', "Cache-Control": "private, max-age=0"})
+
+
+@api_router.delete("/projects/{project_id}/requisitions/{req_id}/nota-fiscal")
+async def delete_requisition_nota_fiscal(project_id: str, req_id: str, current_user: dict = Depends(get_current_user)):
+    project = await db.projects.find_one({"_id": safe_object_id(project_id), "user_id": current_user["_id"]}, {"material_requisitions": 1})
+    if not project:
+        raise HTTPException(status_code=404, detail="Obra não encontrada")
+    if not any(r.get("id") == req_id for r in (project.get("material_requisitions") or [])):
+        raise HTTPException(status_code=404, detail="Requisição não encontrada")
+    await db.projects.update_one({"_id": safe_object_id(project_id), "material_requisitions.id": req_id}, {"$unset": {"material_requisitions.$.nota_fiscal": ""}})
+    return {"status": "ok"}
 
 
 @api_router.get("/projects/{project_id}/requisitions/{req_id}/receipt-photo")
@@ -6148,6 +6243,27 @@ app.include_router(_build_ditais_router(db, get_current_user, safe_object_id, st
 app.include_router(_campo.build_router(db, get_current_user, safe_object_id, build_project_response, _photo_public))
 import sucata as _sucata
 app.include_router(_sucata.build_router(db, get_current_user, safe_object_id))
+import almox_impacto as _almox_impacto  # noqa: E402
+app.include_router(_almox_impacto.build_router(db, get_current_user, safe_object_id))
+import licenca as _licenca  # noqa: E402
+app.include_router(_licenca.build_router(db, get_current_user))
+
+_LICENSE_ALLOW = ("/api/auth", "/api/licenca", "/api/branding", "/api/stripe/webhook", "/api/health")
+
+
+@app.middleware("http")
+async def license_gate(request: Request, call_next):
+    """Out/2026 · Licença expirada → 402 em toda a API (exceto login, licença, marca e webhook)."""
+    p = request.url.path
+    if p.startswith("/api/") and not p.startswith(_LICENSE_ALLOW):
+        try:
+            blocked = await _licenca.is_blocked(db)
+        except Exception:
+            blocked = False
+        if blocked:
+            from fastapi.responses import JSONResponse
+            return JSONResponse(status_code=402, content={"detail": "licenca_expirada", "message": "Uso expirado — regularize o pagamento da licença."})
+    return await call_next(request)
 _pdf_jobs.configure(db, storage_put, storage_get)
 app.include_router(_pdf_jobs.build_router(get_current_user))
 import medicao as _medicao
@@ -6306,6 +6422,12 @@ async def startup_db():
         await seed_once_for_admins(db, logger)
     except Exception as e:
         logger.warning(f"seed catálogo tabela contratual: {e}")
+
+    try:
+        from licenca import load_branding
+        await load_branding(db)
+    except Exception as e:
+        logger.warning(f"branding: {e}")
 
     try:
         from apscheduler.schedulers.asyncio import AsyncIOScheduler

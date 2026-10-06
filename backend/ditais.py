@@ -16,6 +16,7 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import Response
 from PIL import Image, ImageDraw, ImageFont, ImageOps
 from pydantic import BaseModel
+from branding_cache import brand_name
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.units import mm
@@ -291,7 +292,7 @@ def build_ditais_pdf(d: dict, photos: Dict[str, bytes], logo_bytes: Optional[byt
 
     fotos = sum(1 for k in STEP_KEYS if (steps.get(k) or {}).get("status") == "foto")
     nas = sum(1 for k in STEP_KEYS if (steps.get(k) or {}).get("status") == "na")
-    text(13, 285, f"Gerado por Hayah Energy · {datetime.now(TZ).strftime('%d/%m/%Y %H:%M')} · Obra {d.get('numero_obra') or '—'} · {fotos} foto(s) · {nas} N/A", size=6, color=colors.grey)
+    text(13, 285, f"Gerado por {brand_name()} · {datetime.now(TZ).strftime('%d/%m/%Y %H:%M')} · Obra {d.get('numero_obra') or '—'} · {fotos} foto(s) · {nas} N/A", size=6, color=colors.grey)
     text(198, 285, "DITAIS · Página 1/1", size=6, color=colors.grey, align="right")
     c.showPage()
     c.save()

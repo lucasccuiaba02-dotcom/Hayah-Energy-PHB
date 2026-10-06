@@ -20,6 +20,7 @@ export const RetornoProgramacaoModal = ({ isOpen, onClose, onDone }) => {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(false);
   const [reasonById, setReasonById] = useState({});
+  const [hoursById, setHoursById] = useState({});
   const [notesById, setNotesById] = useState({});
   const [submittingId, setSubmittingId] = useState(null);
 
@@ -65,8 +66,9 @@ export const RetornoProgramacaoModal = ({ isOpen, onClose, onDone }) => {
         executed,
         reason: executed ? null : reason,
         notes: notesById[key] || '',
+        hours_lost: executed ? null : (Number(hoursById[key]) || null),
       });
-      toast.success(executed ? `Marcada como executada em ${formatBR(project.target_date)}` : `Movida para reprogramar (${formatBR(project.target_date)})`);
+      toast.success(executed ? `Marcada como executada em ${formatBR(project.target_date)}` : `Movida para reprogramar (${formatBR(project.target_date)})${reason === 'almoxarifado' ? ' · impacto lançado no Almoxarifado' : ''}`);
       setItems((s) => s.filter((x) => !(x.id === project.id && x.target_date === project.target_date)));
       onDone && onDone();
     } catch (err) {
@@ -166,6 +168,17 @@ export const RetornoProgramacaoModal = ({ isOpen, onClose, onDone }) => {
                             <option value="">Motivo (se não executada)</option>
                             {RESCHEDULE_REASONS.map((r) => <option key={r.value} value={r.value}>{r.label}</option>)}
                           </select>
+                          {reasonById[key] === 'almoxarifado' && (
+                            <input
+                              data-testid={`retorno-hours-${p.id}-${p.target_date}`}
+                              type="number" min="0" step="0.5"
+                              placeholder="Horas perdidas"
+                              title="Horas da equipe perdidas por falta/erro de material (vazio = 8h)"
+                              value={hoursById[key] || ''}
+                              onChange={(e) => setHoursById({ ...hoursById, [key]: e.target.value })}
+                              className="w-28 bg-zinc-950/90 border border-[#FF5E00]/50 rounded-lg px-2 py-1 text-xs text-white"
+                            />
+                          )}
                           <input
                             data-testid={`retorno-notes-${p.id}-${p.target_date}`}
                             type="text"

@@ -31,7 +31,9 @@ import {
   FileSignature,
   Smartphone,
   Ruler,
+  BadgeCheck,
 } from 'lucide-react';
+import { LicenseWarningBanner } from './LicenseWarningBanner';
 
 const navItems = [
   { to: '/campo', icon: Smartphone, label: 'Modo Campo', testid: 'nav-campo', perm: 'campo' },
@@ -54,6 +56,7 @@ const navItems = [
   { to: '/equipamentos', icon: Zap, label: 'Equipamentos', testid: 'nav-equipamentos', perm: 'estoque' },
   { to: '/documentos', icon: FolderOpen, label: 'Documentos', testid: 'nav-documentos', perm: 'documentos' },
   { to: '/configuracoes', icon: Settings, label: 'Configurações', testid: 'nav-configuracoes', perm: 'settings' },
+  { to: '/licenca', icon: BadgeCheck, label: 'Licença', testid: 'nav-licenca', perm: 'settings', adminOnly: true },
   { to: '/indisponibilidade', icon: CalendarX, label: 'Indisponibilidade', testid: 'nav-indisponibilidade', perm: 'programacao' },
   { to: '/improdutividade', icon: TrendingDown, label: 'Improdutividade', testid: 'nav-improdutividade', perm: 'programacao' },
   { to: '/admin/usuarios', icon: Shield, label: 'Admin', testid: 'nav-admin', perm: 'admin' },
@@ -120,6 +123,7 @@ export const AppLayout = ({ children, title, subtitle, actions }) => {
             {navItems
               .filter((item) => {
                 if (!user) return false;
+                if (item.adminOnly && user.role !== 'admin') return false;
                 if (user.role === 'admin') return true;
                 const perms = user.permissions || [];
                 // Set/2026 · Encarregado de campo: menu enxuto — Modo Campo + só as abas liberadas pelo admin
@@ -191,6 +195,7 @@ export const AppLayout = ({ children, title, subtitle, actions }) => {
             </div>
           </div>
 
+          <LicenseWarningBanner />
           <div className="px-4 md:px-8 py-4 md:py-6">{children}</div>
         </main>
       </div>

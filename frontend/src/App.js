@@ -1,4 +1,5 @@
 import React from 'react';
+import axios from 'axios';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { Toaster } from 'sonner';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
@@ -21,6 +22,16 @@ import { BuscarObrasPage } from './pages/BuscarObrasPage';
 import { FaturamentoPage } from './pages/FaturamentoPage';
 import { EstoquePage } from './pages/EstoquePage';
 import { DocumentosPage } from './pages/DocumentosPage';
+import { LicencaPage } from './pages/LicencaPage';
+import { PaymentReturnPage } from './pages/PaymentReturnPage';
+
+// Out/2026 · licença expirada → backend responde 402 em toda a API; redireciona para a tela de bloqueio
+axios.interceptors.response.use((r) => r, (err) => {
+  if (err?.response?.status === 402 && err?.response?.data?.detail === 'licenca_expirada' && !window.location.pathname.startsWith('/licenca') && !window.location.pathname.startsWith('/payment')) {
+    window.location.assign('/licenca?bloqueado=1');
+  }
+  return Promise.reject(err);
+});
 import { MedicaoPage } from './pages/MedicaoPage';
 import { SettingsPage } from './pages/SettingsPage';
 import { ImprodutividadePage } from './pages/ImprodutividadePage';
@@ -77,6 +88,9 @@ function AppRoutes() {
       <Route path="/equipamentos" element={<ProtectedRoute><EquipamentosPage /></ProtectedRoute>} />
       <Route path="/avanco" element={<ProtectedRoute><AvancoFisicoPage /></ProtectedRoute>} />
       <Route path="/orcamentos" element={<ProtectedRoute><OrcamentosPage /></ProtectedRoute>} />
+      <Route path="/licenca" element={<ProtectedRoute><LicencaPage /></ProtectedRoute>} />
+      <Route path="/payment/success" element={<ProtectedRoute><PaymentReturnPage /></ProtectedRoute>} />
+      <Route path="/payment/cancel" element={<ProtectedRoute><PaymentReturnPage /></ProtectedRoute>} />
     </Routes>
   );
 }

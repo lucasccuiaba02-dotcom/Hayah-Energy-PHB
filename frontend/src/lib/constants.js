@@ -55,6 +55,7 @@ export const RESCHEDULE_REASONS = [
   { value: 'temporal', label: 'Temporal' },
   { value: 'chuva', label: 'Chuva' },
   { value: 'acesso', label: 'Acesso' },
+  { value: 'almoxarifado', label: 'Almoxarifado / material' },
   { value: 'outro', label: 'Outro' },
 ];
 
@@ -118,6 +119,7 @@ export const ITEM_WAREHOUSE_STATUS = [
   { value: 'devolvido',   label: 'Devolvido (DMA)',    color: '#A855F7' },
   { value: 'em_falta',    label: 'Em falta',           color: '#FF003C' },
   { value: 'em_transito', label: 'Em trânsito',        color: '#FF5E00' },
+  { value: 'despadronizado', label: 'Despadronizado',  color: '#A3A3A3' },
   { value: 'bloqueado',   label: 'Bloqueado',          color: '#94A3B8' },
 ];
 export const ITEM_WAREHOUSE_STATUS_LABEL = ITEM_WAREHOUSE_STATUS.reduce((acc, s) => { acc[s.value] = s; return acc; }, {});

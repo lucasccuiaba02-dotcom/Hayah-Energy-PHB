@@ -8,6 +8,7 @@ from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image
 import re
 import qrcode
+from branding_cache import brand_name
 
 
 _CODE_LIKE_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9\-_.\/]{0,29}$")
@@ -71,12 +72,12 @@ def build_requisition_pdf(project: dict, signature_name: str, notes: str, requis
     story = []
 
     if partial:
-        story.append(Paragraph("HAYAH ENERGY — Requisição PARCIAL de Almoxarifado", styles["TitleHY"]))
+        story.append(Paragraph(f"{brand_name().upper()} — Requisição PARCIAL de Almoxarifado", styles["TitleHY"]))
         story.append(Paragraph(
             f"Remessa parcial nº {partial.get('seq', 1)} · {partial.get('selected', len(items or []))} de {partial.get('total_items', 0)} itens · "
             f"Documento nº {requisition_id} · Emitido em {datetime.now().strftime('%d/%m/%Y %H:%M')}", styles["Sub"]))
     else:
-        story.append(Paragraph("HAYAH ENERGY — Requisição de Almoxarifado", styles["TitleHY"]))
+        story.append(Paragraph(f"{brand_name().upper()} — Requisição de Almoxarifado", styles["TitleHY"]))
         story.append(Paragraph(f"Documento nº {requisition_id} · Emitido em {datetime.now().strftime('%d/%m/%Y %H:%M')}", styles["Sub"]))
 
     # HEADER (obra + equipe + data + localidade + QR)
@@ -226,7 +227,7 @@ def build_requisition_pdf(project: dict, signature_name: str, notes: str, requis
 
     # SIGNATURE BLOCK
     sig_data = [
-        [Paragraph("<b>SOLICITANTE</b>", styles["Muted"]), Paragraph("<b>ALMOXARIFE</b>", styles["Muted"])],
+        [Paragraph("<b>ENCARREGADO</b>", styles["Muted"]), Paragraph("<b>ALMOXARIFADO</b>", styles["Muted"])],
         [Paragraph("<br/><br/>_________________________________<br/>Nome: " + (signature_name or ""), styles["Small"]),
          Paragraph("<br/><br/>_________________________________<br/>Nome: __________________________", styles["Small"])],
         [Paragraph("Data: ____ /____ /_______", styles["Muted"]),
@@ -247,7 +248,7 @@ def build_requisition_pdf(project: dict, signature_name: str, notes: str, requis
 
     story.append(Spacer(1, 8))
     story.append(Paragraph(
-        "Documento gerado automaticamente pela Matriz Hayah Energy. Este documento é válido como comprovante interno.",
+        f"Documento gerado automaticamente pela Matriz {brand_name()}. Este documento é válido como comprovante interno.",
         styles["Muted"]
     ))
 
