@@ -1,10 +1,12 @@
 """Out/2026 · E-mail transacional via proxy gerenciado da Emergent (sem conta Resend própria).
 Anexos não são suportados pelo proxy → PDFs viram links seguros de download (token, expira em 30 dias)."""
+import asyncio
 import ipaddress
 import logging
 import os
 import re
 import secrets
+import time
 from datetime import datetime, timedelta, timezone
 from html import escape
 from html.parser import HTMLParser
@@ -25,6 +27,9 @@ EMAIL_KEY = os.environ.get("EMERGENT_EMAIL_KEY", "")
 EMAIL_FROM_NAME = os.environ.get("EMAIL_FROM_NAME", "")
 EMAIL_REPLY_TO = os.environ.get("EMAIL_REPLY_TO", "")
 LINK_TTL_DAYS = 30
+_SEND_GAP_S = 2.5  # o proxy devolve 429 em rajadas (≥2 envios em ~2 s) → serializa os envios
+_send_lock = None
+_last_send_at = 0.0
 
 _SHORTENERS = ("bit.ly", "tinyurl.com", "t.co", "is.gd", "cutt.ly", "goo.gl", "rebrand.ly")
 _CRED_ASK = ("reply with your password", "reply with the code", "send your password", "cvv",
@@ -124,9 +129,17 @@ async def send_email(*, to: List[str], subject: str, html: str, reply_to: Option
     payload = {"to": to, "subject": subject, "html": html, "from_name": sender_name()}
     if reply_to or EMAIL_REPLY_TO:
         payload["contact_email"] = reply_to or EMAIL_REPLY_TO
+    global _send_lock, _last_send_at
+    if _send_lock is None:
+        _send_lock = asyncio.Lock()
     try:
-        async with httpx.AsyncClient(timeout=30) as client:
-            resp = await client.post(f"{EMAIL_BASE_URL}/api/v1/email/send", headers={"X-Email-Key": EMAIL_KEY}, json=payload)
+        async with _send_lock:
+            wait = _SEND_GAP_S - (time.monotonic() - _last_send_at)
+            if wait > 0:
+                await asyncio.sleep(wait)
+            async with httpx.AsyncClient(timeout=30) as client:
+                resp = await client.post(f"{EMAIL_BASE_URL}/api/v1/email/send", headers={"X-Email-Key": EMAIL_KEY}, json=payload)
+            _last_send_at = time.monotonic()
         resp.raise_for_status()
         mid = (resp.json() or {}).get("id")
         logger.info(f"Email sent to {to}: id={mid}")
