@@ -52,27 +52,25 @@ export const IntegrationsPanel = () => {
         <div className="w-10 h-10 rounded-full bg-[#00F0FF]/10 border border-[#00F0FF]/40 flex items-center justify-center"><Plug className="w-5 h-5 text-[#00F0FF]" /></div>
         <div className="flex-1">
           <p className="text-[10px] tracking-[0.25em] uppercase font-bold text-[#00F0FF]">Integrações (admin)</p>
-          <p className="text-white font-bold">E-mail (Resend) e WhatsApp (Twilio)</p>
+          <p className="text-white font-bold">E-mail (Emergent) e WhatsApp (Twilio)</p>
         </div>
         <button data-testid="integ-save" disabled={saving} onClick={save} className="inline-flex items-center gap-1 text-[11px] font-bold px-3 py-1.5 rounded-full bg-[#E0FF00] text-black hover:bg-[#C8E600] disabled:opacity-40"><Save className="w-3.5 h-3.5" /> {saving ? 'Salvando…' : 'Salvar integrações'}</button>
       </div>
 
       <div className="rounded-xl border border-white/10 p-4 space-y-3">
         <div className="flex items-center gap-2 flex-wrap">
-          <Mail className="w-4 h-4 text-[#E0FF00]" /><p className="text-sm font-bold text-white flex-1">E-mail · Resend</p>
-          <Status ok={st.email_ready} testid="integ-email-status" on="Ativo" off="Sem chave" />
-          <a href="https://resend.com/api-keys" target="_blank" rel="noreferrer" className="text-[10px] text-[#00F0FF] inline-flex items-center gap-1 underline">API keys <ExternalLink className="w-3 h-3" /></a>
-          <a href="https://resend.com/domains" target="_blank" rel="noreferrer" className="text-[10px] text-[#00F0FF] inline-flex items-center gap-1 underline">Domínios <ExternalLink className="w-3 h-3" /></a>
+          <Mail className="w-4 h-4 text-[#E0FF00]" /><p className="text-sm font-bold text-white flex-1">E-mail · gerenciado pela Emergent</p>
+          <Status ok={st.email_ready} testid="integ-email-status" on="Ativo" off="Não configurado" />
         </div>
+        <p data-testid="integ-email-sender" className="text-[11px] text-zinc-400">Remetente exibido: <strong className="text-white">{st.email_sender}</strong> (nome da Marca branca) · endereço gerenciado pela plataforma, domínio já verificado — sem conta ou chave Resend.</p>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <Field k="resend_api_key" l="Chave da API (re_…)" form={form} setForm={setForm} fromEnv={data.from_env} type="password" hint="re_xxxxxxxxx" />
-          <Field k="sender_email" l="Remetente" form={form} setForm={setForm} fromEnv={data.from_env} hint="Hayah Energy <noreply@hayahenergy.com.br>" />
+          <Field k="reply_to_email" l="E-mail para respostas (Reply-To)" form={form} setForm={setForm} fromEnv={data.from_env} hint="seuemail@empresa.com" />
           <Field k="notification_emails" l="E-mails de notificação (separar por vírgula)" form={form} setForm={setForm} fromEnv={data.from_env} hint="gestor@empresa.com, financeiro@empresa.com" />
-          <Field k="warehouse_email" l="E-mail do almoxarifado (requisições)" form={form} setForm={setForm} fromEnv={data.from_env} hint="almoxarifado@empresa.com" />
+          <Field k="warehouse_email" l="E-mail do almoxarifado (requisições)" form={form} setForm={setForm} fromEnv={data.from_env} hint="almoxarifado@empresa.com" className="sm:col-span-2" />
         </div>
-        <p className="text-[10px] text-zinc-500">Domínio não verificado? Use temporariamente <code className="text-zinc-300">onboarding@resend.dev</code> como remetente — só entrega para o e-mail da sua conta Resend. Para enviar a qualquer destinatário, verifique o domínio (SPF/DKIM) em Domínios.</p>
+        <p className="text-[10px] text-zinc-500">PDFs (requisição, medição) seguem como <strong className="text-zinc-300">links seguros de download</strong> no corpo do e-mail (válidos por 30 dias). O teste só pode ir para os e-mails cadastrados acima ou para o seu próprio e-mail.</p>
         <div className="flex gap-2 flex-wrap items-end">
-          <div className="flex-1 min-w-[200px]"><label className={label}>Enviar teste para (opcional)</label><input data-testid="integ-test-email-to" value={testTo.email} onChange={(e) => setTestTo((t) => ({ ...t, email: e.target.value }))} className={input} placeholder="deixe vazio = e-mails de notificação" /></div>
+          <div className="flex-1 min-w-[200px]"><label className={label}>Enviar teste para (opcional)</label><input data-testid="integ-test-email-to" value={testTo.email} onChange={(e) => setTestTo((t) => ({ ...t, email: e.target.value }))} className={input} placeholder="deixe vazio = e-mails de notificação (ou o seu)" /></div>
           <button data-testid="integ-test-email" disabled={busy === 'email'} onClick={() => test('email')} className="inline-flex items-center gap-1 text-[11px] font-bold px-3 py-2 rounded-full border border-white/15 text-zinc-300 hover:bg-white/10 disabled:opacity-40"><Send className="w-3.5 h-3.5" /> {busy === 'email' ? 'Enviando…' : 'Testar e-mail'}</button>
         </div>
       </div>

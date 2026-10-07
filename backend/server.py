@@ -29,9 +29,10 @@ from PIL import Image, ImageDraw, ImageFont
 from zoneinfo import ZoneInfo
 
 from push_notifications import ensure_vapid_keys, broadcast_push
-from notifications import (resend_credentials as _resend_credentials, notification_emails as _notification_emails,
+from notifications import (notification_emails as _notification_emails,
                            warehouse_emails as _warehouse_emails, stock_instant_alert as _stock_instant_alert,
                            notifications_tick as _notifications_tick, build_router as _build_notifications_router)
+import email_service as _email
 import campo as _campo
 from daily_log_pdf import build_daily_log_pdf
 import pdf_jobs as _pdf_jobs
@@ -2718,27 +2719,9 @@ async def export_excel(
         headers={"Content-Disposition": f'attachment; filename="{filename}"'}
     )
 
-# Email helper
+# Email helper (Out/2026 · proxy gerenciado da Emergent)
 async def send_email_via_resend(recipients: List[str], subject: str, html_content: str) -> dict:
-    api_key, sender = await _resend_credentials(db)
-    if not api_key:
-        logger.warning(f"[EMAIL SKIPPED - No RESEND_API_KEY] To={recipients} Subject={subject}")
-        return {"status": "skipped", "reason": "no_api_key"}
-    try:
-        import resend
-        resend.api_key = api_key
-        params = {
-            "from": sender,
-            "to": recipients,
-            "subject": subject,
-            "html": html_content,
-        }
-        result = await asyncio.to_thread(resend.Emails.send, params)
-        logger.info(f"Email sent to {recipients}: id={result.get('id')}")
-        return {"status": "sent", "id": result.get("id")}
-    except Exception as e:
-        logger.error(f"Failed to send email: {e}")
-        return {"status": "error", "error": str(e)}
+    return await _email.send_email(to=recipients, subject=subject, html=html_content)
 
 def _build_project_email_html(project: dict, title: str) -> str:
     return f"""
@@ -5523,46 +5506,34 @@ async def request_materials(
         "receipt": None,  # filled by confirm-receipt endpoint
     }
 
-    # ====== Send via Resend ======
-    api_key, sender = await _resend_credentials(db)
-    if not api_key:
-        logger.warning(f"[MATERIAL EMAIL SKIPPED - No RESEND_API_KEY] To={recipients}")
+    # ====== Envio (proxy Emergent · anexos viram links seguros) ======
+    links = await _email.attachments_to_links(db, storage_put, os.environ.get("FRONTEND_URL", ""), attachments, APP_NAME)
+    history_entry["email_links"] = links
+    res = await _email.send_email(to=recipients, subject=subject, html=html + _email.links_html(links))
+    if res.get("status") == "skipped":
+        logger.warning(f"[MATERIAL EMAIL SKIPPED] To={recipients} reason={res.get('reason')}")
         history_entry["email_status"] = "skipped_no_key"
         await db.projects.update_one(
             {"_id": safe_object_id(project_id)},
             {"$push": {"material_requisitions": history_entry}}
         )
-        return {"status": "skipped", "reason": "no_api_key", "attachments_count": len(attachments), "requisition_id": requisition_id}
-
-    try:
-        import resend
-        resend.api_key = api_key
-        params = {
-            "from": sender,
-            "to": recipients,
-            "subject": subject,
-            "html": html,
-        }
-        if attachments:
-            params["attachments"] = attachments
-        result = await asyncio.to_thread(resend.Emails.send, params)
-        logger.info(f"Material request email sent to {recipients}: id={result.get('id')}")
+        return {"status": "skipped", "reason": res.get("reason"), "attachments_count": len(attachments), "requisition_id": requisition_id}
+    if res.get("status") == "sent":
         history_entry["email_status"] = "sent"
-        history_entry["email_id"] = result.get("id")
+        history_entry["email_id"] = res.get("id")
         await db.projects.update_one(
             {"_id": safe_object_id(project_id)},
             {"$push": {"material_requisitions": history_entry}}
         )
-        return {"status": "sent", "id": result.get("id"), "attachments_count": len(attachments), "requisition_id": requisition_id}
-    except Exception as e:
-        logger.error(f"Failed to send material request: {e}")
-        history_entry["email_status"] = "error"
-        history_entry["email_error"] = str(e)
-        await db.projects.update_one(
-            {"_id": safe_object_id(project_id)},
-            {"$push": {"material_requisitions": history_entry}}
-        )
-        return {"status": "error", "error": str(e), "requisition_id": requisition_id}
+        return {"status": "sent", "id": res.get("id"), "attachments_count": len(attachments), "requisition_id": requisition_id}
+    logger.error(f"Failed to send material request: {res.get('error')}")
+    history_entry["email_status"] = "error"
+    history_entry["email_error"] = res.get("error", "")
+    await db.projects.update_one(
+        {"_id": safe_object_id(project_id)},
+        {"$push": {"material_requisitions": history_entry}}
+    )
+    return {"status": "error", "error": res.get("error", ""), "requisition_id": requisition_id}
 
 
 # ====== Material requisition detail endpoints ======
@@ -5712,39 +5683,33 @@ async def resend_requisition(
         "items": original.get("items") or [],
     }
 
-    api_key, sender = await _resend_credentials(db)
-    if not api_key:
+    links = await _email.attachments_to_links(db, storage_put, os.environ.get("FRONTEND_URL", ""), attachments, APP_NAME)
+    resend_entry["email_links"] = links
+    res = await _email.send_email(to=recipients, subject=subject, html=html + _email.links_html(links))
+    if res.get("status") == "skipped":
         resend_entry["email_status"] = "skipped_no_key"
         await db.projects.update_one(
             {"_id": safe_object_id(project_id)},
             {"$push": {"material_requisitions": resend_entry}}
         )
-        return {"status": "skipped", "reason": "no_api_key", "resend_id": resend_entry["id"]}
-
-    try:
-        import resend
-        resend.api_key = api_key
-        result = await asyncio.to_thread(resend.Emails.send, {
-            "from": sender, "to": recipients, "subject": subject, "html": html,
-            "attachments": attachments,
-        })
-        logger.info(f"Requisition RESEND to {recipients}: id={result.get('id')}")
+        return {"status": "skipped", "reason": res.get("reason"), "resend_id": resend_entry["id"]}
+    if res.get("status") == "sent":
+        logger.info(f"Requisition RESEND to {recipients}: id={res.get('id')}")
         resend_entry["email_status"] = "sent"
-        resend_entry["email_id"] = result.get("id")
+        resend_entry["email_id"] = res.get("id")
         await db.projects.update_one(
             {"_id": safe_object_id(project_id)},
             {"$push": {"material_requisitions": resend_entry}}
         )
-        return {"status": "sent", "id": result.get("id"), "resend_id": resend_entry["id"]}
-    except Exception as e:
-        logger.error(f"Resend failed: {e}")
-        resend_entry["email_status"] = "error"
-        resend_entry["email_error"] = str(e)
-        await db.projects.update_one(
-            {"_id": safe_object_id(project_id)},
-            {"$push": {"material_requisitions": resend_entry}}
-        )
-        return {"status": "error", "error": str(e), "resend_id": resend_entry["id"]}
+        return {"status": "sent", "id": res.get("id"), "resend_id": resend_entry["id"]}
+    logger.error(f"Resend failed: {res.get('error')}")
+    resend_entry["email_status"] = "error"
+    resend_entry["email_error"] = res.get("error", "")
+    await db.projects.update_one(
+        {"_id": safe_object_id(project_id)},
+        {"$push": {"material_requisitions": resend_entry}}
+    )
+    return {"status": "error", "error": res.get("error", ""), "resend_id": resend_entry["id"]}
 
 
 @api_router.post("/projects/{project_id}/requisitions/{req_id}/confirm-receipt")
@@ -6247,8 +6212,9 @@ import almox_impacto as _almox_impacto  # noqa: E402
 app.include_router(_almox_impacto.build_router(db, get_current_user, safe_object_id))
 import licenca as _licenca  # noqa: E402
 app.include_router(_licenca.build_router(db, get_current_user))
+app.include_router(_email.build_public_router(db, storage_get))
 
-_LICENSE_ALLOW = ("/api/auth", "/api/licenca", "/api/branding", "/api/stripe/webhook", "/api/health")
+_LICENSE_ALLOW = ("/api/auth", "/api/licenca", "/api/branding", "/api/stripe/webhook", "/api/health", "/api/public/files")
 
 
 @app.middleware("http")
@@ -6283,24 +6249,20 @@ async def _medicao_company(user_id):
 
 
 async def _medicao_send_email(recipients, subject, html, attachments):
-    api_key, sender = await _resend_credentials(db)
-    if not api_key:
-        return {"status": "skipped", "reason": "no_api_key"}
-    try:
-        import resend
-        resend.api_key = api_key
-        result = await asyncio.to_thread(resend.Emails.send, {"from": sender, "to": recipients, "subject": subject, "html": html, "attachments": attachments})
-        return {"status": "sent", "id": result.get("id")}
-    except Exception as e:  # noqa: BLE001
-        logger.error(f"medicao e-mail: {e}")
-        return {"status": "error", "error": str(e)}
+    links = await _email.attachments_to_links(db, storage_put, os.environ.get("FRONTEND_URL", ""), attachments, APP_NAME)
+    return await _email.send_email(to=recipients, subject=subject, html=html + _email.links_html(links))
 
 
 app.include_router(_medicao.build_router(db, get_current_user, safe_object_id, build_project_response, company_loader=_medicao_company, send_email=_medicao_send_email))
 
 
 async def notifications_tick_job():
-    await _notifications_tick(db, os.environ.get("FRONTEND_URL", ""))
+    app_url = os.environ.get("FRONTEND_URL", "")
+    await _notifications_tick(db, app_url)
+    try:
+        await _licenca.reminder_tick(db, app_url, _email.send_email)
+    except Exception as e:  # noqa: BLE001
+        logger.error(f"license reminder: {e}")
 
 _cors_env = os.environ.get('CORS_ORIGINS', '').strip()
 app.add_middleware(

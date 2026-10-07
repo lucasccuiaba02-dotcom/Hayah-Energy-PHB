@@ -125,6 +125,49 @@ async def load_branding(db) -> dict:
     return brand()
 
 
+def reminder_html(st: dict, app_url: str, from_name: str) -> str:
+    from html import escape
+    days = st.get("days_left")
+    when = "HOJE" if days == 0 else (f"em {days} dia(s)" if (days or 0) > 0 else f"há {-(days or 0)} dia(s)")
+    headline = "Licença de uso vencida" if st.get("expired") else f"Licença de uso vence {when}"
+    paid = (st.get("paid_until") or "")[:10]
+    paid_br = f"{paid[8:10]}/{paid[5:7]}/{paid[0:4]}" if len(paid) == 10 else "—"
+    valor = f"R$ {float(st.get('valor') or 0):,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+    link = f"{app_url.rstrip('/')}/licenca"
+    return (f'<table role="presentation" width="100%" style="max-width:640px;margin:0 auto;font-family:Arial,sans-serif;background:#050505;color:#fff"><tr><td style="padding:24px">'
+            f'<p style="margin:0 0 4px;color:#E0FF00;font-size:12px;letter-spacing:.2em;font-weight:bold">{escape(from_name.upper())}</p>'
+            f'<h1 style="margin:0 0 12px;font-size:20px">{headline}</h1>'
+            f'<p style="margin:0 0 8px;color:#d4d4d8;font-size:14px">Empresa: <b style="color:#fff">{escape(st.get("empresa") or "—")}</b></p>'
+            f'<p style="margin:0 0 8px;color:#d4d4d8;font-size:14px">Pago até: <b style="color:#fff">{paid_br}</b> · Ciclo: {int(st.get("ciclo_dias") or 30)} dias · Valor: <b style="color:#fff">{valor}</b></p>'
+            f'<p style="margin:16px 0;color:#a1a1aa;font-size:13px">Ao vencer, o acesso de todos os usuários é suspenso até a regularização. Os dados ficam preservados.</p>'
+            f'<p style="margin:16px 0"><a href="{link}" style="display:inline-block;padding:12px 20px;background:#E0FF00;color:#000;font-weight:bold;border-radius:999px;text-decoration:none">Abrir página da licença e renovar</a></p>'
+            f'<p style="margin:16px 0 0;color:#555;font-size:10px">Aviso automático enviado por {escape(from_name)}. Nunca pedimos senha ou dados de cartão por e-mail.</p>'
+            f'</td></tr></table>')
+
+
+async def reminder_tick(db, app_url: str, send_email) -> dict | None:
+    """Lembrete diário (após 08:00 Cuiabá) quando faltam ≤ 5 dias ou já venceu — para contato da licença + admins."""
+    now = datetime.now(TZ)
+    if now.hour < 8:
+        return None
+    doc = await db.app_settings.find_one({"key": LICENSE_KEY}) or {}
+    st = status_of(doc)
+    if not st["enabled"] or st["days_left"] is None or st["days_left"] > 5 or st["days_left"] < -7:
+        return None
+    today = now.strftime("%Y-%m-%d")
+    if doc.get("reminder_sent_on") == today or not (app_url or "").startswith("https://"):
+        return None
+    admins = await db.users.find({"role": "admin"}, {"email": 1}).to_list(50)
+    recipients = sorted({e.strip().lower() for e in [st.get("contato_email", "")] + [a.get("email", "") for a in admins] if e and "@" in e})
+    if not recipients:
+        return None
+    from branding_cache import brand_name
+    res = await send_email(to=recipients, subject=f"[{brand_name()}] " + ("Licença vencida — acesso suspenso" if st["expired"] else f"Licença vence em {st['days_left']} dia(s)"),
+                           html=reminder_html(st, app_url, brand_name()))
+    await db.app_settings.update_one({"key": LICENSE_KEY}, {"$set": {"reminder_sent_on": today, "reminder_last": {"at": _now(), "to": recipients, "status": res.get("status"), "error": res.get("error", "")}}})
+    return res
+
+
 def _ensure_price(valor_brl: float) -> "stripe.Price":
     cents = int(round(valor_brl * 100))
     product = None

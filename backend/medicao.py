@@ -493,15 +493,20 @@ def build_router(db, get_current_user, safe_object_id, build_project_response=No
             if new:
                 await db.projects.update_one({"_id": p["_id"]}, {"$set": {"fiscais": (p.get("fiscais") or []) + new}})
                 p["fiscais"] = (p.get("fiscais") or []) + new
+        # Só destinatários registrados na obra (fiscais) ou o próprio usuário — nunca endereços avulsos
+        allowed = {(f.get("email") or "").strip().lower() for f in (p.get("fiscais") or [])} | {(current_user.get("email") or "").strip().lower()}
+        if any(r not in allowed for r in recipients):
+            raise HTTPException(status_code=400, detail="Cadastre o fiscal na obra (Fiscais) antes de enviar — só e-mails cadastrados recebem a medição")
         pdf, filename, groups, company, meta = await _render_pdf(p, current_user, {"notes": body.notes[:1000], "period": body.period[:60]}, m)
+        from html import escape as _esc
         from medicao_pdf import medicao_email_html
         total_qty = sum(float(i.get("qty") or 0) for i in items)
         total_val = _total(items)
         med_label = f"Medição nº {meta['number']}" if meta.get("number") else "Resumo de Mão de Obra"
-        default_msg = (f"Prezado(a) fiscal,\n\nSegue em anexo o Resumo de Mão de Obra — {med_label} da obra {p.get('project_code') or ''} — {p.get('name') or ''}"
+        default_msg = (f"Prezado(a) fiscal,\n\nSegue o Resumo de Mão de Obra — {med_label} da obra {p.get('project_code') or ''} — {p.get('name') or ''}"
                        + (f", período {meta['period']}" if meta.get("period") else "") + f", totalizando {len(items)} serviço(s) e R$ {total_val:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
-                       + ".\n\nFicamos à disposição para conferência e validação.")
-        html = medicao_email_html(p, groups, total_qty, total_val, company, body.message.strip() or default_msg, meta=meta)
+                       + ".\n\nO PDF está disponível no link seguro ao final deste e-mail. Ficamos à disposição para conferência e validação.")
+        html = medicao_email_html(p, groups, total_qty, total_val, company, _esc(body.message.strip()[:2000]) if body.message.strip() else default_msg, meta=meta)
         subject = f"[{company.get('name', 'HAYAH ENERGY')}] {med_label} · {p.get('project_code') or p.get('name') or ''}"
         if not send_email:
             raise HTTPException(status_code=503, detail="Envio de e-mail não configurado")
@@ -513,7 +518,7 @@ def build_router(db, get_current_user, safe_object_id, build_project_response=No
         if result.get("status") == "error":
             raise HTTPException(status_code=502, detail=f"Falha ao enviar e-mail: {result.get('error')}")
         if result.get("status") == "skipped":
-            raise HTTPException(status_code=503, detail="RESEND_API_KEY não configurada — cadastre em Configurações › Integrações para enviar e-mails")
+            raise HTTPException(status_code=503, detail="Envio de e-mail não configurado no servidor (EMERGENT_EMAIL_KEY)")
         return {"status": "sent", "recipients": recipients, "filename": filename, "envio": entry, **_detail(await _project(project_id, current_user))}
 
     return router

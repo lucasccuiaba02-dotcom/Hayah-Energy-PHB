@@ -270,7 +270,7 @@ export const SolicitacaoMaterialPage = () => {
       if (data.status === 'sent') {
         toast.success(`${label}! (${data.attachments_count} anexo(s))`);
       } else if (data.status === 'skipped') {
-        toast.info(`${partialMode ? 'Requisição parcial registrada' : 'Registrado'} no histórico. PDF gerado. Email não enviado (configure RESEND_API_KEY)`);
+        toast.info(`${partialMode ? 'Requisição parcial registrada' : 'Registrado'} no histórico. PDF gerado. E-mail não enviado (envio de e-mail não configurado no servidor)`);
       } else {
         toast.error(`Falha: ${data.error || 'erro'}`);
       }

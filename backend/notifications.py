@@ -29,16 +29,15 @@ DEFAULT_SETTINGS = {
     "faturamento": {"enabled": True, "time": "08:00", "threshold_days": 15},
     "estoque": {"enabled": True, "time": "08:00", "near_pct": 20, "instant": True},
 }
-INTEGRATION_FIELDS = ("resend_api_key", "sender_email", "notification_emails", "warehouse_email",
+INTEGRATION_FIELDS = ("reply_to_email", "notification_emails", "warehouse_email",
                       "twilio_account_sid", "twilio_auth_token", "twilio_whatsapp_from", "whatsapp_numbers")
-SECRET_FIELDS = ("resend_api_key", "twilio_auth_token")
+SECRET_FIELDS = ("twilio_auth_token",)
 ENV_MAP = {
-    "resend_api_key": "RESEND_API_KEY", "sender_email": "SENDER_EMAIL", "notification_emails": "NOTIFICATION_EMAILS",
+    "reply_to_email": "EMAIL_REPLY_TO", "notification_emails": "NOTIFICATION_EMAILS",
     "warehouse_email": "WAREHOUSE_EMAIL", "twilio_account_sid": "TWILIO_ACCOUNT_SID", "twilio_auth_token": "TWILIO_AUTH_TOKEN",
     "twilio_whatsapp_from": "TWILIO_WHATSAPP_FROM", "whatsapp_numbers": "WHATSAPP_NUMBERS",
 }
 MASK = "••••••••"
-DEFAULT_SENDER = "Hayah Energy <onboarding@resend.dev>"
 
 
 def _split(s) -> List[str]:
@@ -83,9 +82,8 @@ async def get_integrations(db) -> dict:
     return out
 
 
-async def resend_credentials(db):
-    i = await get_integrations(db)
-    return i["resend_api_key"], (i["sender_email"] or DEFAULT_SENDER)
+async def reply_to_email(db) -> str:
+    return (await get_integrations(db))["reply_to_email"]
 
 
 async def notification_emails(db) -> List[str]:
@@ -98,19 +96,9 @@ async def warehouse_emails(db) -> List[str]:
 
 
 async def send_email(db, recipients: List[str], subject: str, html: str) -> dict:
-    api_key, sender = await resend_credentials(db)
-    if not api_key:
-        return {"status": "skipped", "reason": "no_api_key"}
-    if not recipients:
-        return {"status": "skipped", "reason": "no_recipients"}
-    try:
-        import resend
-        resend.api_key = api_key
-        result = await asyncio.to_thread(resend.Emails.send, {"from": sender, "to": recipients, "subject": subject, "html": html})
-        return {"status": "sent", "id": (result or {}).get("id"), "to": recipients}
-    except Exception as e:
-        logger.error(f"Resend error: {e}")
-        return {"status": "error", "error": str(e)[:300]}
+    """Out/2026 · proxy gerenciado da Emergent (email_service). Reply-To vem das integrações ou do .env."""
+    import email_service
+    return await email_service.send_email(to=recipients, subject=subject, html=html, reply_to=await reply_to_email(db) or None)
 
 
 def _wa(n: str) -> str:
@@ -388,8 +376,7 @@ class TestBody(BaseModel):
 
 
 class IntegrationsBody(BaseModel):
-    resend_api_key: Optional[str] = None
-    sender_email: Optional[str] = None
+    reply_to_email: Optional[str] = None
     notification_emails: Optional[str] = None
     warehouse_email: Optional[str] = None
     twilio_account_sid: Optional[str] = None
@@ -410,9 +397,10 @@ def build_router(db, get_current_user, app_url: str):
             raise HTTPException(status_code=403, detail="Apenas administradores")
 
     async def _status(db):
+        import email_service
         i = await get_integrations(db)
         return {
-            "email_ready": bool(i["resend_api_key"]), "email_sender": i["sender_email"] or DEFAULT_SENDER,
+            "email_ready": email_service.email_ready(), "email_sender": email_service.sender_name(), "email_reply_to": i["reply_to_email"],
             "email_recipients": _split(i["notification_emails"]), "warehouse_recipients": _split(i["warehouse_email"]),
             "whatsapp_ready": bool(i["twilio_account_sid"] and i["twilio_auth_token"] and i["twilio_whatsapp_from"]),
             "whatsapp_numbers": _split(i["whatsapp_numbers"]),
@@ -506,12 +494,21 @@ def build_router(db, get_current_user, app_url: str):
     @router.post("/integrations/test-email")
     async def test_email(body: TestTarget, current_user: dict = Depends(get_current_user)):
         _admin(current_user)
-        to = _split(body.to) or await notification_emails(db) or [current_user.get("email", "")]
-        res = await send_email(db, to, "[HAYAH] Teste de e-mail", "<div style='font-family:Arial'><h2>Hayah Energy</h2><p>E-mail de teste — integração Resend funcionando ✅</p></div>")
+        # G4: destinatários só de registros do servidor (e-mails cadastrados) ou o próprio admin
+        allowed = {e.lower() for e in await notification_emails(db) + await warehouse_emails(db) + [current_user.get("email", "")] if e}
+        requested = [e.lower() for e in _split(body.to)]
+        if any(e not in allowed for e in requested):
+            raise HTTPException(status_code=400, detail="O teste só pode ser enviado para e-mails cadastrados nas integrações ou para o seu próprio e-mail")
+        to = requested or await notification_emails(db) or [current_user.get("email", "")]
+        from branding_cache import brand_name
+        from html import escape
+        res = await send_email(db, to, f"[{brand_name()}] Teste de e-mail",
+                               f"<div style='font-family:Arial;background:#050505;color:#fff;padding:24px'><h2 style='color:#E0FF00;margin:0 0 8px'>{escape(brand_name())}</h2>"
+                               f"<p>E-mail de teste — integração de e-mail funcionando ✅</p><p style='color:#71717a;font-size:11px'>Enviado por {escape(brand_name())} · {datetime.now(TZ).strftime('%d/%m/%Y %H:%M')}</p></div>")
         if res.get("status") == "error":
             raise HTTPException(status_code=502, detail=res.get("error"))
         if res.get("status") == "skipped":
-            raise HTTPException(status_code=400, detail="Configure a chave do Resend (e destinatários) antes de testar")
+            raise HTTPException(status_code=400, detail="Envio de e-mail não configurado no servidor (EMERGENT_EMAIL_KEY) ou sem destinatários")
         return res
 
     @router.post("/integrations/test-whatsapp")

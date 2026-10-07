@@ -24,7 +24,7 @@ const pdfQuery = (meta) => {
 export const downloadMedicaoPdf = (projectId, meta = {}) =>
   downloadUrl(withAuth(apiUrl(`/api/projects/${projectId}/medicao/pdf${pdfQuery(meta)}`)), `medicao_${projectId}${meta.medicao_id ? `_${meta.medicao_id}` : ''}.pdf`);
 
-/** Modal: fiscais da obra (salvos) + e-mails extras, mensagem, período/nº da medição → envia PDF em anexo via Resend.
+/** Modal: fiscais da obra (salvos) + e-mails extras, mensagem, período/nº da medição → envia PDF como link seguro (e-mail gerenciado pela Emergent).
  *  `medicao` (opcional) = medição fechada do histórico; sem ela, envia a medição em aberto. */
 export const MedicaoEnvioModal = ({ open, detail, medicao = null, onClose, onChanged }) => {
   const [fiscais, setFiscais] = useState([]);
@@ -123,7 +123,7 @@ export const MedicaoEnvioModal = ({ open, detail, medicao = null, onClose, onCha
           </div>
           <div>
             <label className="text-[10px] uppercase tracking-wider font-bold text-zinc-400">Mensagem do e-mail <span className="text-zinc-600 normal-case tracking-normal font-normal">(vazio = texto padrão)</span></label>
-            <textarea data-testid="mo-envio-message" value={message} onChange={(e) => setMessage(e.target.value)} rows={3} placeholder={`Prezado(a) fiscal,\n\nSegue em anexo o Resumo de Mão de Obra da obra ${p.project_code || ''} — ${p.name}, totalizando ${formatCurrency(total)}. Ficamos à disposição para conferência e validação.`} className="mt-1 w-full px-3 py-2 bg-zinc-950 border border-white/10 rounded-lg text-sm text-white placeholder:text-zinc-600 focus:border-[#39FF14] focus:outline-none resize-none" />
+            <textarea data-testid="mo-envio-message" value={message} onChange={(e) => setMessage(e.target.value)} rows={3} placeholder={`Prezado(a) fiscal,\n\nSegue o Resumo de Mão de Obra da obra ${p.project_code || ''} — ${p.name}, totalizando ${formatCurrency(total)}. Ficamos à disposição para conferência e validação.`} className="mt-1 w-full px-3 py-2 bg-zinc-950 border border-white/10 rounded-lg text-sm text-white placeholder:text-zinc-600 focus:border-[#39FF14] focus:outline-none resize-none" />
           </div>
           <div>
             <label className="text-[10px] uppercase tracking-wider font-bold text-zinc-400">Observações no PDF</label>
@@ -132,7 +132,7 @@ export const MedicaoEnvioModal = ({ open, detail, medicao = null, onClose, onCha
 
           {result && (
             <div data-testid={result.ok ? 'mo-envio-success' : 'mo-envio-error'} className={`rounded-xl border p-3 text-xs ${result.ok ? 'border-[#39FF14]/40 bg-[#39FF14]/10 text-[#39FF14]' : 'border-[#FF003C]/40 bg-[#FF003C]/10 text-[#FF6B8A]'}`}>
-              {result.ok ? <p className="inline-flex items-center gap-1.5"><CheckCircle2 className="w-4 h-4" /> Enviado para {result.recipients.join(', ')} · anexo {result.filename}</p>
+              {result.ok ? <p className="inline-flex items-center gap-1.5"><CheckCircle2 className="w-4 h-4" /> Enviado para {result.recipients.join(', ')} · PDF (link seguro) {result.filename}</p>
                 : <p className="inline-flex items-start gap-1.5"><AlertTriangle className="w-4 h-4 shrink-0" /> {result.error}</p>}
             </div>
           )}
